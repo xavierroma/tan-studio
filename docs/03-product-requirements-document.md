@@ -722,24 +722,11 @@ tan-studio-backup/
 ├── artifacts/               # durable print/report payloads referenced by user records
 ├── attachments/             # optional user attachments by hash
 └── exports/
-    ├── providers.ndjson
-    ├── purchases.ndjson
-    ├── coffee-identities.ndjson
-    ├── green-lots.ndjson
-    ├── roasts.ndjson
-    ├── roast-events.ndjson
-    ├── annotations.ndjson
-    ├── profiles.ndjson
-    ├── profile-revisions.ndjson
-    ├── tastings.ndjson
-    ├── next-roast-plans.ndjson
-    ├── inventory-transactions.ndjson
-    ├── saved-roast-views.ndjson
-    ├── label-templates.ndjson
-    └── print-jobs.ndjson
+    ├── catalog.json         # versioned table/file/field registry
+    └── authoritative/*.ndjson
 ```
 
-`manifest.json` records a hash for every payload, relationship counts, canonical units, timezone behavior, and excluded secret classes. Restore verifies hashes and referential integrity before activation; a failed restore leaves the current store untouched.
+`authoritative/*.ndjson` covers every non-secret, non-derived source table: provider/coffee/tag/purchase/lot lineage and joins; inventory transfers/transactions; profile revisions/parents/validation reports; roast intents/roasts/packages/events/annotations/attachments; native import occurrences/revisions/links; tasting scales/tastings/descriptors; plans/evidence; saved views; label/printer/print history; non-secret settings; and audit entries. `manifest.json` records a hash for every payload, relationship counts, canonical units, timezone behavior, and excluded secret/operational/derived classes. Restore verifies hashes and referential integrity before activation; a failed restore leaves the current store untouched.
 
 ## 13. Security, privacy, and safety
 
@@ -789,7 +776,7 @@ Each boundary has an independent service interface. Remote sessions receive READ
 | ID | Area | Requirement |
 | --- | --- | --- |
 | NFR-01 | Offline | All non-AI local workflows function without internet. |
-| NFR-02 | Durability | Raw files are immutable; database writes are transactional with WAL/checkpoint policy, foreign-key enforcement, integrity checks, and verified backups. A parsed database can be rebuilt from raw files plus catalog exports. |
+| NFR-02 | Durability | Raw files are immutable; database writes are transactional with WAL/checkpoint policy, foreign-key enforcement, integrity checks, and verified backups. Native-derived indexes can be rebuilt from raw files; complete user state can be restored from the verified SQLite snapshot or the versioned authoritative exports plus referenced artifacts. |
 | NFR-03 | Recovery | Companion can restart and resume sync without corrupting state. |
 | NFR-04 | Performance | On the reference Mac with 100,000 indexed roasts and 1,000,000 tastings, warm navigation shows the first library viewport in ≤1.0 s and indexed filter/group/multi-sort changes complete in ≤500 ms p95; scrolling does not hydrate sample arrays or render more than a bounded viewport buffer. Live append does not rerender the full app. |
 | NFR-05 | Accessibility | WCAG 2.2 AA, keyboard operability, visible focus, non-color status cues, reduced motion. |

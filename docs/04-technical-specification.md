@@ -284,7 +284,7 @@ JavaScript numbers are safe for the expected domain ranges, but database adapter
 
 ### 4.2 Domain events and durable dispatch
 
-Domain events use registered, past-tense names such as `catalog.greenLotReceived.v1`. Each event is persisted to `domain_events` in the same SQLite transaction as the aggregate change. Every event schema is checked in under `packages/api-contract` and its fully qualified type is never reused with new semantics. No external message broker is required.
+Domain events use registered, past-tense names such as `catalog.greenLotReceived.v1`. Each event is persisted to `domain_events` in the same SQLite transaction as the aggregate change. An aggregate's authoritative internal event schemas live with its owning domain module; cross-module application-event contracts live in `packages/application`. Their fully qualified types are never reused with new semantics. `packages/api-contract` contains only HTTP/WebSocket transport DTOs and may define a presentation event derived from an internal event, never the internal event itself. No external message broker is required.
 
 ```ts
 type DomainEvent<TType extends string, TPayload> = {
@@ -596,7 +596,7 @@ Lot balance is calculated from the ledger, with an optional transactionally main
 | `profile_validation_reports` | Immutable ID, profile revision, target device/capability hash, target firmware/schema, validator ID/version, report JSON/hash, result, warnings/errors, created time. A device deployment references the exact passing report. |
 | `roast_intents` | ID, selected lot/coffee, profile revision, optional ready plan, level thousandths, expected green load mg, target device nullable, intent state (`draft`,`armed`,`claimed`,`expired`,`cancelled`), created/expiry time, claimed roast nullable, and revision. At most one armed intent exists per local operator. |
 | `roasts` | ID, intent ID nullable unique, green lot nullable, contextual coffee ID nullable, profile revision nullable, current native revision nullable, device nullable, roasted instant/timezone, level thousandths, development basis points nullable, green input/roasted yield mg nullable, end reason, result/status, promoted tasting nullable, finalization key. |
-| `roast_sample_streams` | Roast ID primary key, reconciled source native-file hash nullable, provisional inbox reference nullable, channel schema JSON, row count, first/last elapsed ms, cache encoding/version/path/hash nullable, reconciliation state. A reconciled stream requires a verified native-file hash and no provisional-only state. |
+| `roast_sample_streams` | Roast ID primary key, monotonic stream version, reconciled source native-file hash nullable, provisional inbox reference nullable, channel schema JSON, row count, first/last elapsed ms, cache encoding/version/path/hash nullable, reconciliation state. A reconciled replacement increments stream version; a reconciled stream requires a verified native-file hash and no provisional-only state. |
 | `roast_events` | ID, roast ID, event kind, elapsed ms, temperature milli-C nullable, source (`native`,`device`,`user`,`derived`), source native revision nullable, supersedes nullable, deleted flag. |
 | `annotations` | ID, roast ID, anchor kind (`elapsed`,`temperature`,`sample`,`roast`), anchor values, type, text, tags JSON, created/updated provenance. |
 | `attachments` | Hash primary key, byte length, media type, original-name hint, created time. |
@@ -685,10 +685,14 @@ tan-studio-backup/
 ├── raw/sha256/...
 ├── artifacts/sha256/...    # only durable artifacts referenced by user records
 ├── attachments/sha256/...
-└── exports/*.ndjson
+└── exports/
+    ├── catalog.json
+    └── authoritative/*.ndjson
 ```
 
 The backup job pauses new domain mutations through the writer queue, persists pending inbox metadata, creates a consistent SQLite snapshot using `VACUUM INTO` in staging, resumes normal writes, copies immutable artifacts, writes NDJSON portability exports, then hashes and verifies every item. `manifest.json` records format/application/schema versions, canonical units, source timezone rules, entity counts, relationship counts, artifact hashes, excluded classes, and completion status.
+
+Portability output is complete for authoritative user state, not a hand-picked summary. `exports/catalog.json` registers one versioned NDJSON file and field schema for every non-secret, non-derived authoritative table: providers/aliases, coffees/tags/joins, purchases/lines/lots, inventory transactions/transfers, profiles/revisions/parents/validation reports, roast intents/roasts/packages/events/annotations/attachment links, native artifacts/import occurrences/revisions/document links, tasting scales/revisions/tastings/descriptors, plans/evidence, saved views, label templates/revisions, printers/non-secret capability snapshots, print jobs/events, non-secret settings, and audit entries. Referenced raw files, attachments, and durable generated artifacts remain hash-addressed payloads. Operational locks, launch identity, HMAC fingerprints/keys, idempotency records, transient jobs, derived caches/projections/FTS, event-dispatch state, and diagnostics are explicitly excluded. A release cannot add an authoritative table without classifying it in the export registry and round-trip fixture.
 
 Restore always targets a new `stores/<generation-id>` staging generation. It verifies archive traversal safety, size/count limits, hashes, SQLite integrity, migration compatibility, foreign keys, entity counts, referenced artifact presence, and secret exclusion. It then stops writers, closes the old database, atomically replaces `current-store.json`, opens and health-checks the new generation, and rolls the pointer back if that first open fails. The prior generation is retained until the new generation has passed a clean restart and a verified backup. Failure leaves the active generation untouched.
 
@@ -763,7 +767,7 @@ Messages are safe for display and contain no stack, SQL, path, raw imported line
 
 ### 7.5 Resource endpoints
 
-The following surface is normative. A combined `GET/POST` or `GET/PATCH/DELETE` row is editorial shorthand only; the generated OpenAPI contains one operation per method with a unique operation ID. Unless a row overrides it: collection `GET` returns `200 CursorPage<Resource>`; collection `POST` accepts the strict create schema and returns `201 MutationReceipt<Resource>` plus `Location`; item `GET` returns `200 Resource` plus ETag; `PATCH` returns `200 MutationReceipt<Resource>` plus the new ETag; archival `DELETE` returns `200 MutationReceipt<Resource>`. Commands that can outlive a request return `202 JobResource` plus `Location`; deterministic commands return their named immutable result. Nested collection creation uses the parent path.
+The following surface is normative. A combined `GET/POST` or `GET/PATCH/DELETE` row is editorial shorthand only; the generated OpenAPI contains one operation per method with a unique operation ID. Unless a row overrides it: collection `GET` returns `200 CursorPage<ConcreteResourceDto>`; collection `POST` accepts the strict create schema and returns `201 MutationReceipt<ConcreteResourceDto>` plus `Location`; item `GET` returns its concrete `200` DTO plus ETag; `PATCH` returns `200 MutationReceipt<ConcreteResourceDto>` plus the new ETag; archival `DELETE` returns the same receipt shape. Each operation substitutes a named strict Zod DTO based on `MutableResourceDto` or `ImmutableResourceDto`; `ConcreteResourceDto` is explanatory notation, not a loose runtime type. Commands that can outlive a request return `202 JobResource` plus `Location`; deterministic commands return their named immutable result. Nested collection creation uses the parent path.
 
 #### System and jobs
 
@@ -812,9 +816,9 @@ The following surface is normative. A combined `GET/POST` or `GET/PATCH/DELETE` 
 | `POST /roast-preflights` | Validate lot/profile/level/load/plan/target and create a revisioned draft roast intent with expiry. |
 | `GET/PUT /active-roast-intent` | Read or arm exactly one validated intent; `PUT` requires the intent ETag and target capability hash. |
 | `GET /active-roast` | Return the authoritative claimed/active/reconciling roast, intent, device session, freshness, and latest sequence after reload. |
-| `GET /roasts/{id}` | Full metadata and lineage without sample arrays. |
-| `PATCH /roasts/{id}` | Revision-guarded catalog/result/native-edit intent. |
-| `GET /roasts/{id}/series` | Arrow IPC by default or bounded JSON downsample selected by `format`; supports channel/range query. |
+| `GET /roasts/{id}` | Full metadata and lineage plus sample-stream descriptor/version, without sample arrays. |
+| `PATCH /roasts/{id}` | Revision-guarded catalog lineage and app-only descriptive metadata. Result, yield, inventory, plan execution, and native reconciliation fields are prohibited. |
+| `GET /roasts/{id}/series` | Arrow IPC by default or bounded JSON downsample; requires stream version and supports channel/range plus an inclusive `throughSampleSeq` watermark. |
 | `GET/POST /roasts/{id}/events` | List/add app-only or native-revision events; this route never writes to a physical device. |
 | `POST /roasts/{id}/events/{eventId}/revisions` | Backdate, replace, or tombstone as a new event revision. |
 | `POST /active-roasts/{id}/device-events` | Explicit target-bound write using session, fingerprint, capability hash, reviewed payload hash, expiry, and permanent idempotency key; absent until the write capability gate passes. |
@@ -830,7 +834,7 @@ The following surface is normative. A combined `GET/POST` or `GET/PATCH/DELETE` 
 | `GET /tasting-scales` | List active immutable scale revisions available for new tastings. |
 | `GET/POST /roasts/{id}/packages` | List/record package net masses independently of roast yield. |
 | `GET/POST /coffees/{id}/next-roast-plans` | List/create plans. |
-| `GET/PATCH /next-roast-plans/{id}` | Read/edit a draft or perform an allowed transition from `draft` to `ready` or `cancelled`. |
+| `GET/PATCH /next-roast-plans/{id}` | Read; edit fields only while `draft`; or revision-guard an allowed `draft -> ready`, `draft -> cancelled`, or `ready -> cancelled` transition. |
 | `POST /next-roast-plans/{id}/supersessions` | Create successor and mark old plan superseded. |
 
 #### Profiles and native files
@@ -903,6 +907,8 @@ The `RoasterSession` actor, not a browser page, observes the first verified idle
 
 The active state machine is `starting -> roasting -> cooling -> reconciling -> awaiting_finalization -> completed`, with `interrupted` and `recovery_required` failure states. A transport disconnect makes freshness unknown but does not end the roast; reconnect to the same keyed fingerprint/session lineage resumes and fills gaps when the protocol permits. A verified terminal device state closes the inbox and starts reconciliation. `POST /roasts/{id}/finalizations` is the only path that applies inventory consumption, measured yield, result, and claimed-plan transition; its permanent idempotency key guarantees those effects exactly once.
 
+On reload, the client first receives the active snapshot's `(streamVersion,lastSampleSeq)`, subscribes, buffers later live batches, then requests series history with that exact version and `throughSampleSeq=lastSampleSeq`. The response repeats `X-Stream-Version` and `X-Through-Sample-Seq`; Arrow metadata carries the same values. It contains each provisional sample sequence at most once through the inclusive watermark. The client appends only buffered batches beginning at the next sample sequence. A reconciled replacement increments `streamVersion`; a mismatched request returns `409 series_version_changed` and requires a fresh snapshot rather than merging two stream generations.
+
 #### Candidate trust and synchronization
 
 Opening a candidate grants transport read only. The first CRC-valid type-2 capability observation is HMAC-fingerprinted with the keychain device key, upserts the stable `Device`, attaches the endpoint, and records the observed capability hash. “Trusted” means locally identified and approved for read/sync inspection; it does not grant write, maintenance, or destructive capabilities. If the key is unavailable, the observation remains transient and read-only.
@@ -929,9 +935,29 @@ The transport contract uses these shared primitives. Endpoint-specific Zod schem
 type IsoInstant = string // RFC 3339 UTC ending in Z
 type Sha256 = string // lowercase, exactly 64 hex characters
 type ResourceKind =
-  | "provider" | "coffee" | "purchase" | "lot" | "roast" | "annotation" | "attachment"
-  | "tasting" | "next_roast_plan" | "profile" | "profile_revision" | "profile_validation_report"
-  | "device" | "sync_plan" | "label_template" | "printer" | "print_job" | "backup" | "artifact" | "job"
+  | "provider" | "coffee" | "tag" | "purchase" | "lot"
+  | "inventory_transaction" | "inventory_transfer"
+  | "roast_intent" | "roast" | "roast_package" | "annotation" | "attachment"
+  | "tasting" | "tasting_scale_revision" | "next_roast_plan" | "saved_roast_view"
+  | "profile" | "profile_revision" | "profile_validation_report"
+  | "native_file" | "native_file_revision"
+  | "device" | "sync_plan" | "label_template" | "label_template_revision"
+  | "printer" | "printer_capability_snapshot" | "print_job"
+  | "backup" | "artifact" | "job" | "alert"
+
+type MutableResourceDto<K extends ResourceKind, F extends object> = Readonly<{
+  kind: K
+  id: string
+  revision: number
+  createdAt: IsoInstant
+  updatedAt: IsoInstant
+} & F>
+
+type ImmutableResourceDto<K extends ResourceKind, F extends object> = Readonly<{
+  kind: K
+  id: string
+  createdAt: IsoInstant
+} & F>
 
 type ResourceRef = {
   kind: ResourceKind
@@ -1025,6 +1051,8 @@ type FacetResult = {
   truncated: boolean
 }
 ```
+
+Every resource operation has a named schema such as `ProviderResourceDto`, `RoastIntentResourceDto`, or `ProfileValidationReportResourceDto`. Its public camelCase fields are the corresponding required contents in §6.3 minus adapter-private paths, secrets, raw frames, and internal dispatch columns; nested JSON columns are replaced by their versioned strict schemas. A catch-all `attributes: Record<string, unknown>`, generic `Resource`, or passthrough Zod object is prohibited. CI asserts that every `ResourceKind` is bound to at least one named DTO schema and every endpoint's declared kind matches its response discriminator.
 
 The version-1 field registry is normative:
 
@@ -1145,6 +1173,7 @@ type LiveSessionSnapshot = {
   liveSessionId: string
   roastId: string
   streamId: string
+  streamVersion: number
   state: "starting" | "roasting" | "cooling" | "reconciling" | "awaiting_finalization" | "completed" | "interrupted" | "recovery_required"
   freshness: "current" | "stale" | "unknown"
   startedAt: IsoInstant
@@ -1166,8 +1195,11 @@ type LiveSampleBatch = {
 }
 
 type CollectionKey =
-  | "providers" | "coffees" | "purchases" | "lots" | "roast_library"
-  | "profiles" | "devices" | "label_templates" | "printers" | "print_jobs"
+  | "providers" | "coffees" | "tags" | "purchases" | "lots" | "inventory"
+  | "roast_intents" | "roasts" | "roast_library" | "roast_packages" | "annotations" | "attachments"
+  | "tastings" | "tasting_scales" | "next_roast_plans" | "saved_roast_views"
+  | "profiles" | "profile_validations" | "native_files"
+  | "devices" | "sync_plans" | "label_templates" | "printers" | "print_jobs"
   | "backups" | "settings" | "capabilities"
 
 interface EventPayloadByType {
@@ -1217,8 +1249,8 @@ The registry above is closed for v1: undocumented event types or payload fields 
 
 - `seq` is strictly increasing per companion session.
 - The server sends a heartbeat every 10 seconds; the client declares stale after 25 seconds.
-- A client includes its last `(sessionId,seq)` when requesting the next ticket. The server replays from a bounded 60-second/10,000-event ring when possible; otherwise the new socket begins with a complete snapshot.
-- Each client queue is bounded. Live sample batches may be coalesced; state changes, faults, and job terminal events may not be silently dropped. Overflow closes the socket with a resync-required code.
+- A client includes its last `(sessionId,seq)` when requesting the next ticket. The shared replay ring retains at most 60 seconds, 10,000 events, and 32 MiB of encoded envelopes, whichever bound is reached first; otherwise the new socket begins with a complete snapshot.
+- Each client queue is bounded to 4 MiB and 2,000 envelopes. Live sample batches may be coalesced; state changes, faults, and job terminal events may not be silently dropped. Overflow closes the socket with `4001 resync_required` and releases queued bytes.
 - One `live.samples.v1` batch contains 1–256 contiguous samples, is at most 256 KiB encoded, has equal elapsed/channel lengths, and contains only finite numbers or null. Raw serial frames never reach the webview.
 
 Snapshot state and its sequence high-water mark are captured under one event-dispatch barrier. Events committed after the barrier are buffered until the snapshot envelope is queued, so no state change can fall between snapshot and delta. The live snapshot's `lastSampleSeq` is the provisional-history watermark; a subsequent sample batch starts at the next sequence.
@@ -1598,6 +1630,61 @@ The resolver, layout model, renderer, printer-language encoder, and transport ar
 All layout values are integer micrometres; rotation is integer millidegrees. Array order is paint order. Text content is plain Unicode and never contains printer commands.
 
 ```ts
+type PhysicalPoint = { xUm: number; yUm: number }
+type PhysicalRect = PhysicalPoint & { widthUm: number; heightUm: number }
+type SemanticInk = "foreground" | "muted" | "primary" | "accent" | "success" | "warning" | "info" | "paper" | "black" | "white"
+type SemanticStroke = { ink: SemanticInk; widthUm: number; dashUm?: number[] }
+type FontRef = { family: "geist_sans" | "noto_sans"; style: "normal" | "italic" }
+
+type LabelFieldValueMap = {
+  "coffee.name": string
+  "coffee.countryCode": string | null
+  "coffee.region": string | null
+  "coffee.farmProducer": string | null
+  "coffee.process": string | null
+  "coffee.varieties": string[]
+  "provider.name": string | null
+  "lot.code": string | null
+  "roast.id": string
+  "roast.roastedAt": string
+  "roast.levelThousandths": number | null
+  "roast.greenInputMassMg": number | null
+  "roast.roastedYieldMassMg": number | null
+  "roast.lossBasisPoints": number | null
+  "package.netMassMg": number | null
+  "profile.name": string | null
+  "profile.revisionNumber": number | null
+  "tasting.scoreBasisPoints": number | null
+  "tasting.outcome": string | null
+  "tasting.nextAction": string | null
+  "label.useWindow": string | null
+  "label.note": string | null
+  "label.imageArtifactHash": Sha256 | null
+  "label.opaqueRoastCode": string
+}
+
+type AllowedLabelField = keyof LabelFieldValueMap
+type AllowedLabelFormatter =
+  | { kind: "text"; join?: string; uppercase?: boolean }
+  | { kind: "date"; style: "short" | "medium" | "iso"; timezone: "roast" | "local" }
+  | { kind: "mass"; unit: "g" | "kg" | "oz" | "lb"; maximumFractionDigits: 0 | 1 | 2 }
+  | { kind: "percent"; maximumFractionDigits: 0 | 1 | 2 }
+  | { kind: "number"; maximumFractionDigits: 0 | 1 | 2 | 3 }
+
+type LabelDataInput = {
+  locale: string
+  localTimezone: string
+  roastTimezone: string
+  sources: { roastId: string; coffeeId?: string; lotId?: string; packageId?: string; promotedTastingId?: string; profileRevisionId?: string }
+  values: { [K in AllowedLabelField]?: LabelFieldValueMap[K] }
+}
+
+type LabelDataSnapshot = LabelDataInput & {
+  schemaVersion: 1
+  resolvedAt: IsoInstant
+  snapshotHash: Sha256
+}
+
 type LabelElementBase = {
   id: string
   rotationMdeg: number
@@ -1609,6 +1696,10 @@ type LabelBoxElementBase = LabelElementBase & { frame: PhysicalRect }
 type LabelBinding =
   | { kind: "literal"; value: string }
   | { kind: "field"; path: AllowedLabelField; format?: AllowedLabelFormatter; fallback?: string }
+
+type LabelImageBinding =
+  | { kind: "artifact"; hash: Sha256 }
+  | { kind: "field"; path: "label.imageArtifactHash" }
 
 type LabelTemplateDocument = {
   schemaVersion: 1
@@ -1624,13 +1715,21 @@ type LabelTemplateElement =
   | (LabelBoxElementBase & { kind: "text"; content: LabelBinding; font: FontRef; sizeUm: number; weight: number; lineHeightBasisPoints: number; horizontalAlign: "start" | "center" | "end"; verticalAlign: "start" | "center" | "end"; maxLines: number; overflow: "error" | "ellipsis" })
   | (LabelElementBase & { kind: "line"; from: PhysicalPoint; to: PhysicalPoint; strokeUm: number; ink: SemanticInk })
   | (LabelBoxElementBase & { kind: "rect"; radiusUm: number; fill?: SemanticInk; stroke?: SemanticStroke })
-  | (LabelBoxElementBase & { kind: "image"; artifact: LabelBinding; fit: "contain" | "cover" })
+  | (LabelBoxElementBase & { kind: "image"; artifact: LabelImageBinding; fit: "contain" | "cover" })
   | (LabelBoxElementBase & { kind: "qr"; data: LabelBinding; correction: "M" | "Q"; quietModules: number })
   | (LabelBoxElementBase & { kind: "barcode"; data: LabelBinding; symbology: "code128"; humanReadable: boolean })
 
 type LabelDocument = Omit<LabelTemplateDocument, "elements"> & {
-  elements: ResolvedLabelElement[] // bindings replaced by literal text/hash/data
+  elements: ResolvedLabelElement[]
 }
+
+type ResolvedLabelElement =
+  | (LabelBoxElementBase & { kind: "text"; content: string; font: FontRef; sizeUm: number; weight: number; lineHeightBasisPoints: number; horizontalAlign: "start" | "center" | "end"; verticalAlign: "start" | "center" | "end"; maxLines: number; overflow: "error" | "ellipsis" })
+  | (LabelElementBase & { kind: "line"; from: PhysicalPoint; to: PhysicalPoint; strokeUm: number; ink: SemanticInk })
+  | (LabelBoxElementBase & { kind: "rect"; radiusUm: number; fill?: SemanticInk; stroke?: SemanticStroke })
+  | (LabelBoxElementBase & { kind: "image"; artifactHash: Sha256; fit: "contain" | "cover" })
+  | (LabelBoxElementBase & { kind: "qr"; data: string; correction: "M" | "Q"; quietModules: number })
+  | (LabelBoxElementBase & { kind: "barcode"; data: string; symbology: "code128"; humanReadable: boolean })
 
 interface LabelResolver {
   resolve(template: LabelTemplateDocument, input: LabelDataInput): Promise<{
@@ -1640,7 +1739,7 @@ interface LabelResolver {
 }
 ```
 
-`ResolvedLabelElement` has the same geometry/style variants but replaces every `LabelBinding` with validated literal text, artifact hash, QR data, or barcode data. Templates bind through a small declarative allowlist (`coffee.name`, `roast.date`, `profile.name`, and documented formatters). There is no JavaScript, HTML, CSS, network fetch, or arbitrary template execution. At render time, bindings resolve to an immutable `LabelDataSnapshot`; later catalog edits do not change a historical print job. `label_template_revisions` stores `LabelTemplateDocument`, while a print job stores the snapshot, resolved document hash, and target-specific artifact.
+The resolver validates formatter compatibility with its field kind: date only accepts the roast instant, mass only accepts mass, percent only accepts basis points, and text is the only formatter for strings/lists. Missing values require an explicit fallback or fail when the element is required. There is no JavaScript, HTML, CSS, network fetch, arbitrary object path, or template execution. At render time, bindings resolve to an immutable `LabelDataSnapshot`; later catalog edits do not change a historical print job. `label_template_revisions` stores `LabelTemplateDocument`, while a print job stores the snapshot, resolved document hash, and target-specific artifact.
 
 The QR default contains an opaque Tan Studio roast UUID or an explicit export URL chosen later. It never embeds filesystem paths, device serials, launch/remote tokens, credentials, or private notes by default.
 
@@ -1661,6 +1760,90 @@ Text overflow, missing glyphs, content outside the media/safe box, insufficient 
 ### 10.4 Printer ports and capability model
 
 ```ts
+type PrinterId = string
+type PrinterDescriptor = {
+  printerId: PrinterId
+  adapterId: string
+  endpointRef: string // adapter-scoped opaque reference
+  displayName: string
+  transport: "system_queue" | "ipp" | "ipps" | "tcp_9100"
+  security: "system_trust" | "pinned_certificate" | "plaintext_approved" | "local_spooler"
+}
+
+type KnownOrUnknown<T> = { known: true; value: T } | { known: false; reasonCode: string }
+type MediaCapability = {
+  mediaId: string
+  widthUm: number
+  heightUm: number
+  marginsUm: { top: number; right: number; bottom: number; left: number }
+  tracking: "gap" | "black_mark" | "continuous" | "sheet" | "unknown"
+  source: "advertised" | "driver" | "user_calibrated"
+}
+
+type PrinterCapabilities = {
+  schemaVersion: 1
+  snapshotId: string
+  capabilityHash: Sha256
+  printer: PrinterDescriptor
+  discoveredAt: IsoInstant
+  expiresAt: IsoInstant
+  provenance: "cups" | "ipp" | "user_calibration" | "test_adapter"
+  documentFormats: string[] // validated lowercase MIME types
+  rawLanguages: Array<"zpl" | "tspl2" | "brother_ql" | "escpos">
+  media: { presets: MediaCapability[]; customRangeUm: KnownOrUnknown<{ minWidth: number; maxWidth: number; minHeight: number; maxHeight: number }> }
+  resolutionsDpi: Array<{ x: number; y: number }>
+  color: KnownOrUnknown<{ depths: Array<1 | 8 | 24 | 32>; bitOrder?: "msb" | "lsb" }>
+  orientations: Array<"portrait" | "landscape" | "reverse_portrait" | "reverse_landscape">
+  scaling: Array<"none" | "fit" | "fill">
+  copies: KnownOrUnknown<{ min: number; max: number }>
+  darkness: KnownOrUnknown<{ min: number; max: number; step: number }>
+  speed: KnownOrUnknown<{ values: number[]; unit: "mm_per_second" }>
+  finishing: { cut: KnownOrUnknown<boolean>; peel: KnownOrUnknown<boolean> }
+  symbols: { qr: KnownOrUnknown<boolean>; barcodes: Array<"code128"> }
+  statusOperations: Array<"query_job" | "cancel_job" | "query_printer">
+  statusFidelity: Array<"adapter_accepted" | "spooler_accepted" | "printer_accepted" | "printer_reported_completed" | "physical_output_confirmed">
+}
+
+type RenderTarget =
+  | { kind: "svg"; widthUm: number; heightUm: number }
+  | { kind: "pdf"; widthUm: number; heightUm: number }
+  | { kind: "monochrome_raster"; widthUm: number; heightUm: number; dpiX: number; dpiY: number; dither: "threshold" | "floyd_steinberg" }
+  | { kind: "pwg_raster"; media: MediaCapability; dpiX: number; dpiY: number }
+
+type ArtifactBase = { hash: Sha256; byteLength: number; widthUm: number; heightUm: number }
+type SvgArtifact = ArtifactBase & { kind: "svg"; mediaType: "image/svg+xml" }
+type PdfArtifact = ArtifactBase & { kind: "pdf"; mediaType: "application/pdf" }
+type MonochromeRasterArtifact = ArtifactBase & { kind: "monochrome_raster"; mediaType: "application/x-tan-studio-mono-raster"; dpiX: number; dpiY: number; rowBytes: number; bitOrder: "msb" }
+type PwgRasterArtifact = ArtifactBase & { kind: "pwg_raster"; mediaType: "image/pwg-raster"; dpiX: number; dpiY: number }
+type EncodedPrintPayload = ArtifactBase & { kind: "printer_language"; language: "zpl" | "tspl2" | "brother_ql" | "escpos"; mediaType: string }
+type PrintArtifact = SvgArtifact | PdfArtifact | MonochromeRasterArtifact | PwgRasterArtifact
+type PrinterReadyArtifact = PdfArtifact | PwgRasterArtifact | EncodedPrintPayload
+
+type NegotiatedMedia = MediaCapability & { orientation: PrinterCapabilities["orientations"][number]; scaling: "none" }
+type AdvertisedJobAttributes = {
+  resolution: { xDpi: number; yDpi: number }
+  darkness?: number
+  speedMmPerSecond?: number
+  cut?: boolean
+  peel?: boolean
+}
+
+type CancelResult = { accepted: boolean; terminal: boolean; reasonCode?: string }
+type PrintStatusEvent = { observedAt: IsoInstant; lifecycle: PrintLifecycle; evidence: PrintEvidence[]; adapterCode?: string }
+type TransportReceipt = { acceptedAt: IsoInstant; byteLength: number; transportCode?: string }
+type ExportReceipt = { outcome: "saved" | "cancelled"; artifactHash: Sha256 }
+type SystemPrintReceipt = { outcome: "presented" | "cancelled" | "submitted"; osJobId?: string }
+type PrintCommand = {
+  templateRevisionId: string
+  input: LabelDataInput
+  printerId: PrinterId
+  mediaId: string
+  copies: number
+  options: AdvertisedJobAttributes
+  idempotencyKey: string
+}
+type PrintJobPreparation = { printJobId: string; lifecycle: "ready"; documentHash: Sha256; artifactHash: Sha256 }
+
 interface LabelRenderer {
   render(document: LabelDocument, target: RenderTarget, signal: AbortSignal): Promise<PrintArtifact>
 }
@@ -1696,7 +1879,7 @@ interface SystemDocumentPort {
 
 interface PrintPipeline {
   prepare(command: PrintCommand, signal: AbortSignal): Promise<{
-    job: PrintJob
+    job: PrintJobPreparation
     artifact: PrinterReadyArtifact
     capabilitySnapshot: PrinterCapabilities
   }>
@@ -1718,7 +1901,7 @@ type SubmissionHandle = {
 }
 ```
 
-`PrinterCapabilities` records identity, adapter/URI/queue, discovery provenance/time, document formats, raw languages, media ranges/presets, gap/black-mark/continuous modes, unprintable margins, supported DPI, color depth/bit order, orientation/scaling, copies, darkness/speed, cut/peel, status operations, QR/barcodes, security mode, and status fidelity. Unknown is a first-class value. Manufacturer/model text alone never grants a language or feature.
+The field sets above are closed at a schema version. Protocol adapters may retain unknown raw attributes in redacted diagnostics, but they cannot silently grant a normalized feature. Manufacturer/model text alone never grants a language or feature.
 
 `PrintPipeline` is an application-layer orchestrator, never an infrastructure adapter. `prepare` refreshes capabilities, resolves the template snapshot, validates media/margins/DPI/options, chooses an advertised document/language path, renders the exact target artifact, and persists its capability hash before submission. The application service owns `PrintJob`, idempotency, and the mapping from that local job to `SubmissionHandle`; adapters never receive a domain aggregate or Tan Studio job ID. A preview or generic PDF artifact cannot be reused blindly for a different DPI/media/language target.
 
@@ -2118,7 +2301,7 @@ Tests use temporary directories created by the test framework and explicit fake 
 - Every job handler has restart-at-each-checkpoint and duplicate-delivery tests.
 - Every domain event consumer proves idempotency and projection rebuild equivalence.
 - Every P0 mutation test queries its affected library row/FTS entry before the response boundary and proves read-your-writes behavior. Inventory-transfer tests prove the equal/opposite ledger invariant under retries and injected commit failure.
-- API fixtures cover every registered field/operator/group/aggregate, null semantics, cursor tamper/expiry/session changes, DTO strictness, event payload version, snapshot sequence barrier, replay, and every documented WebSocket close code.
+- API fixtures cover every registered field/operator/group/aggregate, null semantics, cursor tamper/expiry/session changes, DTO/resource-kind coverage, event payload version, snapshot sequence barrier, replay event/count/byte limits, live-series version/watermark merge, and every documented WebSocket close code.
 
 ### 16.3 USB and file gates
 
@@ -2134,6 +2317,7 @@ Tests use temporary directories created by the test framework and explicit fake 
 ### 16.4 Printing gates
 
 - Golden snapshots cover SVG, PDF object semantics/media box, 203/300/600 DPI raster bytes, ZPL bytes, escaping, threshold/dither, rotation, gap/black-mark offsets, and overflow.
+- Contract tests enumerate every allowed label field/formatter pairing, resolved element variant, render target, capability unknown, media constraint, and target-artifact combination; unknown fields/options fail closed.
 - Rendered QR/barcodes are decoded from raster output at minimum supported physical size.
 - Fake CUPS/IPP/raw transports cover discovery, stale capabilities, accepted/rejected jobs, cancellation, timeout, duplicate submit, and indeterminate outcomes.
 - OpenPrinting `ippeveprinter` verifies capability and job negotiation.
@@ -2150,6 +2334,7 @@ Tests use temporary directories created by the test framework and explicit fake 
 - Failure injection covers each database commit boundary, artifact rename, migration, backup, restore activation, projection swap, live inbox append, device request, and print submission.
 - Read-worker cancellation proves queued work disappears and running results are discarded/recycled without interrupting the database writer or USB/event-loop heartbeat.
 - A corrupt database is never replaced silently; restore and raw-index rebuild preserve prior evidence.
+- Portable-export round trips seed every authoritative table/join, verify `catalog.json` coverage, reconstruct into a new generation, and compare canonical row/relationship/artifact hashes; a newly added unclassified table fails CI.
 - The non-virtualized semantic roast table and adjacent chart summaries pass keyboard and VoiceOver flows with the same actions as their visual counterparts.
 
 ### 16.6 Performance gates
