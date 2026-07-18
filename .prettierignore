@@ -1,0 +1,10 @@
+node_modules
+.node_modules.backup-*
+dist
+.turbo
+coverage
+docs
+mockups
+apps/desktop/src-tauri/gen
+apps/desktop/src-tauri/target
+bun.lock

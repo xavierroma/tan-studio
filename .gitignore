@@ -1,1 +1,17 @@
 tmp/
+.DS_Store
+node_modules/
+.node_modules.backup-*/
+dist/
+.turbo/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!apps/web/.env.development
+apps/companion/data/
+apps/companion/*.sqlite*
+apps/web/playwright-report/
+apps/web/test-results/
+apps/desktop/src-tauri/target/

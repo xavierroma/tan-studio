@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "baseUrl": ".",
+    "types": ["vite/client"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@tan-studio/ui/*": ["../../packages/ui/src/*"],
+      "@tan-studio/api-contract": ["../../packages/api-contract/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

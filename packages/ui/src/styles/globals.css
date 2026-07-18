@@ -1,0 +1,142 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@source "../../../apps/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  color-scheme: light;
+  --background: oklch(97.03% 0.0111 89.72);
+  --foreground: oklch(32.21% 0.0257 54.32);
+  --card: oklch(99.2% 0.0073 80.72);
+  --card-foreground: var(--foreground);
+  --popover: oklch(99.2% 0.0073 80.72);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(56.39% 0.102 38.9);
+  --primary-foreground: oklch(99.2% 0.0073 80.72);
+  --secondary: oklch(93.37% 0.0194 80.12);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(93.37% 0.0194 80.12);
+  --muted-foreground: oklch(52% 0.0225 64.86);
+  --accent: oklch(81.95% 0.0532 76.44);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(51.94% 0.1238 27.77);
+  --destructive-foreground: var(--primary-foreground);
+  --border: oklch(86.89% 0.0266 76.77);
+  --input: var(--border);
+  --ring: oklch(52.58% 0.0597 184.98);
+  --success: oklch(92.79% 0.017 137.03);
+  --success-foreground: var(--foreground);
+  --warning: oklch(92.89% 0.0412 90.25);
+  --warning-foreground: var(--foreground);
+  --info: oklch(92.68% 0.0108 204.12);
+  --info-foreground: var(--foreground);
+  --chart-1: oklch(61.55% 0.1007 40.28);
+  --chart-2: oklch(58.77% 0.063 185.89);
+  --chart-3: oklch(64.59% 0.0516 139.43);
+  --chart-4: oklch(58.81% 0.0768 77.85);
+  --chart-5: oklch(60.77% 0.0425 219.15);
+  --radius: 0.625rem;
+  --sidebar: oklch(91.78% 0.0262 76.79);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    min-width: 320px;
+    background: var(--background);
+  }
+
+  body {
+    @apply bg-background text-foreground m-0 min-h-screen font-sans antialiased;
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: default;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--accent) 72%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

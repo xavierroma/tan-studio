@@ -1,0 +1,17 @@
+{
+  "name": "@tan-studio/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "bun run build:sidecar && tauri build",
+    "build:sidecar": "bun scripts/build-sidecar.ts",
+    "test": "bun run build:sidecar && cargo test --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "bun run typecheck:sidecar && bun run build:sidecar && cargo check --manifest-path src-tauri/Cargo.toml",
+    "typecheck:sidecar": "bunx tsc -p sidecar/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@tan-studio/web": "workspace:*",
+    "@tauri-apps/cli": "^2.11.3"
+  }
+}

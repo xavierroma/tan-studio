@@ -1,0 +1,31 @@
+[package]
+name = "tan-studio"
+version = "0.1.0"
+description = "Tan Studio desktop shell"
+authors = ["Tan Studio contributors"]
+license = "UNLICENSED"
+repository = "https://github.com/xavierroma/tan-studio"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "tan_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+base64 = "0.22"
+getrandom = { version = "0.3", features = ["std"] }
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-log = "2"
+tauri-plugin-shell = "2.3.5"
+tauri-plugin-single-instance = "2.4.3"
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "time"] }

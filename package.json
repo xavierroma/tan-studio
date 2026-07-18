@@ -1,0 +1,33 @@
+{
+  "name": "tan-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev --filter=@tan-studio/web --filter=@tan-studio/companion",
+    "dev:web": "bun run --filter @tan-studio/web dev",
+    "dev:companion": "bun run --filter @tan-studio/companion dev",
+    "dev:desktop": "bun run --filter @tan-studio/desktop dev",
+    "build": "bun run --filter @tan-studio/companion build && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
+    "test": "bun run --filter '@tan-studio/*' test",
+    "typecheck": "bun run --filter '@tan-studio/*' typecheck",
+    "boundaries": "bun scripts/check-boundaries.ts",
+    "check": "bun run boundaries && bun run typecheck && bun run test && bun run build",
+    "format": "prettier --write package.json tsconfig.json turbo.json scripts apps packages",
+    "format:check": "prettier --check package.json tsconfig.json turbo.json scripts apps packages"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.3",
+    "prettier-plugin-tailwindcss": "^0.8.0",
+    "turbo": "^2.9.18",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
