@@ -301,8 +301,8 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 | COF-08 | P0 | A coffee and lot detail view must show all purchases/lots, chronological roasts, profiles/revisions, labels, every tasting record, comparison conclusions, stock movements, and pending/completed next-roast plans. |
 | COF-09 | P0 | Allow many tasting records per roast so evaluations at different rest ages or brew methods never overwrite one another. Each stores tasted-at/rest age, configurable score scale and overall score, descriptors, acidity/body/sweetness/finish, defects, brew/cupping context, free notes, and author. |
 | COF-10 | P0 | Each roast exposes a concise tasting conclusion separate from raw notes: outcome, what worked, what did not, and recommended next action. The latest conclusion is visible in coffee history and preflight. |
-| COF-11 | P0 | Create a versioned next-roast plan linked to a coffee or lot and its evidence roasts/tastings. Store objective, proposed base profile/revision, level, green load, parameter changes, rationale, author, status (`draft`, `ready`, `used`, `superseded`), and the roast that executed it. |
-| COF-12 | P0 | During roast setup, show a compact prior-roast panel sorted newest first with date, profile/revision, level, green load, roasted yield/loss, key events, score, conclusion, and a one-click `Use as starting point`; show the active next-roast plan at the top. |
+| COF-11 | P0 | Create a versioned next-roast plan linked to a coffee or lot and its evidence roasts/tastings. Store objective, proposed base profile/revision, level, green load, parameter changes, rationale, author, status (`draft`, `ready`, `used`, `superseded`, `cancelled`), and the roast that executed it. |
+| COF-12 | P0 | During roast setup, show a compact prior-roast panel sorted newest first with date, profile/revision, level, green load, roasted yield/loss, key events, score, conclusion, and a one-click `Use as starting point`; show the ready next-roast plan at the top. |
 | COF-13 | P0 | Search coffee/lot selectors by coffee name, provider, supplier/internal lot code, country, region, farm/producer, process, and tag; depleted lots are hidden by default but remain accessible. |
 | COF-14 | P1 | Provide tasting reminders and a `Needs tasting` queue based on roast time and intended rest window. |
 | COF-15 | P1 | Support unit-safe inventory views and purchase summaries without expanding into invoicing, accounting, or ecommerce. |
@@ -333,7 +333,7 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 | LAB-02 | P0 | Include selectable coffee, roast, profile, use-window, note, green-load, roasted-yield, package-net-weight, human-readable roast ID, and QR fields; never conflate the three weight concepts. |
 | LAB-03 | P0 | Support configurable physical size, margins, typography, and copies. |
 | LAB-04 | P0 | Warn on overflow and show exact print preview. |
-| LAB-05 | P0 | Produce exact PDF/SVG and support the system print path as the universal fallback. |
+| LAB-05 | P0 | Produce exact PDF/SVG and, through a narrow native shell bridge, support save, open-in-system-viewer, and native PDF print-dialog paths as universal fallbacks. |
 | LAB-06 | P0 | Record template revision, immutable artifact hash, physical media/DPI, printer capability snapshot, adapter/encoder version, copies, status fidelity, receipt, and time. |
 | LAB-07 | P1 | Reprint and batch print from library selection. |
 | LAB-08 | P1 | Template designer with reusable field visibility and layout presets. |
@@ -360,7 +360,7 @@ QR data must use an opaque local/public identifier, never a raw filesystem path,
 
 | ID | Pri | Requirement |
 | --- | --- | --- |
-| AI-01 | P1 | Provider-neutral assistant accepts the selected coffee/green lot, explicitly chosen prior roasts and tastings, active next-roast plan, profile revision, desired result, and user instruction. |
+| AI-01 | P1 | Provider-neutral assistant accepts the selected coffee/green lot, explicitly chosen prior roasts and tastings, ready next-roast plan, profile revision, desired result, and user instruction. |
 | AI-02 | P1 | Retrieve only explicitly selected or locally relevant context; default relevance is prior roasts/tastings of the same coffee or physical lot, never the entire database. |
 | AI-03 | P1 | Return a versioned JSON proposal, not arbitrary executable code or device commands. |
 | AI-04 | P1 | Every proposed change includes reason, evidence references, expected effect, uncertainty, and risk. |
@@ -378,11 +378,13 @@ Initial proposal schema:
 ```ts
 type ProfileProposal = {
   schemaVersion: 1
+  proposalId: string
   baseRevisionId: string
+  sourceRoastIds: string[]
   objective: string
   summary: string
   changes: Array<{
-    operation: "replace"
+    operation: "replace" | "move_node" | "add_node" | "remove_node"
     path: AllowedProfilePath
     before: unknown
     after: unknown
@@ -403,6 +405,7 @@ type ProfileProposal = {
     status: "pass" | "fail"
     issues: Array<{ ruleId: string; path?: AllowedProfilePath; message: string }>
   }
+  providerMetadata: { provider: string; model: string; generatedAt: string }
 }
 ```
 
@@ -414,7 +417,7 @@ type ProfileProposal = {
 | --- | --- | --- |
 | DEV-01 | P0 | Show connection transport, identity redaction, busy state, storage, firmware, sync, and last seen. |
 | DEV-02 | P0 | Browse profiles/logs on device and compare with local versions. |
-| DEV-03 | P0 | Copy/add/rename with explicit conflict handling. |
+| DEV-03 | P0 | Pull files and copy/add a validated profile with explicit conflict handling. Remote rename/delete remain disabled until their write behavior and recovery path are captured and accepted. |
 | DEV-04 | P1 | Core profile-pack management and safe restore. |
 | DEV-05 | P1 | Read and edit documented roaster preferences with validation and audit entry. |
 | DEV-06 | P1 | Fan Preview and calibration guidance; writes require explicit local presence. |
@@ -446,13 +449,14 @@ type ProfileProposal = {
 | ID | Pri | Requirement |
 | --- | --- | --- |
 | DATA-01 | P0 | Store catalog, roast index, parsed telemetry, annotations, tastings, plans, inventory ledger, saved views, and audit records in a transactional local SQLite database with foreign keys enabled and explicit schema migrations. |
-| DATA-02 | P0 | Retain each imported native file as immutable content-addressed bytes outside the database; store its SHA-256, byte length, source, import time, and parse version in `NativeFile`. Parsed data is a rebuildable index, never the only copy of a log. |
-| DATA-03 | P0 | Commit a completed roast's native-file reference, parsed metadata/samples, green-consumption transaction, and relationship links atomically or recover them idempotently after interruption. |
+| DATA-02 | P0 | Retain each imported native file as immutable content-addressed bytes outside the database. Store artifact hash/length once and record every device, manual, or sync import as a separate provenance occurrence with observed time, parser version, warnings, and job/source reference. Parsed data is a rebuildable index, never the only copy of a log. |
+| DATA-03 | P0 | Durably write referenced native/derived artifacts first, then atomically commit a completed roast's artifact references, parsed metadata, green-consumption transaction, and relationship links; recover every interrupted boundary idempotently. |
 | DATA-04 | P0 | Create a user-initiated full backup/dump as a versioned archive containing a consistent SQLite snapshot, raw native files, attachments, a JSON manifest with hashes/schema/app versions, and human-readable CSV/NDJSON exports of core records. Never include credentials or relay tokens. |
-| DATA-05 | P0 | Validate dump hashes and manifest before reporting success; support restore into an empty store and import/merge into an existing store with stable IDs, duplicate detection, and a dry-run report. |
+| DATA-05 | P0 | Validate dump hashes and manifest before reporting success; restore into a newly staged store generation and atomically activate it only after integrity and relationship checks pass. |
 | DATA-06 | P0 | Offer scoped exports for the current roast view, coffee, green lot, purchase, or date range, including relationship IDs so roasts, tastings, inventory movements, and plans can be rejoined. |
 | DATA-07 | P0 | Run automatic local backups on a user-visible schedule with configurable retention; a failed backup is reported without blocking roasting or deleting the last verified backup. |
 | DATA-08 | P1 | Document the dump schema and migration policy so users can leave the product with raw logs and non-proprietary tabular/JSON data. |
+| DATA-09 | P1 | Import/merge a backup into an existing store with stable IDs, duplicate detection, conflicts preserved, and a dry-run report. |
 
 ## 10. UI specification
 
@@ -468,7 +472,7 @@ The editable Excalidraw board contains these primary frames:
 8. **Green coffee catalog** - provider and purchase hierarchy, reusable coffee origin identity, physical lots, received/on-hand quantities, inventory status, roast counts, latest scores, and a purchase detail pane.
 9. **Coffee lot and structured tasting** - complete lot lineage, chronological roast/score history, multiple tasting records, promoted conclusion, remaining stock, and next-roast planning in one experiment timeline.
 10. **Compare workspace** - up to four logs, absolute/event-aligned/normalized modes, synchronized telemetry, calculated metrics, and a saved conclusion.
-11. **Roast setup and preflight** - searchable physical-lot selection, remaining green quantity, profile/level/load selection, compatibility and storage checks, predicted outcome, supervision warning, and physical-Nano start handoff. A `Previous roasts of this coffee` panel displays recent settings, event summaries, tasting scores/conclusions, and the active next-roast plan with `Use as starting point`.
+11. **Roast setup and preflight** - searchable physical-lot selection, remaining green quantity, profile/level/load selection, compatibility and storage checks, predicted outcome, supervision warning, and physical-Nano start handoff. A `Previous roasts of this coffee` panel displays recent settings, event summaries, tasting scores/conclusions, and the ready next-roast plan with `Use as starting point`.
 
 ### 10.1 Visual direction: calm Bali house
 
@@ -610,7 +614,7 @@ Independently testable bounded modules are catalog/inventory; roasts/telemetry; 
 
 ### 11.5 Deployment and local security
 
-Tauri serves the built frontend through its custom protocol and launches the compatible signed Bun sidecar. The sidecar binds a random loopback-only port, generates a per-launch 256-bit in-memory token, and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
+Tauri serves the built frontend through its custom protocol, generates a per-launch 256-bit in-memory token, and launches the compatible signed Bun sidecar with that token over a private inherited control channel. The sidecar binds a random loopback-only port and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
 
 The SerialPort native module is externalized into signed resources and tested on every target architecture. If that packaging gate fails, only the `SerialTransport` adapter moves to a small Rust helper; SASSI, use cases, and the API remain TypeScript. A separate Web Serial demo may be researched later but is not part of the production frontend.
 
@@ -627,10 +631,17 @@ erDiagram
     CoffeeIdentity ||--o{ PurchaseLine : describes
     PurchaseLine ||--|{ GreenLot : received_as
     GreenLot ||--o{ InventoryTransaction : has
+    GreenLot ||--o{ InventoryTransfer : sources
+    GreenLot ||--o{ InventoryTransfer : receives
+    InventoryTransfer ||--|{ InventoryTransaction : posts
+    RoastIntent o|--o| Roast : claimed_as
     GreenLot o|--o{ Roast : consumed_by
     CoffeeIdentity o|--o{ Roast : contextualizes
     ProfileRevision ||--o{ Roast : executes
+    ProfileRevision ||--o{ ProfileValidationReport : validated_by
     Roast ||--o{ Tasting : evaluated_by
+    TastingScaleRevision ||--o{ Tasting : scores
+    Roast ||--o{ RoastPackage : packed_as
     CoffeeIdentity ||--o{ NextRoastPlan : guides
     GreenLot o|--o{ NextRoastPlan : may_scope
     NextRoastPlan o|--o| Roast : executed_as
@@ -643,27 +654,34 @@ erDiagram
 | --- | --- |
 | `Device` | Stable local identity, model family, redacted display name, firmware, capabilities, last seen. |
 | `TransportEndpoint` | USB serial, official LAN bridge, legacy folder, or future hardware bridge. |
-| `NativeFile` | Immutable raw bytes, hash, path hint, schema, parse status, source, and optional parent revision. Imported originals are never replaced; a native-field edit creates a derived revision. |
+| `NativeFile` | Immutable raw bytes plus content hash, length, format/schema hint, and verification state. Imported originals are never replaced; a native-field edit creates a derived revision. |
+| `NativeImportOccurrence` | One observation/import of a native artifact, preserving safe source hint, time, device/sync/job provenance, parser version, status, and warnings even when identical bytes were seen before. |
 | `SyncEntry` | Local/remote/base hashes, conflict state, remote metadata. |
+| `SyncPlan` | Immutable reviewed target/capability/inventory snapshot and ordered operations with preconditions, expiry, execution outcome, and audit lineage. |
 | `Profile` | Logical profile identity. |
-| `ProfileRevision` | Immutable parsed snapshot, parent(s), source log/proposal, schema, validation. |
+| `ProfileRevision` | Immutable parsed snapshot, parent(s), source log/proposal, and schema. |
+| `ProfileValidationReport` | Immutable validator result for one profile revision and exact target capability/firmware/schema tuple; deployment cites the passing report. |
 | `Provider` | Supplier identity, aliases, optional contact/reference metadata, and archive state. |
 | `GreenPurchase` | One acquisition from a provider with purchase/received dates, supplier reference, optional monetary metadata, and notes. |
 | `PurchaseLine` | Quantity acquired of one coffee identity within a purchase; parent for one or more physical lots. |
 | `CoffeeIdentity` | Stable descriptive identity: display name, country, region, farm/producer, station/cooperative, process, variety, altitude, harvest, certifications, and tags. |
 | `GreenLot` | Physical stock unit tied to a purchase line/coffee identity, supplier/internal codes, received quantity/unit, storage, green measurements, and lifecycle state. |
 | `InventoryTransaction` | Immutable receipt, roast consumption, adjustment, transfer, or write-off amount with unit, reason, source roast, author, and time. |
+| `InventoryTransfer` | One atomic source-to-destination movement owning equal and opposite lot-ledger entries under one permanent idempotency key. |
+| `RoastIntent` | Expiring validated preflight selection of lot/coffee, profile, level, load, ready plan, and target that can be claimed by a physical busy transition. |
 | `Roast` | Stable logical roast identity linking native-log revisions, green lot/coffee identity, profile revision, level, green input load, optional measured roasted yield, calculated loss, result, and status. Green lot may be null for uncataloged imports. |
 | `RoastSampleStream` | Rebuildable columnar telemetry stream and channel schema linked to immutable native evidence; preserves unknown channels and remains outside library rows. |
 | `RoastEvent` | Native or app-only event with timestamp, temperature, source, and edit history. |
 | `Annotation` | Chart/time anchor, type, text, tags, attachment reference, author/time. |
 | `Attachment` | Immutable content-addressed photo/document evidence with media type, size, and relationship metadata. |
-| `Tasting` | One immutable/revision-linked sensory evaluation among many per roast, including tasted time/rest age, scale, score, descriptors, component observations, defects, brew context, notes, author, and conclusion fields. |
+| `TastingScaleRevision` | Immutable dimensions, bounds, units, and scoring rules selected by a tasting. |
+| `Tasting` | One immutable/revision-linked sensory evaluation among many per roast, including tasted time/rest age, scale revision, score, descriptors, component observations, defects, brew context, notes, author, and structured conclusion fields. |
 | `NextRoastPlan` | Versioned objective and intended settings for the next iteration, scoped to coffee and optionally lot, with status and eventual executed-roast link. |
 | `PlanEvidence` | Join record citing a roast and optionally a tasting/metric/annotation as evidence for a next-roast plan. |
 | `SavedRoastView` | Versioned column, grouping, filter, multi-sort, density, and aggregate definition; contains no duplicated roast data. |
 | `RoastLibraryRow` | Rebuildable denormalized read model for the virtualized table and facets, containing indexed display/search values and latest-tasting summary. The normalized entities remain authoritative. |
 | `LabelTemplate` | Versioned physical layout and field rules. |
+| `RoastPackage` | One package net-mass record optionally linked to the exact label/print job; independent of green input and roasted yield. |
 | `Printer` | Configured/discovered queue or endpoint with adapter identity and calibrated media. |
 | `PrinterCapabilitySnapshot` | Immutable discovered formats, languages, media, DPI, features, provenance, and status fidelity used by a job. |
 | `PrintJob` | Immutable artifact hash and label-data snapshot, optional package net weight, template/capability/adapter revisions, copies, status events, receipt, and reprint link. |
@@ -688,7 +706,7 @@ Use a raw native-file store alongside parsed tables. Database migration must nev
 - Index every foreign key plus `Roast(roastedAt DESC)`, `Roast(greenLotId, roastedAt DESC)`, `Tasting(roastId, tastedAt DESC)`, `Tasting(overallScore)`, `InventoryTransaction(greenLotId, occurredAt)`, and `NextRoastPlan(coffeeIdentityId, status, createdAt DESC)`.
 - Store normalized lookup keys for provider, coffee, country, region, producer/farm, process, lot codes, and profile names. Keep the original user-facing text unchanged.
 - Use SQLite FTS5 (or an equivalently testable local index) for coffee name, supplier aliases, farm/producer, tags, tasting descriptors/notes/conclusions, roast notes, and plan rationale.
-- Maintain `RoastLibraryRow` transactionally when catalog links or the promoted tasting conclusion changes; provide a deterministic rebuild command and compare counts/hashes after rebuild.
+- Persist the domain/outbox event and update every affected `RoastLibraryRow` and FTS row in the same single-writer transaction as a P0 mutation, so its response is read-your-writes consistent. Post-commit consumers handle WebSocket presentation and explicitly noncritical derived views. Provide a deterministic shadow-table rebuild and compare counts/hashes before swap.
 - Seek/cursor pagination must back the virtualized grid. Offset-only queries that become slower with library size are not acceptable for ordinary scrolling.
 - Query plans for default saved views and every documented facet/sort combination are covered by fixtures and may not read `RoastSampleStream`/Arrow telemetry.
 
@@ -701,6 +719,7 @@ tan-studio-backup/
 ├── manifest.json            # format version, app/schema versions, counts, hashes
 ├── database.sqlite          # transactionally consistent snapshot
 ├── raw/                     # immutable .klog/.kpro and unknown native files by hash
+├── artifacts/               # durable print/report payloads referenced by user records
 ├── attachments/             # optional user attachments by hash
 └── exports/
     ├── providers.ndjson
@@ -708,9 +727,16 @@ tan-studio-backup/
     ├── coffee-identities.ndjson
     ├── green-lots.ndjson
     ├── roasts.ndjson
+    ├── roast-events.ndjson
+    ├── annotations.ndjson
+    ├── profiles.ndjson
+    ├── profile-revisions.ndjson
     ├── tastings.ndjson
     ├── next-roast-plans.ndjson
-    └── inventory-transactions.ndjson
+    ├── inventory-transactions.ndjson
+    ├── saved-roast-views.ndjson
+    ├── label-templates.ndjson
+    └── print-jobs.ndjson
 ```
 
 `manifest.json` records a hash for every payload, relationship counts, canonical units, timezone behavior, and excluded secret classes. Restore verifies hashes and referential integrity before activation; a failed restore leaves the current store untouched.
@@ -739,12 +765,12 @@ Each boundary has an independent service interface. Remote sessions receive READ
 
 - Bind the companion only to an OS-assigned `127.0.0.1` port; never expose it to the LAN.
 - Authenticate every API request with a per-launch 256-bit in-memory token delivered by the Tauri parent. The token never enters URLs, logs, SQLite, backups, or diagnostics.
-- Enforce exact Host and Origin allowlists, restrictive CSP, no wildcard CORS, state-changing JSON content types, DNS-rebinding protection, and one-use WebSocket tickets.
+- Enforce exact Host and Origin allowlists, restrictive CSP, no wildcard CORS, JSON mutation bodies except enumerated bounded upload streams, DNS-rebinding protection, and one-use WebSocket tickets.
 - Validate all local API inputs and native paths.
 - Prevent path traversal and writes outside explicit mirror roots.
 - Never unpickle Studio sync metadata.
 - Encrypt remote and LLM traffic with TLS.
-- Store future persistent secrets through an OS-keychain-backed adapter, not app configuration, SQLite, `.klog`, or `.kpro`.
+- Store the v1 device-identity HMAC key and all future persistent secrets through OS-keychain-backed adapters, not app configuration, SQLite, `.klog`, `.kpro`, backups, or diagnostics.
 - Redact serial numbers and local paths from labels, remote sessions, exports, and screenshots by default.
 - Log device writes and destructive confirmations.
 - Require current target resolution before delete/format/firmware actions.
@@ -775,7 +801,7 @@ Each boundary has an independent service interface. Remote sessions receive READ
 | NFR-11 | Compatibility | macOS first; architecture supports Windows/Linux transports and paths. |
 | NFR-12 | Updates | Ship shell, frontend, companion, native helpers, and migrations as one signed compatible Tauri release. Device firmware remains separately gated and is never auto-flashed. |
 | NFR-13 | Portability | A full verified dump and restore of a 10,000-roast fixture preserves entity counts, stable IDs, relationships, raw-file hashes, inventory balances, saved views, and tasting/plan history exactly. |
-| NFR-14 | Search | Exact catalog identifiers are immediately searchable after commit; full-text catalog/note search reflects a commit within 2 seconds. Results and facet counts are deterministic for the same saved-view definition. |
+| NFR-14 | Search | Exact identifiers, affected library rows, facets, and full-text catalog/note search are read-your-writes consistent when a P0 mutation returns. Results and facet counts are deterministic for the same saved-view definition. |
 | NFR-15 | Table scale | The virtualized table remains keyboard accessible, preserves selection through scroll/detail navigation, and exports the complete filtered result—not only rendered rows. Cancellation prevents stale long-running queries from replacing newer results. |
 | NFR-16 | Inventory integrity | Receipt/consumption/adjustment transactions use canonical signed integer milligrams; display conversion occurs only at validated boundaries. Concurrent or retried roast-finalization cannot double-decrement a green lot. |
 
@@ -883,7 +909,7 @@ The bridge is not a USB 3 project; it is a reliable USB 1.1 CDC host plus secure
 | Tasting-to-next-roast loop | COF-09-13 | Add three tastings at different rest ages to one roast without overwrite, promote a conclusion, create a cited next-roast plan, and find it from coffee, lot, library, and preflight. Start from the plan, record the executing roast, and verify the plan becomes used while its evidence remains immutable. |
 | Inventory and weight integrity | COF-06-07, NFR-16 | Receipt 1,000 g, finalize a 100 g green-load roast twice through a reconnect/retry fixture, record 84 g roasted yield, and print a 75 g package label. Assert remaining green inventory is exactly 900 g, one consumption transaction exists, roast loss is 16%, and neither yield nor package net changed inventory. |
 | Profile compatibility | PRO-01-06 | Import and semantically round-trip schemas 1.4-1.8, display exact curve/metadata values, create an immutable revision, reject every deterministic constraint with a field-level message, and deploy only after explicit target review. |
-| Labels | LAB-01-06, LAB-10 | Render the default label at exact configured size with no clipping, keep green/yield/net weights distinct, omit or safely encode unresolved fields, print to PDF/system dialog, and record/reprint the immutable job payload. Inspect QR bytes to confirm no path, serial, token, or secret is present. |
+| Labels and printer adapters | LAB-01-06, LAB-09-11, LAB-13 | Render the default label at exact configured size with no clipping; keep green/yield/net weights distinct; inspect QR bytes for privacy; exercise PDF/system queue and direct IPP capability negotiation; print the ZPL artifact on Zebra ZD421-class 203/300 DPI hardware; record artifact/capability/adapter/receipt history; and verify no submitted/spooled/device-accepted result is presented as physically printed without proof. |
 | Local store and dump | DATA-01-07, NFR-02-03, NFR-13 | Inject interruption during roast finalization and prove atomic/idempotent recovery. Dump a 10,000-roast store, verify every manifest hash, restore into an empty store, and compare stable IDs, counts, relationships, raw bytes, balances, saved views, and plans. Corrupt a copied parsed index and rebuild it without modifying originals. Confirm no credential/token appears in archive or exports. |
 | Cross-cutting quality | NFR-01-16 | Run offline, transactional-recovery, scale/search/table, live-append, WCAG/keyboard, 360/1024 px responsive, unit/timezone round-trip, redaction, portability, inventory-idempotency, golden/protocol/conflict/hardware-in-loop, platform-abstraction, and no-auto-flash tests. |
 

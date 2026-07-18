@@ -105,12 +105,13 @@ The shell must:
 
 - Enforce one application instance for the active OS user.
 - Resolve versioned application-data and signed-resource paths.
-- Start the companion, read exactly one bootstrap record from protected stdout, and stop it on application exit.
+- Generate the 256-bit launch token, start the companion, deliver the token over a private inherited control channel, read exactly one non-secret bootstrap record from protected stdout, and stop it on application exit.
 - Inject the companion origin and launch token into a read-only in-memory webview bootstrap object before React starts.
 - Apply Tauri capabilities and a restrictive content security policy.
-- Own signed updater behavior and, later, OS-keychain access.
+- Provide a narrow private shell bridge for save/open/print panels and allowlisted keychain operations requested by companion ports; it is not exposed directly to React.
+- Own signed updater behavior and the v1 OS-keychain-backed device-identity key. Future provider credentials use the same abstract secret-store boundary.
 
-The shell must not contain product use cases, parse native files, interpret SASSI, query domain tables, or render labels.
+The shell must not contain product use cases, parse native files, interpret SASSI, query domain tables, or render labels. Shell-bridge requests reference an already validated app-owned artifact and an allowlisted operation; there is no generic shell command, arbitrary path, or arbitrary Tauri invoke surface.
 
 #### Bun companion
 
@@ -137,8 +138,9 @@ sequenceDiagram
     participant W as React webview
     participant D as SQLite/device services
 
-    T->>C: spawn with resource root and app-data root
-    C->>C: bind 127.0.0.1:0; generate 256-bit launch token
+    T->>T: generate 256-bit launch token; load/create device identity key
+    T->>C: spawn; send secrets on private inherited control channel
+    C->>C: bind 127.0.0.1:0
     C->>D: lock database; migrate; recover jobs/inbox
     C-->>T: one JSON bootstrap line on protected stdout
     T->>W: inject immutable {origin, token, buildVersion}
@@ -160,13 +162,40 @@ The companion bootstrap record is:
 type CompanionBootstrap = {
   protocolVersion: 1
   origin: `http://127.0.0.1:${number}`
-  launchToken: string // 32 random bytes, base64url without padding
   companionPid: number
   buildVersion: string
 }
 ```
 
-The record must be consumed by the Tauri parent and must never be copied to normal logs. Any additional stdout before or after the record is a packaging-test failure; structured companion logs go to a dedicated rotating file sink.
+The record must be consumed by the Tauri parent and must never contain the launch token or device-identity key. Any additional stdout before or after the record is a packaging-test failure; structured companion logs go to a dedicated rotating file sink. The launch token is 32 random bytes, represented as base64url without padding only inside the shell/webview bootstrap and companion memory.
+
+Tauri creates a private inherited pipe pair, or a user-only Unix-domain socket/Windows named pipe where inherited descriptors are unavailable, for the versioned shell bridge. Before HTTP starts, the channel carries the launch token and an application-scoped device-identity HMAC key loaded from the OS keychain; those values are never sent back or requested by React. The companion implements `ArtifactExportPort`, `SystemDocumentPort`, and `DeviceIdentityKeyStore` over this bridge. Later provider credentials extend a separate `SecretStore` interface. Requests are length-prefixed MessagePack, carry a correlation ID, and are limited to `saveArtifact`, `openArtifact`, `showPdfPrintDialog`, and separately permissioned keychain operations. Tauri independently verifies that an artifact path resolves beneath the active generation's immutable artifact root before opening a native panel. The bridge carries no domain queries and never exposes a selected destination path to React. If the device key cannot be loaded, Tan Studio may inspect a candidate transiently but remains read-only and does not persist or trust its identity.
+
+### 2.4 Companion execution topology
+
+Synchronous SQLite and CPU/native work must never run on the event loop that owns USB ingestion, WebSocket heartbeats, or Hono connection handling.
+
+```mermaid
+flowchart LR
+    Main["Main Bun event loop\nHTTP/WS, device actors, scheduling"]
+    Main --> Writer["Single database worker\nwrite connection + UnitOfWork priority queue"]
+    Main --> Readers["Bounded read workers\nread-only SQLite connections"]
+    Main --> Jobs["Bounded job workers\nparse, Arrow, render, export, hash"]
+    Main --> Inbox["Priority inbox writer\nappend complete live fragments"]
+    Writer --> DB["SQLite WAL"]
+    Readers --> DB
+    Jobs --> Store["Content-addressed stores"]
+    Inbox --> Store
+```
+
+- The main loop performs framing/session state and queues persistence; it does not run synchronous SQL, parse a complete log, generate Arrow, render PDF/SVG/raster, invoke sharp/resvg, build a backup, or rebuild a projection.
+- One dedicated database worker owns the read/write connection and all migrations/transactions. Its priority queue services live-roast metadata/finalization before ordinary UI mutations and background jobs. It is never terminated mid-transaction.
+- A bounded pool of request-owned workers, each with a read-only SQLite connection, serves library/facet/report reads. HTTP cancellation stops streaming immediately and marks the task cancelled; a worker running an uninterruptible synchronous query is allowed to finish off the main loop and is recycled or terminated only where the read-only connection can be safely discarded.
+- A separate bounded CPU/job pool performs native parsing, hashing, Arrow conversion, label rendering, compression, and exports. Each task has byte/time/memory limits and checkpoints. Cancellation terminates only the request-owned job worker, never the writer.
+- Complete live native fragments use a priority append path before presentation events. Backpressure coalesces UI sample events and pauses background reads/jobs before it drops device evidence.
+- Worker messages are versioned structured data or transferable byte buffers. SQLite connections, SerialPort handles, native renderer objects, and mutable domain aggregates are never shared between workers.
+
+Default production limits are one writer, two read workers, and `max(1,min(2,logicalCpuCount-2))` CPU workers on the reference Mac. These limits are configurable by platform profile, not user-facing arbitrary tuning. Worker crashes fail only their task, preserve durable inputs, and trigger bounded replacement.
 
 ## 3. Clean Architecture and repository structure
 
@@ -176,7 +205,7 @@ The record must be consumed by the Tauri parent and must never be copied to norm
 flowchart BT
     Domain["Domain: entities, values, policies, domain events"]
     Application["Application: use cases and ports"] --> Domain
-    Contracts["API contracts: transport schemas"] --> Application
+    Contracts["API contracts: runtime-neutral transport schemas"]
     Infrastructure["Infrastructure adapters"] --> Application
     Companion["Companion composition root"] --> Infrastructure
     Companion --> Contracts
@@ -186,7 +215,7 @@ flowchart BT
 
 - `domain` depends only on the TypeScript standard library and small, runtime-neutral value helpers.
 - `application` depends on `domain` and defines every outbound port.
-- Transport contracts may map to application commands/results but must not leak Hono, SQLite, serial, or printer types inward.
+- Transport contracts are runtime-neutral Zod/TypeScript DTOs and do not import application or domain. The companion HTTP adapter maps DTOs to application commands/results; web imports cannot transitively pull domain/use-case code into the frontend.
 - Infrastructure adapters depend inward and translate external failures into application error categories.
 - Composition roots construct concrete adapters explicitly. A reflective dependency-injection container is prohibited.
 - Cross-module communication uses application interfaces or typed domain events, never another module's database implementation.
@@ -200,20 +229,23 @@ The repository will use Bun workspaces with this target structure:
 apps/
 ├── web/                    # React/Vite routes and feature composition
 ├── companion/              # Hono server, adapters, jobs, composition root
-└── desktop/                # Tauri 2 Rust shell and packaging
+└── desktop/                # Tauri 2 Rust shell, native print/serial helpers, packaging
 packages/
 ├── domain/                 # Pure domain model and policies
 ├── application/            # Use cases, ports, commands, results
-├── api-contract/           # Zod/OpenAPI schemas and event envelopes
+├── api-contract/           # Runtime-neutral Zod/OpenAPI DTOs and event envelopes
 ├── api-client/             # Generated client; never hand-edited
+├── api-client-runtime/     # Handwritten query keys, retry/cache policy, event integration
 ├── device-sassi/           # Pure incremental framing/CRC/session messages
-├── native-formats/         # Lossless kpro/klog documents and mappers
-├── printing/               # Label model, renderers, encoders, capability types
+├── native-format-adapters/ # Lossless kpro/klog parser/writer implementations
+├── printing-adapters/      # Renderer/encoder implementations; depends inward
 ├── ui/                     # shadcn source components and semantic tokens
 └── testkit/                # Fixtures, fake clocks, ports, builders, matchers
 ```
 
 Infrastructure implementations live under `apps/companion/src/adapters`; they are not published as general-purpose packages until a second composition root needs them. This avoids a package-per-class structure while keeping boundaries testable.
+
+Domain label/profile/roast value types live in `domain`. Every repository, parser, renderer, printer, transport, clock, identity, and filesystem port lives in `application`. `device-sassi`, `native-format-adapters`, and `printing-adapters` are outward implementations and may depend on domain/application; application code must never import them. The dependency test treats these adapter packages exactly like `apps/companion/src/adapters`.
 
 ### 3.3 Code and contract rules
 
@@ -252,7 +284,7 @@ JavaScript numbers are safe for the expected domain ranges, but database adapter
 
 ### 4.2 Domain events and durable dispatch
 
-Domain events use past-tense names such as `catalog.greenLotReceived.v1`. Each event is persisted to `domain_events` in the same SQLite transaction as the aggregate change. An in-process dispatcher consumes committed events, updates projections, and marks delivery per consumer. No external message broker is required.
+Domain events use registered, past-tense names such as `catalog.greenLotReceived.v1`. Each event is persisted to `domain_events` in the same SQLite transaction as the aggregate change. Every event schema is checked in under `packages/api-contract` and its fully qualified type is never reused with new semantics. No external message broker is required.
 
 ```ts
 type DomainEvent<TType extends string, TPayload> = {
@@ -261,6 +293,7 @@ type DomainEvent<TType extends string, TPayload> = {
   schemaVersion: 1
   aggregateId: string
   aggregateRevision: number
+  eventOrdinal: number
   occurredAt: string
   correlationId: string
   causationId?: string
@@ -268,7 +301,7 @@ type DomainEvent<TType extends string, TPayload> = {
 }
 ```
 
-Consumers must be idempotent by `(eventId, consumerName)`. WebSocket notifications are presentation events derived after commit, never the transaction mechanism itself. Durable jobs and projections catch up after restart before the companion reports `ready`.
+Consumers must be idempotent by `(eventId, consumerName)`. P0 read-your-writes projections, including affected `roast_library_rows` and FTS rows, update inside the originating `UnitOfWork`; post-commit consumers handle WebSocket presentation, expensive rebuilds, and explicitly noncritical projections. Durable consumers catch up after restart before the companion reports the relevant capability `ready`.
 
 ### 4.3 Application errors
 
@@ -298,7 +331,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `CatalogRepository`, `InventoryLedgerRepository`, `RoastLineageReader`, `UnitConversionPolicy`, `AuditPort`.
 
-**Events:** `providerCreated`, `coffeeIdentityCreated`, `greenLotReceived`, `inventoryAdjusted`, `roastLineageChanged`.
+**Events:** `catalog.providerCreated.v1`, `catalog.coffeeIdentityCreated.v1`, `catalog.greenLotReceived.v1`, `inventory.inventoryAdjusted.v1`, `roasts.roastLineageChanged.v1`.
 
 **Failure behavior:** insufficient stock is a warning until confirmation; a permitted negative adjustment requires a reason. Retried finalization returns the existing consumption. This module must not parse `.klog`, read samples, or talk to a roaster.
 
@@ -312,7 +345,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `RoastRepository`, `SampleStreamStore`, `NativeFileStore`, `InventoryConsumptionPort`, `DeviceEventPort`, `AttachmentStore`, `Clock`.
 
-**Events:** `roastObserved`, `sampleBatchReceived`, `roastEventRecorded`, `annotationAdded`, `finalLogReconciled`, `roastFinalized`.
+**Events:** `roasts.roastObserved.v1`, `roasts.sampleBatchReceived.v1`, `roasts.roastEventRecorded.v1`, `roasts.annotationAdded.v1`, `roasts.finalLogReconciled.v1`, `roasts.roastFinalized.v1`.
 
 **Failure behavior:** a cable loss marks the stream stale without inferring roast completion. If the database is unavailable, complete incoming native fragments go to the recoverable inbox. This module must not open serial ports or issue raw protocol messages.
 
@@ -326,7 +359,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `ProfileRepository`, `NativeProfileCodec`, `ProfileValidator`, `DeviceProfileDeploymentPort`, `AuditPort`.
 
-**Events:** `profileImported`, `profileRevisionCreated`, `profileValidated`, `profileDeploymentRequested`, `profileDeployed`.
+**Events:** `profiles.profileImported.v1`, `profiles.profileRevisionCreated.v1`, `profiles.profileValidated.v1`, `profiles.profileDeploymentRequested.v1`, `profiles.profileDeployed.v1`.
 
 **Failure behavior:** validation returns field/curve locations and blocks deployment; unknown native fields survive a supported edit. This module must not know SerialPort, SASSI frames, or UI curve-library types.
 
@@ -340,7 +373,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `TastingRepository`, `PlanRepository`, `RoastEvidenceReader`, `Clock`.
 
-**Events:** `tastingRecorded`, `conclusionPromoted`, `nextRoastPlanCreated`, `nextRoastPlanSuperseded`, `nextRoastPlanUsed`.
+**Events:** `tastings.tastingRecorded.v1`, `tastings.conclusionPromoted.v1`, `plans.nextRoastPlanCreated.v1`, `plans.nextRoastPlanSuperseded.v1`, `plans.nextRoastPlanUsed.v1`.
 
 **Failure behavior:** missing evidence remains a visible broken reference only if its source was explicitly removed; ordinary catalog archival never removes it. This module has no AI-provider or device dependency.
 
@@ -354,7 +387,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `SerialTransport`, `RoasterProtocol`, `DeviceRegistry`, `SyncLedger`, `NativeFileStore`, `DeviceClock`, `DeviceAuditPort`.
 
-**Events:** `deviceCandidateFound`, `deviceTrusted`, `deviceSessionChanged`, `deviceBusyChanged`, `syncPlanned`, `syncConflictDetected`, `syncCompleted`, `liveFragmentReceived`.
+**Events:** `devices.deviceCandidateFound.v1`, `devices.deviceTrusted.v1`, `devices.deviceSessionChanged.v1`, `devices.deviceBusyChanged.v1`, `devices.syncPlanned.v1`, `devices.syncConflictDetected.v1`, `devices.syncCompleted.v1`, `devices.liveFragmentReceived.v1`.
 
 **Failure behavior:** malformed/invalid frames terminate trust and retain redacted diagnostics; timeouts close the current request and enter backoff; the application never guesses an ACK or repeats a non-idempotent write. This module never updates catalog or profile tables directly.
 
@@ -368,7 +401,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `NativeFormatPlugin`, `RawArtifactStore`, `NativeFileRepository`, `ParserRegistry`.
 
-**Events:** `nativeFileImported`, `nativeFileRejected`, `nativeRevisionCreated`, `nativeFileExported`.
+**Events:** `native.nativeFileImported.v1`, `native.nativeFileRejected.v1`, `native.nativeRevisionCreated.v1`, `native.nativeFileExported.v1`.
 
 **Failure behavior:** parse errors are structured with spans and do not discard the raw artifact. This module must not trust paths contained in imported data or deserialize pickle.
 
@@ -382,7 +415,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `LabelRenderer`, `PrinterDiscoveryPort`, `PrintSubmissionPort`, `PrinterLanguageEncoder`, `RawPrinterTransport`, `PrintArtifactStore`.
 
-**Events:** `labelRendered`, `printJobSubmitted`, `printJobStatusChanged`, `printJobCancelled`.
+**Events:** `printing.labelRendered.v1`, `printing.printJobSubmitted.v1`, `printing.printJobStatusChanged.v1`, `printing.printJobCancelled.v1`.
 
 **Failure behavior:** a missing printer keeps a retryable draft and exact PDF fallback. This module must not query roast/catalog tables; application composition provides a resolved label data snapshot.
 
@@ -396,7 +429,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `RoastLibraryReadModel`, `SavedViewRepository`, `ExportJobPort`, `ProjectionCheckpointStore`.
 
-**Events:** `savedViewChanged`, `roastLibraryProjectionUpdated`, `reportExported`.
+**Events:** `search.savedViewChanged.v1`, `search.roastLibraryProjectionUpdated.v1`, `reports.reportExported.v1`.
 
 **Failure behavior:** cancellation prevents an older query from replacing a newer one; a stale projection is reported and rebuilt without changing authoritative entities.
 
@@ -410,7 +443,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `DatabaseSnapshotPort`, `ArchivePort`, `IntegrityCheckPort`, `SecretClassifier`, `DiagnosticLogPort`.
 
-**Events:** `backupCompleted`, `backupFailed`, `restoreActivated`, `inboxRecovered`, `diagnosticBundleCreated`.
+**Events:** `system.backupCompleted.v1`, `system.backupFailed.v1`, `system.restoreActivated.v1`, `system.inboxRecovered.v1`, `system.diagnosticBundleCreated.v1`.
 
 **Failure behavior:** failed artifacts remain marked incomplete and the previous verified state remains active. This module cannot invent missing raw evidence.
 
@@ -424,7 +457,7 @@ Adapters must retain the original error as a redacted cause for diagnostics with
 
 **Ports:** `SettingsRepository`, `CapabilityProvider`, `SecretReferenceStore`.
 
-**Events:** `settingsChanged`, `capabilitiesChanged`.
+**Events:** `settings.settingsChanged.v1`, `system.capabilitiesChanged.v1`.
 
 **Failure behavior:** invalid settings fall back only to the documented field default and emit a diagnostic; an unavailable adapter disables its actions rather than hiding data.
 
@@ -456,16 +489,15 @@ Tauri resolves the platform application-data directory. The companion receives t
 
 ```text
 Tan Studio/
-├── database/
-│   └── tan-studio.sqlite
-├── raw/
-│   └── sha256/ab/<64-char-hash>.bin
-├── derived/
-│   └── series/ab/<source-hash>.arrow
-├── attachments/
-│   └── sha256/ab/<64-char-hash>.bin
-├── inbox/
-│   └── live/<session-id>.part
+├── current-store.json      # atomically replaced {generationId, schemaVersion}
+├── stores/
+│   └── <generation-id>/
+│       ├── database/tan-studio.sqlite
+│       ├── raw/sha256/ab/<64-char-hash>.bin
+│       ├── artifacts/sha256/ab/<64-char-hash>.bin
+│       ├── derived/series/ab/<source-hash>.arrow
+│       ├── attachments/sha256/ab/<64-char-hash>.bin
+│       └── inbox/live/<session-id>.part
 ├── backups/
 │   └── <utc-timestamp>-<backup-id>/
 ├── diagnostics/
@@ -474,11 +506,12 @@ Tan Studio/
     └── companion.lock
 ```
 
-- `raw` and `attachments` are immutable and content addressed.
+- `raw`, `artifacts`, and `attachments` are immutable and content addressed. `artifacts` contains durable generated print/export payloads, never native-source evidence.
 - `derived` is disposable and rebuildable.
 - `inbox` may contain incomplete but recoverable evidence and is never included as a successful native import until parsed.
 - `backups` are user-visible, verified artifacts.
 - `diagnostics` is bounded and excluded from backups by default.
+- `current-store.json` is the only active-generation pointer. A restore creates a new complete generation and switches the pointer atomically; it never replaces several live directories independently.
 - No credential, launch token, remote token, or AI key may be stored anywhere in this tree.
 
 Artifact writes use a sibling random temporary file, restrictive permissions, a complete write loop, file flush, atomic rename, and parent-directory flush where supported. Existing hashes are verified before reuse. Paths from native files, printers, API requests, or backups are never concatenated directly into filesystem targets.
@@ -514,7 +547,7 @@ Every mutable entity has `created_at_ms`, `updated_at_ms`, and `revision`. Optio
 | `idempotency_keys` | Scope, key, request hash, result status/body reference, created/expiry time; unique `(scope,key)`. A reused key with a different request hash is a conflict. |
 | `jobs` | ID, type, state, progress basis points, input/result JSON, correlation ID, cancellation flag, attempt, next-run time, error code, timestamps. |
 | `job_events` | Job ID, monotonic sequence, state/progress/message code and safe parameters; unique `(job_id,sequence)`. |
-| `domain_events` | Event envelope, canonical payload JSON, dispatch state; unique event ID and `(aggregate_id,aggregate_revision,type)`. |
+| `domain_events` | Event envelope, fully qualified versioned type, canonical payload JSON, aggregate revision, event ordinal, and dispatch state; unique event ID and `(aggregate_id,aggregate_revision,event_ordinal)`. Ordinals start at zero and preserve the order of multiple events emitted by one aggregate revision. |
 | `domain_event_deliveries` | Event ID, consumer name/version, state, attempts, last error code; unique `(event_id,consumer_name)`. |
 | `audit_entries` | Actor kind, action, target kind/ID/revision, correlation ID, safe before/after summary, occurred time. No secret or full imported text. |
 
@@ -522,12 +555,16 @@ Every mutable entity has `created_at_ms`, `updated_at_ms`, and `revision`. Optio
 
 | Table | Required contents and constraints |
 | --- | --- |
-| `devices` | Stable local ID, model, product family, redacted display suffix, firmware, SASSI version, capability JSON/hash, first/last seen. Real serial is encrypted via a future secret/identity adapter or represented by a keyed local fingerprint; it is not logged or exported by default. |
+| `devices` | Stable local ID, model, product family, redacted display suffix, firmware, SASSI version, capability JSON/hash, first/last seen. Persist `HMAC-SHA-256(deviceIdentityKey, concat(UTF8("tan-studio/device/v1\0"), serialBytes))` as the fingerprint, never the raw serial; the fingerprint is not exported by default. |
 | `transport_endpoints` | Device ID nullable until trusted, kind (`usb`,`official_lan`,`mirror`,`future_bridge`), stable adapter key, safe display label, last seen, availability. OS path/URI is adapter-private metadata excluded from ordinary exports. |
 | `device_sync_entries` | Device ID, normalized remote path, common-base/local/remote artifact hashes and mtimes, state, last verified time; unique `(device_id,remote_path)`. |
-| `native_files` | Artifact hash primary key, byte length, media/format kind, schema hint, parser ID/version, parse state, warnings JSON, provenance kind, imported time. |
+| `device_sync_plans` | Immutable plan ID, device/fingerprint, connection session, capability hash, remote inventory hash, capacity/busy snapshot, base/local/remote root hashes, created/expiry time, review state, plan hash, execution job nullable, and terminal outcome. |
+| `device_sync_operations` | Plan ID, ordinal, operation kind, canonical remote path, base/local/remote artifact hashes and sizes, expected precondition, destructive flag, and execution outcome; unique `(plan_id,ordinal)`. Operations cannot change after review. |
+| `native_files` | Immutable artifact hash primary key, byte length, media/format kind, schema hint, first-seen time, and storage verification state. It represents bytes only and carries no occurrence-specific provenance. |
+| `native_import_occurrences` | ID, native-file hash, source kind, redacted source hint, observed/imported time, device/sync/job IDs nullable, parser ID/version, parse state, warnings JSON, and correlation ID. Identical bytes imported twice create one artifact and two occurrences. |
 | `native_file_revisions` | Revision ID, native-file hash, parent revision nullable, edit-set JSON, semantic hash, created reason. The artifact remains immutable. |
 | `native_document_links` | Native revision ID, owner kind/ID, role (`original`,`current`,`provisional`,`export`); unique current role per owner enforced transactionally. |
+| `generated_artifacts` | Hash primary key, byte length, media type, kind (`print`,`export`,`report`), producer/version, retention class, created/expiry time. Durable print artifacts have no automatic expiry. |
 
 #### Catalog and inventory
 
@@ -536,26 +573,35 @@ Every mutable entity has `created_at_ms`, `updated_at_ms`, and `revision`. Optio
 | `providers` | ID, display name, normalized name, reference/contact metadata JSON, notes, archive state. |
 | `provider_aliases` | Provider ID, alias, normalized alias; unique normalized alias per provider. |
 | `coffee_identities` | ID, display/normalized name, ISO country code nullable, region, producer/farm, station/cooperative, process, varieties JSON, altitude min/max metres, harvest label, certifications JSON, notes. |
+| `tags` | ID, namespace, display/normalized name, optional semantic color token, archive state; unique `(namespace,normalized_name)`. |
+| `coffee_tags` | Coffee ID, tag ID; unique pair. |
+| `roast_tags` | Roast ID, tag ID; unique pair. |
 | `green_purchases` | ID, provider ID, purchased/received instants and source timezone, supplier reference, optional ISO currency/total minor units, notes. |
 | `purchase_lines` | ID, purchase ID, coffee ID, ordered/received mass mg, optional cost minor units, notes. Quantities are nonnegative. |
 | `green_lots` | ID, purchase-line ID, supplier/internal codes, received mass mg, received time/timezone, storage note/location, green measurements JSON, state (`active`,`depleted`,`archived`). |
-| `inventory_transactions` | ID, lot ID, kind (`receipt`,`roast_consumption`,`adjustment`,`transfer_in`,`transfer_out`,`write_off`), signed delta mg, occurred time, reason, source roast nullable, idempotency key. A partial unique index permits one `roast_consumption` per roast. |
+| `inventory_transfers` | ID, source lot, destination lot, positive mass mg, occurred time, reason, permanent idempotency key; source and destination differ. |
+| `inventory_transactions` | ID, lot ID, kind (`receipt`,`roast_consumption`,`adjustment`,`transfer_in`,`transfer_out`,`write_off`), signed delta mg, occurred time, reason, source roast nullable, transfer ID nullable, idempotency key. A partial unique index permits one `roast_consumption` per roast. Each transfer has exactly one equal negative source row and one equal positive destination row created in the same transaction. |
 
 Lot balance is calculated from the ledger, with an optional transactionally maintained balance projection. The received mass on a lot is descriptive evidence; it does not replace the receipt transaction.
+
+`TransferInventory` creates the transfer record and both ledger rows in one `UnitOfWork`. It rejects a self-transfer, a nonpositive mass, insufficient stock unless an explicitly authorized negative-balance policy applies, and reuse of its permanent idempotency key with different inputs. No endpoint may create a standalone `transfer_in` or `transfer_out` row.
 
 #### Profiles, roasts, and telemetry
 
 | Table | Required contents and constraints |
 | --- | --- |
 | `profiles` | ID, display/normalized name, family, origin (`official`,`imported`,`user`,`extracted`), archive state. |
-| `profile_revisions` | ID, profile ID, revision number, schema version, short name, semantic document JSON, source native revision/proposal/roast nullable, validation state/report, immutable created time; unique `(profile_id,revision_number)`. |
+| `profile_revisions` | ID, profile ID, revision number, schema version, short name, immutable semantic document JSON, source native revision/proposal/roast nullable, immutable created time; unique `(profile_id,revision_number)`. |
 | `profile_revision_parents` | Revision ID, parent revision ID, position; unique pair. Supports merge history without overwriting. |
-| `roasts` | ID, green lot nullable, contextual coffee ID nullable, profile revision nullable, current native revision nullable, device nullable, roasted instant/timezone, level thousandths, development basis points nullable, green input/roasted yield mg nullable, end reason, result/status, promoted tasting nullable, executed plan nullable, finalization key. |
-| `roast_sample_streams` | Roast ID primary key, source native-file hash, channel schema JSON, row count, first/last elapsed ms, cache encoding/version/path/hash nullable, reconciliation state. |
+| `profile_validation_reports` | Immutable ID, profile revision, target device/capability hash, target firmware/schema, validator ID/version, report JSON/hash, result, warnings/errors, created time. A device deployment references the exact passing report. |
+| `roast_intents` | ID, selected lot/coffee, profile revision, optional ready plan, level thousandths, expected green load mg, target device nullable, intent state (`draft`,`armed`,`claimed`,`expired`,`cancelled`), created/expiry time, claimed roast nullable, and revision. At most one armed intent exists per local operator. |
+| `roasts` | ID, intent ID nullable unique, green lot nullable, contextual coffee ID nullable, profile revision nullable, current native revision nullable, device nullable, roasted instant/timezone, level thousandths, development basis points nullable, green input/roasted yield mg nullable, end reason, result/status, promoted tasting nullable, finalization key. |
+| `roast_sample_streams` | Roast ID primary key, reconciled source native-file hash nullable, provisional inbox reference nullable, channel schema JSON, row count, first/last elapsed ms, cache encoding/version/path/hash nullable, reconciliation state. A reconciled stream requires a verified native-file hash and no provisional-only state. |
 | `roast_events` | ID, roast ID, event kind, elapsed ms, temperature milli-C nullable, source (`native`,`device`,`user`,`derived`), source native revision nullable, supersedes nullable, deleted flag. |
 | `annotations` | ID, roast ID, anchor kind (`elapsed`,`temperature`,`sample`,`roast`), anchor values, type, text, tags JSON, created/updated provenance. |
 | `attachments` | Hash primary key, byte length, media type, original-name hint, created time. |
 | `annotation_attachments` | Annotation ID, attachment hash, caption/order; unique pair. |
+| `roast_packages` | ID, roast ID, package ordinal, net mass mg, packaging time/timezone, label/print job nullable, notes; unique `(roast_id,package_ordinal)`. Package mass is never substituted for roasted yield. |
 
 Telemetry values are not expanded into the roast-library tables. On import, the parser writes one standard Apache Arrow IPC file per reconciled sample stream using typed columns in native channel order. `roast_sample_streams` records its schema and hash. The Arrow cache is a derived optimization: a missing, outdated, or corrupt cache is rebuilt from the immutable `.klog`; it is excluded from portable backups. During a live roast, parsed rows remain in a bounded memory buffer while complete source fragments are appended to the durable inbox. The provisional Arrow cache is replaced only after final reconciliation.
 
@@ -563,10 +609,16 @@ Telemetry values are not expanded into the roast-library tables. On import, the 
 
 | Table | Required contents and constraints |
 | --- | --- |
-| `tastings` | ID, roast ID, immutable revision lineage/supersedes nullable, tasted time/timezone, rest age ms, scale ID, score basis points nullable, brew context JSON, component scores JSON, notes, conclusion, author label. |
+| `tasting_scales` | Logical scale ID, display name, archive state. |
+| `tasting_scale_revisions` | Scale/revision ID, scoring bounds/unit, immutable ordered dimension definitions and validation rules JSON, created time; unique `(scale_id,revision_number)`. Existing tastings retain their exact revision. |
+| `tastings` | ID, roast ID, immutable revision lineage/supersedes nullable, tasted time/timezone, rest age ms, tasting-scale revision, score basis points nullable, brew context JSON, validated component scores JSON, notes, outcome, worked, did-not-work, next action, and author label. |
 | `tasting_descriptors` | Tasting ID, normalized descriptor, display descriptor, polarity/intensity nullable; unique `(tasting_id,normalized_descriptor)`. |
-| `next_roast_plans` | ID, coffee ID, optional lot ID, objective, proposed settings JSON, status (`draft`,`active`,`used`,`superseded`,`cancelled`), supersedes nullable, executed roast nullable. Partial unique constraints ensure at most one executed roast and one active plan per chosen scope. |
+| `next_roast_plans` | ID, coffee ID, optional lot ID, objective, proposed settings JSON, status (`draft`,`ready`,`used`,`superseded`,`cancelled`), supersedes nullable, executed roast nullable unique. Separate partial unique indexes permit at most one `ready` coffee-wide plan where lot is null and one `ready` plan per lot. |
 | `plan_evidence` | Plan ID, roast ID, optional tasting/event/annotation ID, evidence note; unique logical citation. |
+
+Plan transitions are `draft -> ready|cancelled`, `ready -> used|superseded|cancelled`, and no transition out of a terminal state. Starting from a ready plan claims it through a `roast_intent`; finalizing the claimed roast sets the plan to `used` and its canonical `executed_roast_id` in the same transaction. The inverse roast-to-plan relationship is derived. A successor may supersede a ready plan, but a used plan remains immutable.
+
+Application transactions enforce cross-row invariants that SQLite cannot express with a simple foreign key: a promoted tasting belongs to that roast and is the current non-tombstoned revision; plan evidence belongs to the cited roast; a profile parent graph is acyclic; an armed roast intent references a compatible, available lot/profile/target snapshot; and an attachment relationship points to an accepted media type and bounded artifact.
 
 #### Search and saved views
 
@@ -582,11 +634,11 @@ Telemetry values are not expanded into the roast-library tables. On import, the 
 | Table | Required contents and constraints |
 | --- | --- |
 | `label_templates` | Logical template ID, name, archive state. |
-| `label_template_revisions` | Template ID/revision, physical width/height micrometres, schema-versioned `LabelDocument` JSON, immutable created time. |
+| `label_template_revisions` | Template ID/revision, physical width/height micrometres, schema-versioned `LabelTemplateDocument` JSON, immutable created time. |
 | `printers` | Local ID, stable adapter key, display name, adapter kind, URI/queue reference, configured media/calibration JSON, last seen. Sensitive credentials remain secret references. |
 | `printer_capability_snapshots` | ID, printer ID, discovered time, source/provenance, normalized capability JSON/hash, raw safe summary, expiry. |
-| `print_jobs` | ID, label-template revision, resolved label-data snapshot, artifact hash/media type, width/height/DPI, printer/capability snapshot nullable, adapter/encoder versions, copies, state, status fidelity, submitted/completed times, reprint-of nullable, idempotency key. |
-| `print_job_events` | Job ID, sequence, status, fidelity, adapter code, safe message, occurred time; unique `(job_id,sequence)`. |
+| `print_jobs` | ID, label-template revision, resolved label-data snapshot/document hash, target artifact hash/media type, width/height/DPI, printer/capability snapshot nullable, adapter/encoder versions, copies, lifecycle, strongest evidence, opaque submission handle nullable, submitted/completed times, reprint-of nullable, idempotency key. |
+| `print_job_events` | Job ID, sequence, lifecycle, evidence observations JSON, fidelity, adapter code, safe message, occurred time; unique `(job_id,sequence)`. |
 
 Future `ai_proposals`, `remote_sessions`, and `remote_viewer_audit` tables are introduced only with their features; migrations must not create tables that imply enabled cloud behavior in v1.
 
@@ -598,13 +650,16 @@ At minimum, migrations create:
 - `roasts(roasted_at_ms DESC,id DESC)` and `(green_lot_id,roasted_at_ms DESC,id DESC)`.
 - `tastings(roast_id,tasted_at_ms DESC,id DESC)` and `(score_basis_points,id)`.
 - `inventory_transactions(green_lot_id,occurred_at_ms,id)`.
+- `inventory_transfers(source_lot_id,destination_lot_id,occurred_at_ms,id)`.
 - `next_roast_plans(coffee_id,status,created_at_ms DESC,id)`.
 - `profile_revisions(profile_id,revision_number DESC)`.
+- `profile_validation_reports(profile_revision_id,target_capability_hash,created_at_ms DESC,id)`.
 - `jobs(state,next_run_at_ms,created_at_ms)`.
 - `device_sync_entries(device_id,state,remote_path)`.
+- `device_sync_plans(device_id,created_at_ms DESC,id)` and `device_sync_operations(plan_id,ordinal)`.
 - Query-specific composite indexes for every built-in roast view and documented facet/sort path, verified with `EXPLAIN QUERY PLAN` fixtures.
 
-`RoastLibraryRow` is rebuilt deterministically from normalized tables. Projection consumers update it in the same writer queue after their triggering transaction commits. If the checkpoint is behind during startup, the companion catches up before reporting search ready. A full rebuild writes a shadow table, verifies row counts and a deterministic hash, then swaps it transactionally.
+`RoastLibraryRow` is rebuilt deterministically from normalized tables. Every P0 mutation updates its affected row and FTS entry in the same `UnitOfWork`, before the response is returned. The durable outbox remains the rebuild source and drives noncritical projections after commit. If a projection checkpoint is behind during startup, the companion catches up before reporting that capability ready. A full rebuild writes shadow content/FTS tables, verifies row counts and deterministic hashes, then swaps them transactionally.
 
 ### 6.5 Migrations
 
@@ -628,13 +683,14 @@ tan-studio-backup/
 ├── manifest.json
 ├── database.sqlite
 ├── raw/sha256/...
+├── artifacts/sha256/...    # only durable artifacts referenced by user records
 ├── attachments/sha256/...
 └── exports/*.ndjson
 ```
 
 The backup job pauses new domain mutations through the writer queue, persists pending inbox metadata, creates a consistent SQLite snapshot using `VACUUM INTO` in staging, resumes normal writes, copies immutable artifacts, writes NDJSON portability exports, then hashes and verifies every item. `manifest.json` records format/application/schema versions, canonical units, source timezone rules, entity counts, relationship counts, artifact hashes, excluded classes, and completion status.
 
-Restore always targets a new staging root. It verifies archive traversal safety, size/count limits, hashes, SQLite integrity, migration compatibility, foreign keys, entity counts, raw artifact presence, and secret exclusion before acquiring the writer lock and atomically switching roots. Failure leaves the active store untouched.
+Restore always targets a new `stores/<generation-id>` staging generation. It verifies archive traversal safety, size/count limits, hashes, SQLite integrity, migration compatibility, foreign keys, entity counts, referenced artifact presence, and secret exclusion. It then stops writers, closes the old database, atomically replaces `current-store.json`, opens and health-checks the new generation, and rolls the pointer back if that first open fails. The prior generation is retained until the new generation has passed a clean restart and a verified backup. Failure leaves the active generation untouched.
 
 Default automatic retention is seven daily and four weekly verified backups. Users can change or disable the schedule. A failed run never deletes a prior verified backup. Manual exports are not pruned automatically.
 
@@ -646,7 +702,7 @@ Hono route definitions and Zod schemas generate one OpenAPI 3.1 document. The ch
 
 All product routes are under `/api/v1`. Backward-compatible fields may be added within v1; removals or semantic changes require `/api/v2`. Event `type` values carry their own schema suffix. API and database versions are independent.
 
-Requests and responses use JSON except artifact/series streaming. JSON names are `camelCase`; enums are lowercase `snake_case`; absent optional values are omitted rather than serialized as `undefined`. `null` is used only when clearing a nullable field is semantically distinct from omission.
+Requests and responses use JSON except artifact/series streaming and the explicitly enumerated native-file, attachment, and backup upload endpoints. JSON names are `camelCase`; enums are lowercase `snake_case`; absent optional values are omitted rather than serialized as `undefined`. `null` is used only when clearing a nullable field is semantically distinct from omission.
 
 ### 7.2 Authentication and origin enforcement
 
@@ -654,17 +710,27 @@ Requests and responses use JSON except artifact/series streaming. JSON names are
 - HTTP requires `Authorization: Bearer <launchToken>` and `X-Tan-Studio-Client: desktop-v1`.
 - The server checks the exact `Host` value against its assigned loopback authority and checks `Origin` against the platform Tauri origin. Development origins are enabled only by an explicit development build flag.
 - CORS reflects only the exact accepted origin and never returns `*`.
-- State-changing requests require JSON content type and reject simple cross-origin form encodings.
+- State-changing requests require `application/json`, except `POST /native-file-imports`, `POST /attachment-uploads`, and `POST /backup-uploads`, which accept only their documented `multipart/form-data` or `application/octet-stream` bodies. Uploads still require bearer authentication, exact Host/Origin, the custom client header, declared-size limits, streamed byte limits, and content hashing. All routes reject `application/x-www-form-urlencoded` and `text/plain` mutation bodies.
 - Responses set `Cache-Control: no-store`; sensitive response data is never placed in a URL.
 - The launch token remains only in the shell, webview memory, and companion memory. It is redacted from errors and logs.
 
 Browser WebSocket constructors cannot set `Authorization`. The client therefore requests a random, one-use, 30-second event ticket through authenticated `POST /api/v1/event-tickets`, then supplies `tan-studio.v1` and `ticket.<base64url>` as WebSocket subprotocols. The server consumes the ticket atomically and echoes only `tan-studio.v1`; it never logs the ticket. A reconnect obtains a new ticket.
 
+```ts
+type EventTicketRequest = { resume?: { sessionId: string; seq: number } }
+type EventTicketResponse = {
+  ticket: string
+  expiresAt: string
+  protocol: "tan-studio.v1"
+  delivery: "replay" | "snapshot"
+}
+```
+
 ### 7.3 Headers, concurrency, and idempotency
 
 - Every response includes `X-Correlation-Id`; callers may supply a valid UUID through the same header.
 - Editable single-resource responses include `ETag: "<revision>"`.
-- `PATCH`, `PUT`, and destructive `DELETE` require `If-Match`; a stale revision returns `412` with the current ETag and safe conflict summary.
+- `PATCH`, `PUT`, and destructive `DELETE` of revisioned resources require `If-Match`; a stale revision returns `412` with the current ETag and safe conflict summary. Transient connection cancellation is modeled as an idempotent command and does not pretend to be a revisioned resource.
 - Mutation requests that can be retried across reconnects require an `Idempotency-Key` UUID. The server stores the request hash and result for 24 hours, or permanently when it protects an inventory/device/print invariant.
 - Reusing a key with a different request body returns `409 idempotency_key_reused`.
 - `DELETE` archives ordinary catalog entities. Permanent artifact removal is a separately scoped maintenance job and is absent from v1 UI.
@@ -693,11 +759,11 @@ type ApiProblem = {
 }
 ```
 
-Messages are safe for display and contain no stack, SQL, path, raw imported line, printer payload, serial, token, or provider response. HTTP mapping is stable: validation `400/422`, unauthenticated `401`, capability `403`, not found `404`, revision `412`, ownership/idempotency `409`, busy `423`, rate/backoff `429`, unavailable `503`, and unexpected `500`.
+Messages are safe for display and contain no stack, SQL, path, raw imported line, printer payload, serial, token, or provider response. HTTP mapping is stable: malformed JSON, invalid headers, and unsupported content types use `400`; syntactically valid schema/domain validation uses `422`; unauthenticated uses `401`; capability denial `403`; not found `404`; revision `412`; ownership/idempotency/conflict `409`; busy `423`; rate/backoff `429`; unavailable `503`; and unexpected `500`. `fieldErrors.path` is an RFC 6901 JSON Pointer rooted at the request body. Empty pointer `""` represents a whole-body error.
 
 ### 7.5 Resource endpoints
 
-The following surface is normative. Nested collection creation uses the parent path; commands that are not CRUD use explicit action resources and return a job or immutable result.
+The following surface is normative. A combined `GET/POST` or `GET/PATCH/DELETE` row is editorial shorthand only; the generated OpenAPI contains one operation per method with a unique operation ID. Unless a row overrides it: collection `GET` returns `200 CursorPage<Resource>`; collection `POST` accepts the strict create schema and returns `201 MutationReceipt<Resource>` plus `Location`; item `GET` returns `200 Resource` plus ETag; `PATCH` returns `200 MutationReceipt<Resource>` plus the new ETag; archival `DELETE` returns `200 MutationReceipt<Resource>`. Commands that can outlive a request return `202 JobResource` plus `Location`; deterministic commands return their named immutable result. Nested collection creation uses the parent path.
 
 #### System and jobs
 
@@ -710,6 +776,10 @@ The following surface is normative. Nested collection creation uses the parent p
 | `POST /event-tickets` | Create one-use WebSocket ticket. |
 | `GET /jobs/{id}` | Durable job snapshot. |
 | `POST /jobs/{id}/cancellations` | Request cancellation when supported. |
+| `GET /artifacts/{hash}/content` | Download a generated artifact referenced by an accessible completed job/print record with safe content disposition. |
+| `POST /artifacts/{hash}/exports` | Start an OS save-panel job through `ArtifactExportPort`. |
+| `POST /artifacts/{hash}/system-opens` | Open an exact PDF in the default system viewer through `SystemDocumentPort`. |
+| `POST /artifacts/{hash}/system-print-dialogs` | Present the native PDF print dialog through `SystemDocumentPort`. |
 
 #### Catalog and inventory
 
@@ -719,12 +789,16 @@ The following surface is normative. Nested collection creation uses the parent p
 | `GET/PATCH/DELETE /providers/{id}` | Read/update/archive provider. |
 | `GET/POST /coffees` | Search/create coffee identities. |
 | `GET/PATCH/DELETE /coffees/{id}` | Read/update/archive coffee and summary links. |
+| `GET/POST /tags` | List/create normalized catalog tags. |
+| `PATCH/DELETE /tags/{id}` | Revision-guarded rename/archive; joins remain stable. |
+| `PUT/DELETE /coffees/{id}/tags/{tagId}` | Idempotently attach/detach a tag. |
 | `GET/POST /purchases` | Query/record acquisition. Creation may include lines/lots atomically. |
 | `GET/PATCH /purchases/{id}` | Detail/update reference metadata. Received ledger history is immutable. |
 | `GET/POST /lots` | Query/create physical lots from a purchase line. |
 | `GET/PATCH /lots/{id}` | Detail/update descriptive/storage state. |
 | `GET /lots/{id}/inventory` | Balance and ordered ledger. |
-| `POST /lots/{id}/inventory-transactions` | Append reasoned adjustment/transfer/write-off; idempotent. |
+| `POST /lots/{id}/inventory-transactions` | Append a receipt correction, adjustment, or write-off; transfers are prohibited here. |
+| `POST /inventory-transfers` | Atomically append the transfer plus equal/opposite lot ledger rows under one permanent idempotency key. |
 
 #### Roast library, roasts, tastings, and plans
 
@@ -735,18 +809,28 @@ The following surface is normative. Nested collection creation uses the parent p
 | `POST /roast-library/exports` | Starts complete-result CSV/NDJSON export job. |
 | `GET/POST /saved-roast-views` | List/create portable view definitions. |
 | `GET/PATCH/DELETE /saved-roast-views/{id}` | Read/update/archive a view. |
+| `POST /roast-preflights` | Validate lot/profile/level/load/plan/target and create a revisioned draft roast intent with expiry. |
+| `GET/PUT /active-roast-intent` | Read or arm exactly one validated intent; `PUT` requires the intent ETag and target capability hash. |
+| `GET /active-roast` | Return the authoritative claimed/active/reconciling roast, intent, device session, freshness, and latest sequence after reload. |
 | `GET /roasts/{id}` | Full metadata and lineage without sample arrays. |
 | `PATCH /roasts/{id}` | Revision-guarded catalog/result/native-edit intent. |
 | `GET /roasts/{id}/series` | Arrow IPC by default or bounded JSON downsample selected by `format`; supports channel/range query. |
-| `GET/POST /roasts/{id}/events` | List/add native or app event according to capability. |
+| `GET/POST /roasts/{id}/events` | List/add app-only or native-revision events; this route never writes to a physical device. |
 | `POST /roasts/{id}/events/{eventId}/revisions` | Backdate, replace, or tombstone as a new event revision. |
+| `POST /active-roasts/{id}/device-events` | Explicit target-bound write using session, fingerprint, capability hash, reviewed payload hash, expiry, and permanent idempotency key; absent until the write capability gate passes. |
+| `POST /roasts/{id}/finalizations` | Idempotently record result/yield/end reason, reconcile native evidence, consume inventory, and mark a claimed plan used in one transaction. |
 | `GET/POST /roasts/{id}/annotations` | List/add anchored annotations. |
 | `PATCH/DELETE /annotations/{id}` | Revision-guarded edit/archive. |
+| `POST /attachment-uploads` | Bounded content-addressed multipart upload with media verification; returns immutable attachment metadata. |
+| `GET /attachments/{hash}/content` | Download as attachment; inline rendering requires a separate sanitized/rasterized artifact. |
+| `PUT/DELETE /annotations/{id}/attachments/{hash}` | Idempotently link/unlink accepted evidence with caption/order metadata. |
 | `GET/POST /roasts/{id}/tastings` | List/add immutable tasting revision. |
 | `POST /tastings/{id}/revisions` | Correct a tasting by successor revision. |
 | `PUT /roasts/{id}/promoted-tasting` | Promote or clear conclusion pointer. |
+| `GET /tasting-scales` | List active immutable scale revisions available for new tastings. |
+| `GET/POST /roasts/{id}/packages` | List/record package net masses independently of roast yield. |
 | `GET/POST /coffees/{id}/next-roast-plans` | List/create plans. |
-| `GET/PATCH /next-roast-plans/{id}` | Read/edit only while draft/active. |
+| `GET/PATCH /next-roast-plans/{id}` | Read/edit a draft or perform an allowed transition from `draft` to `ready` or `cancelled`. |
 | `POST /next-roast-plans/{id}/supersessions` | Create successor and mark old plan superseded. |
 
 #### Profiles and native files
@@ -756,9 +840,9 @@ The following surface is normative. Nested collection creation uses the parent p
 | `GET/POST /profiles` | Query/create logical profile. |
 | `GET/PATCH /profiles/{id}` | Detail/update descriptive identity. |
 | `GET/POST /profiles/{id}/revisions` | Revision history/create successor. |
-| `GET /profile-revisions/{id}` | Immutable revision and source/validation. |
-| `POST /profile-revisions/{id}/validations` | Deterministic validation for selected target capability. |
-| `POST /profile-revisions/{id}/deployments` | Start explicit, idempotent, target-bound deployment job. |
+| `GET /profile-revisions/{id}` | Immutable revision and source lineage. |
+| `POST /profile-revisions/{id}/validations` | Create an immutable deterministic report for one target capability/firmware/validator tuple. |
+| `POST /profile-revisions/{id}/deployments` | Start explicit, idempotent, target-bound deployment using the exact passing validation-report ID. |
 | `POST /native-file-imports` | Bounded multipart upload; starts an import job without exposing an arbitrary local path. |
 | `GET /native-files/{hash}` | Safe metadata/diagnostics, not arbitrary path access. |
 | `GET /native-files/{hash}/content` | Download retained bytes after explicit user action. |
@@ -770,10 +854,12 @@ The following surface is normative. Nested collection creation uses the parent p
 | --- | --- |
 | `GET /device-candidates` | Current candidates with trust state and safe labels. |
 | `GET /devices` | Trusted local devices and availability. |
+| `POST /device-candidates/{candidateId}/connections` | Open a session-local opaque candidate read-only; a valid type-2 observation HMAC-identifies and creates/upserts a device while all mutation capabilities remain disabled. |
 | `POST /devices/{id}/connections` | Start read-only connection job. |
-| `DELETE /devices/{id}/connections/current` | Gracefully disconnect. |
+| `POST /device-connections/{sessionId}/cancellations` | Idempotently request graceful transient disconnect. |
 | `GET /devices/{id}/status` | Last status snapshot with freshness. |
 | `POST /devices/{id}/sync-plans` | Compute no-write three-way plan. |
+| `GET /sync-plans/{id}` | Return the immutable reviewed plan, operations, preconditions, capability/target snapshot, expiry, and execution state. |
 | `POST /sync-plans/{id}/executions` | Execute the exact reviewed plan; target fingerprint + idempotency required. |
 | `GET /devices/{id}/files` | Safe remote inventory after trust. |
 
@@ -789,7 +875,7 @@ Maintenance and destructive device endpoints do not exist until their independen
 | `GET /printers` | Configured/discovered printers with freshness and status fidelity. |
 | `POST /printer-discoveries` | Start discovery job across enabled adapters. |
 | `GET /printers/{id}/capabilities` | Normalized capability snapshot and provenance. |
-| `POST /print-jobs` | Idempotently submit an existing immutable artifact. |
+| `POST /print-jobs` | Idempotently resolve template/data, refresh and lock a capability snapshot, render the target-specific artifact, then submit it through the selected adapter. |
 | `GET /print-jobs/{id}` | Job, artifact, adapter receipt, and status history. |
 | `POST /print-jobs/{id}/cancellations` | Best-effort cancel with truthful outcome. |
 | `POST /print-jobs/{id}/reprints` | New job referencing the immutable prior payload. |
@@ -800,31 +886,171 @@ Maintenance and destructive device endpoints do not exist until their independen
 | --- | --- |
 | `POST /backups` | Start verified backup job. |
 | `GET /backups` | Verified/incomplete backup inventory. |
-| `POST /restore-validations` | Validate selected archive into staging without activation. |
-| `POST /restores` | Activate a previously validated staged restore after confirmation. |
+| `POST /backup-uploads` | Stream a bounded archive to content-addressed staging; never activates it. |
+| `POST /restore-validations` | Validate a staged backup hash and requested `replace` or feature-gated `merge` mode; return checksum/schema/conflict/dry-run report. |
+| `POST /restores` | Idempotently apply an unexpired accepted validation ID and exact report hash after confirmation. |
 | `POST /projection-rebuilds` | Rebuild a named derived projection/cache. |
 | `POST /diagnostic-previews` | Generate redaction manifest and preview. |
 | `POST /diagnostic-bundles` | Export only an accepted preview. |
 
-### 7.6 Query, pagination, and export contracts
+### 7.6 Resource state, upload, and restore semantics
 
-Complex roast queries use a POST body so saved definitions and the API share one schema:
+#### Live-roast lifecycle
+
+`POST /roast-preflights` validates current inventory, profile compatibility, selected ready plan, device freshness, storage health, and the requested load. It creates a `draft` intent with a default 30-minute expiry; no physical-device write occurs. `PUT /active-roast-intent` revalidates and arms it. A newer arm cancels the prior unclaimed intent transactionally.
+
+The `RoasterSession` actor, not a browser page, observes the first verified idle-to-busy transition. Under one writer transaction it claims the matching unexpired armed intent, creates the provisional roast and live inbox, records the session/capability snapshot, and emits `roasts.roastStarted.v1`. If there is no valid intent, recording still begins as an uncataloged provisional roast and a high-priority `live.unmatchedRoastStarted.v1` alert is emitted; Tan Studio never discards a physical roast because setup was incomplete. Reload and reconnect resolve `GET /active-roast` from this durable state.
+
+The active state machine is `starting -> roasting -> cooling -> reconciling -> awaiting_finalization -> completed`, with `interrupted` and `recovery_required` failure states. A transport disconnect makes freshness unknown but does not end the roast; reconnect to the same keyed fingerprint/session lineage resumes and fills gaps when the protocol permits. A verified terminal device state closes the inbox and starts reconciliation. `POST /roasts/{id}/finalizations` is the only path that applies inventory consumption, measured yield, result, and claimed-plan transition; its permanent idempotency key guarantees those effects exactly once.
+
+#### Candidate trust and synchronization
+
+Opening a candidate grants transport read only. The first CRC-valid type-2 capability observation is HMAC-fingerprinted with the keychain device key, upserts the stable `Device`, attaches the endpoint, and records the observed capability hash. “Trusted” means locally identified and approved for read/sync inspection; it does not grant write, maintenance, or destructive capabilities. If the key is unavailable, the observation remains transient and read-only.
+
+Each computed sync plan and its ordered operations are persisted before review. The plan hash covers target fingerprint, connection session, capability hash, filesystem inventory/capacity/busy snapshot, common-base hashes, operation order, preconditions, and expiry. Execution accepts only that exact unexpired hash. Any target, session, capability, remote inventory, busy-state, capacity, or source-artifact change invalidates the plan and requires recomputation. A restart can display and audit a plan but cannot silently resume an indeterminate write.
+
+#### Uploads and artifact responses
+
+Upload handlers stream into a randomly named inbox file with an endpoint-specific byte ceiling, update SHA-256 incrementally, reject excess bytes immediately, flush, and atomically promote verified content. Client filenames are hints only and never become paths. Multipart accepts exactly one named file part plus a bounded JSON metadata part; unknown parts, nested multipart, mixed content types, and compression bombs are rejected. Parser/render workers receive only a content hash and bounded metadata.
+
+Raw native files, attachments, user SVG, and other untrusted bytes are returned as `application/octet-stream` with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, and `Content-Security-Policy: sandbox`. Nothing from an import is served inline under the trusted app origin. Images shown in the UI are separately decoded under limits, metadata-stripped, and re-encoded to a generated raster artifact.
+
+#### Restore modes
+
+`backup-uploads` creates a staged content-addressed archive resource. Validation expands it under byte/file-count/path/depth limits, verifies every manifest checksum and schema compatibility, and produces an immutable report hash. `replace` is P0: it builds a new store generation, migrates/verifies it, then flips the active-generation pointer. Failure before the first successful reopen leaves the previous generation active.
+
+`merge` is P1 and remains capability-disabled until its fixture suite passes. Its dry run matches immutable artifacts by SHA-256 and entities by stable UUID; equal IDs with equal canonical content deduplicate, while equal IDs with divergent content are explicit conflicts. References are remapped only through a complete proposed ID map; inventory ledgers, revisions, native evidence, print receipts, and audit entries are never coalesced heuristically. Application is one staged transaction/generation, and no conflict policy is inferred from display names.
+
+### 7.7 Query, pagination, and export contracts
+
+The transport contract uses these shared primitives. Endpoint-specific Zod schemas compose them; successful responses have no generic `{data: ...}` envelope. `201` returns the created resource plus `Location`; `202` returns a job plus `Location`; errors always use `ApiProblem`.
 
 ```ts
+type IsoInstant = string // RFC 3339 UTC ending in Z
+type Sha256 = string // lowercase, exactly 64 hex characters
+type ResourceKind =
+  | "provider" | "coffee" | "purchase" | "lot" | "roast" | "annotation" | "attachment"
+  | "tasting" | "next_roast_plan" | "profile" | "profile_revision" | "profile_validation_report"
+  | "device" | "sync_plan" | "label_template" | "printer" | "print_job" | "backup" | "artifact" | "job"
+
+type ResourceRef = {
+  kind: ResourceKind
+  id: string
+  revision?: number
+}
+
+type ArtifactRef = {
+  hash: Sha256
+  mediaType: string
+  byteLength: number
+  filenameHint: string
+}
+
+type PageInfo = { endCursor?: string; hasNextPage: boolean }
+type CursorPage<T> = { items: T[]; pageInfo: PageInfo }
+type MutationReceipt<T> = { resource: T; affected: ResourceRef[] }
+
+type RoastFieldId =
+  | "roastId" | "roastedAt"
+  | "coffeeId" | "coffeeName"
+  | "providerId" | "providerName"
+  | "purchaseId" | "purchaseReference"
+  | "greenLotId" | "lotCode"
+  | "countryCode" | "region" | "farmProducer" | "process" | "varieties"
+  | "profileRevisionId" | "profileName" | "profileRevisionNumber"
+  | "roastLevelThousandths" | "greenInputMassMg" | "roastedYieldMassMg"
+  | "roastLossBasisPoints" | "developmentBasisPoints"
+  | "tastingScoreBasisPoints" | "tastingDescriptors"
+  | "tastingNotes" | "tastingConclusion"
+  | "tags" | "result" | "status" | "needsTasting" | "readyPlanStatus"
+
+type FilterExpression =
+  | { op: "and" | "or"; clauses: FilterExpression[] }
+  | { op: "not"; clause: FilterExpression }
+  | { op: "search"; query: string }
+  | {
+      op: "field"
+      field: RoastFieldId
+      operator: FieldOperator
+      value?: string | number | boolean | Array<string | number | boolean>
+    }
+
+type GroupSpec =
+  | { field: GroupValueField; direction: "asc" | "desc" }
+  | { field: "roastedAt"; direction: "asc" | "desc"; bucket: "day" | "week" | "month" | "year"; timezone: string }
+  | { field: GroupNumericField; direction: "asc" | "desc"; bucket: { size: number; origin: number } }
+
+type GroupKey =
+  | { kind: "value"; value: string | number | boolean | null }
+  | { kind: "range"; startInclusive: number | IsoInstant; endExclusive: number | IsoInstant }
+
+type GroupPathEntry = { field: RoastFieldId; key: GroupKey }
+type SortSpec = { field: SortableField; direction: "asc" | "desc"; nulls: "first" | "last" }
+type AggregateSpec =
+  | { key: string; op: "count" }
+  | { key: string; field: AggregatableField; op: "count_distinct" | "sum" | "avg" | "min" | "max" }
+
 type RoastLibraryQuery = {
   viewVersion: 1
-  filters: FilterExpression // nested and/or, typed operators, max depth 5
-  groups: Array<{ field: GroupableField; direction: "asc" | "desc" }> // max 3
-  sorts: Array<{ field: SortableField; direction: "asc" | "desc"; nulls: "first" | "last" }> // max 5
-  columns: ColumnId[]
+  filters: FilterExpression
+  groups: GroupSpec[] // max 3
+  groupPath?: GroupPathEntry[]
+  sorts: SortSpec[] // max 5; server appends roastId
+  columns: RoastFieldId[]
   aggregates: AggregateSpec[]
   page: { first: number; after?: string } // first 1..200
 }
+
+type RoastLibraryRowDto = {
+  roastId: string
+  revision: number
+  values: Partial<Record<RoastFieldId, string | number | boolean | null | string[]>>
+}
+
+type RoastLibraryGroupDto = {
+  path: GroupPathEntry[]
+  key: GroupKey
+  label: string
+  count: number
+  aggregates: Record<string, number | string | null>
+}
+
+type RoastLibraryResult =
+  | { kind: "groups"; scope: GroupPathEntry[]; groups: RoastLibraryGroupDto[]; pageInfo: PageInfo }
+  | { kind: "rows"; scope: GroupPathEntry[]; rows: RoastLibraryRowDto[]; aggregates: Record<string, number | string | null>; pageInfo: PageInfo }
+
+type FacetResult = {
+  field: RoastFieldId
+  buckets: Array<{ value: string | number | boolean | null; label: string; count: number }>
+  truncated: boolean
+}
 ```
 
-The server validates fields against an allowlist and compiles parameterized SQL; clients never send SQL or arbitrary column names. Every sort receives `roastId` as a final tiebreaker. The opaque cursor contains the query fingerprint, full last sort tuple, ID, issue time, and HMAC; changing the query invalidates it. Exports persist the validated definition and run against a consistent snapshot, not the currently rendered rows.
+The version-1 field registry is normative:
 
-### 7.7 Durable jobs
+| Field(s) | Kind/null | Filter | Facet/group | Sort | Aggregates |
+| --- | --- | --- | --- | ---: | --- |
+| `roastId` | ID, required | ID | no/no | yes | — |
+| `roastedAt` | instant, required | ordered | histogram/time bucket | yes | min, max |
+| `coffeeId`, `providerId`, `purchaseId`, `greenLotId`, `profileRevisionId` | ID, nullable | ID/null | entity/entity | yes | count distinct |
+| `coffeeName`, `providerName`, `purchaseReference`, `lotCode`, `profileName` | text, nullable | text/null | no/no | yes | count distinct |
+| `countryCode`, `result`, `status`, `readyPlanStatus` | enum, nullable as declared | enum/null | value/value | yes | count distinct |
+| `region`, `farmProducer`, `process` | text, nullable | text/null | value/value | yes | count distinct |
+| `varieties`, `tastingDescriptors` | text set, nullable | set/null | values/no | no | — |
+| `tags` | text set, required | set | values/no | no | — |
+| `profileRevisionNumber` | integer, nullable | ordered/null | range/numeric bucket | yes | min, max |
+| `roastLevelThousandths`, `roastLossBasisPoints`, `developmentBasisPoints`, `tastingScoreBasisPoints` | integer, nullable | ordered/null | range/numeric bucket | yes | avg, min, max |
+| `greenInputMassMg`, `roastedYieldMassMg` | integer, nullable | ordered/null | range/numeric bucket | yes | sum, avg, min, max |
+| `tastingNotes`, `tastingConclusion` | text, nullable | text/null | no/no | yes | — |
+| `needsTasting` | boolean, required | boolean | value/value | yes | count |
+
+Entity facets/groups key by ID and use the corresponding name only as a label, so equal display names never merge. Operator sets are fixed: ID/enum/boolean use `eq`, `neq`, `in`, `not_in`; text additionally uses `contains`, `not_contains`, and `starts_with`; instant/integer use `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `between`, `in`, `not_in`; text sets use `contains_any`, `contains_all`, `contains_none`, `is_empty`, `is_not_empty`; nullable fields also support `is_null` and `is_not_null`. The generated type aliases `FieldOperator`, `GroupValueField`, `GroupNumericField`, `SortableField`, and `AggregatableField` are literal unions derived from this registry, never free-form strings.
+
+Filter trees have depth at most five and 100 leaves; `in` lists have at most 200 values; text operands have at most 256 Unicode code points and full-text queries 512. Stored NFKC/case-folded lookup text drives comparison while original display text remains unchanged. A scalar predicate against `NULL` is false, including under `neq`/`not_in`; callers use explicit null operators. For set fields, null means no source record and `[]` means a present record with no values.
+
+Grouped queries return one level at a time. Expansion repeats the canonical query with its exact `groupPath`. The server compiles only parameterized SQL and appends `roastId` as the final sort tiebreaker. A cursor carries the canonical query/path hash, full last sort tuple, issue time, session ID, and MAC. Its MAC key is derived from the launch token with HKDF label `tan-studio/cursor/v1`; it expires after 15 minutes and cannot survive a companion session. Invalid or expired cursors return `409 cursor_expired`, causing a first-page refresh. Exports persist the validated definition and run against a consistent snapshot, not rendered rows.
+
+### 7.8 Durable jobs
 
 Job states are `queued`, `running`, `waiting_external`, `cancelling`, `succeeded`, `failed`, and `cancelled`. Progress is monotonic within one attempt. On restart:
 
@@ -833,9 +1059,57 @@ Job states are `queued`, `running`, `waiting_external`, `cancelling`, `succeeded
 - Device and print jobs move to `waiting_external` until target/status reconciliation proves whether retry is safe.
 - Unknown non-idempotent outcomes become `failed` with `manual_reconciliation_required`; they are never automatically repeated.
 
+The result discriminant is normative; a successful job contains exactly the result for its `jobType`, while a failed job contains only a safe failure:
+
+```ts
+type JobResultByType = {
+  native_import: { artifacts: ArtifactRef[]; roasts: ResourceRef[]; profileRevisions: ResourceRef[]; warningCount: number }
+  native_export: { artifact: ArtifactRef }
+  roast_library_export: { artifact: ArtifactRef; rowCount: number }
+  device_connection: { device: ResourceRef; sessionId: string; capabilitySnapshotId: string }
+  sync_plan: { syncPlan: ResourceRef; operationCount: number }
+  sync_execution: { syncPlan: ResourceRef; pulled: number; pushed: number; conflicts: number }
+  profile_deployment: { profileRevision: ResourceRef; device: ResourceRef; receiptId: string }
+  label_render: { artifact: ArtifactRef }
+  printer_discovery: { printers: ResourceRef[] }
+  print_submission: { printJob: ResourceRef; lifecycle: PrintLifecycle; evidence: PrintEvidence[] }
+  backup: { backup: ResourceRef; artifact: ArtifactRef }
+  restore_validation: { validationId: string; reportHash: Sha256; mode: "replace" | "merge"; valid: boolean; warningCount: number; conflictCount: number }
+  restore_activation: { storeGenerationId: string; activatedAt: IsoInstant }
+  projection_rebuild: { projection: string; rowCount: number; verificationHash: Sha256 }
+  diagnostic_preview: { previewId: string; categoryCount: number; redactionCount: number }
+  diagnostic_bundle: { artifact: ArtifactRef }
+  artifact_export: { artifact: ArtifactRef; outcome: "saved" | "cancelled" }
+  system_document_open: { artifact: ArtifactRef; outcome: "opened" | "cancelled" }
+  system_print_dialog: { artifact: ArtifactRef; outcome: "presented" | "cancelled" | "submitted"; osJobId?: string }
+}
+
+type JobType = keyof JobResultByType
+type JobFailure = { code: string; detail: string; retryable: boolean; manualReconciliationRequired: boolean }
+type JobResource<K extends JobType = JobType> = {
+  [T in K]: {
+    kind: "job"
+    id: string
+    revision: number
+    jobType: T
+    state: "queued" | "running" | "waiting_external" | "cancelling" | "succeeded" | "failed" | "cancelled"
+    progress: { basisPoints: number; phase: string; messageCode: string; messageParams?: Record<string, string | number | boolean> }
+    attempt: number
+    correlationId: string
+    cancellationSupported: boolean
+    result?: JobResultByType[T]
+    failure?: JobFailure
+    createdAt: IsoInstant
+    updatedAt: IsoInstant
+  }
+}[K]
+```
+
+Schema refinement requires `result` only for `succeeded`, `failure` only for `failed`, and neither for all other states. Progress basis points are integers `0..10000`; phase and message values are registered machine codes.
+
 HTTP creation returns `202 Accepted`, job representation, and `Location`. Fast deterministic validations may return `200/201` directly.
 
-### 7.8 WebSocket event stream
+### 7.9 WebSocket event stream
 
 ```ts
 type EventEnvelope<TType extends string, TPayload> = {
@@ -847,15 +1121,109 @@ type EventEnvelope<TType extends string, TPayload> = {
   type: TType
   payload: TPayload
 }
+
+type DeviceCandidateSnapshot = {
+  candidateId: string // session-local opaque ID mapped server-side to an adapter key; never an OS path
+  transport: "usb"
+  safeLabel: string
+  trust: "unopened" | "identity_pending" | "trusted" | "rejected"
+  firstSeenAt: IsoInstant
+  lastSeenAt: IsoInstant
+}
+
+type AlertSnapshot = {
+  alertId: string
+  severity: "info" | "warning" | "fault"
+  code: string
+  messageCode: string
+  messageParams?: Record<string, string | number | boolean>
+  raisedAt: IsoInstant
+  resource?: ResourceRef
+}
+
+type LiveSessionSnapshot = {
+  liveSessionId: string
+  roastId: string
+  streamId: string
+  state: "starting" | "roasting" | "cooling" | "reconciling" | "awaiting_finalization" | "completed" | "interrupted" | "recovery_required"
+  freshness: "current" | "stale" | "unknown"
+  startedAt: IsoInstant
+  lastSampleSeq: number
+  lastElapsedMs: number
+  channelSchemaHash: Sha256
+  latestValues: Record<string, number | null>
+  gaps: Array<{ afterSampleSeq: number; beforeSampleSeq: number }>
+}
+
+type LiveSampleBatch = {
+  liveSessionId: string
+  roastId: string
+  streamId: string
+  sampleSeqStart: number
+  sampleSeqEnd: number
+  elapsedMs: number[]
+  channels: Array<{ channelId: string; values: Array<number | null> }>
+}
+
+type CollectionKey =
+  | "providers" | "coffees" | "purchases" | "lots" | "roast_library"
+  | "profiles" | "devices" | "label_templates" | "printers" | "print_jobs"
+  | "backups" | "settings" | "capabilities"
+
+interface EventPayloadByType {
+  "session.snapshot.v1": {
+    buildVersion: string
+    apiVersion: "v1"
+    databaseSchemaVersion: number
+    recoveryState: "ready" | "degraded" | "recovery"
+    systemCapabilityHash: Sha256
+    candidates: DeviceCandidateSnapshot[]
+    devices: DeviceSnapshot[]
+    activeLiveSession?: LiveSessionSnapshot
+    activeJobs: JobResource[]
+    alerts: AlertSnapshot[]
+  }
+  "system.heartbeat.v1": { serverMonotonicMs: number }
+  "system.capabilities_changed.v1": { capabilityHash: Sha256 }
+  "resource.changed.v1": { change: "created" | "updated" | "archived" | "deleted"; resources: ResourceRef[]; invalidate: CollectionKey[] }
+  "job.changed.v1": { job: JobResource }
+  "device.candidate_changed.v1": { change: "appeared" | "updated" | "disappeared"; candidate: DeviceCandidateSnapshot }
+  "device.snapshot_changed.v1": { device: DeviceSnapshot }
+  "live.session_changed.v1": { change: "started" | "updated" | "ended"; session: LiveSessionSnapshot }
+  "live.samples.v1": LiveSampleBatch
+  "live.gap.v1": { liveSessionId: string; roastId: string; afterSampleSeq: number; beforeSampleSeq: number; reason: "device" | "transport" | "server_backpressure" | "unknown" }
+  "alert.changed.v1": { change: "raised" | "updated" | "resolved"; alert: AlertSnapshot }
+  "server.shutdown.v1": { reason: "application_exit" | "update" | "restart" | "recovery"; retryAfterMs?: number }
+}
+
+type ApiEvent = {
+  [K in keyof EventPayloadByType]: EventEnvelope<K, EventPayloadByType[K]>
+}[keyof EventPayloadByType]
 ```
 
-After connection the server sends `session.snapshot.v1` containing device/session/job/notification state and the current sequence. Deltas include resource invalidations, job progress, device state, bounded live samples, and user-visible alerts. Durable API resources remain authoritative; the stream tells clients what to refetch.
+The registry above is closed for v1: undocumented event types or payload fields are rejected in contract tests. Durable API resources remain authoritative; the stream tells clients what to refetch. Delivery policy is:
+
+| Event | Replay and coalescing |
+| --- | --- |
+| `session.snapshot.v1` | Never replayed; first event whenever replay is unavailable. |
+| `system.heartbeat.v1` | Not replayed; only newest matters. |
+| `system.capabilities_changed.v1` | Replayable; may coalesce to newest hash. |
+| `resource.changed.v1` | Replayable; references/collections may merge without losing terminal change. |
+| `job.changed.v1` | Replayable; intermediate progress may coalesce, terminal state may not drop. |
+| `device.candidate_changed.v1`, `device.snapshot_changed.v1` | Replayable; may coalesce, but disconnect/fault may not drop. |
+| `live.session_changed.v1`, `live.gap.v1`, `alert.changed.v1` | Replayable and never dropped. |
+| `live.samples.v1` | Replayable; adjacent batches coalesce only when sample sequences are contiguous. |
+| `server.shutdown.v1` | Not replayed; final event on graceful shutdown. |
 
 - `seq` is strictly increasing per companion session.
 - The server sends a heartbeat every 10 seconds; the client declares stale after 25 seconds.
 - A client includes its last `(sessionId,seq)` when requesting the next ticket. The server replays from a bounded 60-second/10,000-event ring when possible; otherwise the new socket begins with a complete snapshot.
 - Each client queue is bounded. Live sample batches may be coalesced; state changes, faults, and job terminal events may not be silently dropped. Overflow closes the socket with a resync-required code.
-- One `live.samples.v1` batch is capped by sample count and encoded byte size. Raw serial frames never reach the webview.
+- One `live.samples.v1` batch contains 1–256 contiguous samples, is at most 256 KiB encoded, has equal elapsed/channel lengths, and contains only finite numbers or null. Raw serial frames never reach the webview.
+
+Snapshot state and its sequence high-water mark are captured under one event-dispatch barrier. Events committed after the barrier are buffered until the snapshot envelope is queued, so no state change can fall between snapshot and delta. The live snapshot's `lastSampleSeq` is the provisional-history watermark; a subsequent sample batch starts at the next sequence.
+
+WebSocket upgrade rejects a missing/expired/replayed ticket with `401`, bad Host/Origin with `403`, wrong subprotocol with `426`, and rate/connection overflow with `429`. After upgrade, supported close codes are `1000` normal, `1001` application shutdown, `1002` protocol error, `1008` policy/authorization, `1009` frame too large, `1011` server fault, `1012` restart/update, and application code `4001` `resync_required`. Close reasons are stable safe codes of at most 123 UTF-8 bytes. The stream is server-to-client only; unexpected client application frames close with `1008`.
 
 The UI applies a delta only if it follows the current sequence. A gap immediately marks live state uncertain and obtains a new ticket/snapshot; it does not guess missing samples.
 
@@ -887,6 +1255,19 @@ type SerialCandidate = {
   product?: string
 }
 
+type SerialOpenOptions = {
+  baudRate: 115200
+  dataBits: 8
+  stopBits: 1
+  parity: "none"
+  rtscts: false
+  xon: false
+  xoff: false
+  exclusive: true
+  explicitDtr: "unchanged" // no deliberate toggle until line-control capture proves a requirement
+  explicitRts: "unchanged"
+}
+
 interface SerialConnection {
   readonly candidate: SerialCandidate
   readonly incoming: AsyncIterable<Uint8Array>
@@ -907,6 +1288,8 @@ interface RoasterProtocol {
 ```
 
 `SerialTransport` owns enumeration, OS open flags, requested line settings, exclusive ownership, byte delivery, bounded writes, disconnect mapping, and cleanup. It has no knowledge of Kaffelogic identity, SASSI fields, files, or commands.
+
+The initial adapter requests Studio's observed 115200/8N1 line coding with software/hardware flow control disabled and exclusive ownership, but issues no separate DTR/RTS toggle. The fact that the device emitted type 2 without an explicit toggle is not proof that every OS/firmware combination ignores control lines; the negotiation capture/HIL matrix must record effective line state.
 
 The Node adapter uses the maintained `serialport` package and its binding API. It enumerates candidates but does not trust USB display strings. The macOS callout node is preferred over the paired TTY node. Numeric node suffixes are ephemeral and never become a device ID.
 
@@ -993,6 +1376,60 @@ stateDiagram-v2
 Application interfaces are deliberately separate:
 
 ```ts
+type SafeRemotePath = string & { readonly __kind: "SafeRemotePath" }
+
+type DeviceOperationId =
+  | "identity.read" | "status.read" | "filesystem.list" | "file.read"
+  | "sync.pull" | "sync.push" | "profile.deploy" | "roast_event.record"
+  | "file.rename" | "file.delete" | "preferences.write"
+  | "firmware.write" | "storage.format" | "counters.reset"
+
+type DeviceOperationCapability = {
+  operation: DeviceOperationId
+  risk: "read" | "write" | "maintenance" | "destructive"
+  support: "supported" | "capture_required" | "unsupported" | "not_compiled"
+  availability: "available" | "disconnected" | "busy" | "permission_denied" | "stale_target" | "not_applicable"
+  evidence: "live_verified" | "accepted_capture" | "static_inferred" | "unknown"
+  reasonCode?: string
+}
+
+type DeviceCapabilitySnapshot = {
+  snapshotId: string
+  deviceId: string
+  observedAt: IsoInstant
+  capabilityHash: Sha256
+  protocol: { name: "sassi"; version: number; rawCapabilityBitsHex: string; maxPacketBytes: number; maxFilenameBytes: number }
+  target: { model: string; firmware?: string; schemaVersions: string[] }
+  operations: Record<DeviceOperationId, DeviceOperationCapability>
+}
+
+type DeviceOperationalStatus = {
+  state: "idle" | "roasting" | "cooling" | "fault" | "unknown"
+  busy: boolean
+  elapsedMs?: number
+  storage?: { freeBytes: number; totalBytes: number }
+  faults: Array<{ code: string; severity: "info" | "warning" | "fault"; messageCode: string }>
+}
+
+type DeviceSnapshot = {
+  deviceId: string
+  targetFingerprint: string
+  displayName: string
+  model: string
+  firmware?: string
+  connection: {
+    sessionId?: string
+    state: "absent" | "candidate" | "opening" | "awaiting_request" | "trusted_read_only" | "negotiating" | "idle" | "busy" | "transferring" | "reconciling" | "reconnecting" | "backoff" | "rejected" | "faulted"
+    transport: "usb" | "official_lan" | "mirror" | "future_bridge"
+    safeLabel: string
+    connectedAt?: IsoInstant
+  }
+  capabilities: DeviceCapabilitySnapshot
+  status:
+    | { quality: "unknown" }
+    | { quality: "current" | "stale"; observedAt: IsoInstant; value: DeviceOperationalStatus }
+}
+
 interface DeviceReadPort {
   status(deviceId: DeviceId, signal: AbortSignal): Promise<DeviceStatus>
   listFiles(deviceId: DeviceId, path: SafeRemotePath, signal: AbortSignal): Promise<RemoteEntry[]>
@@ -1009,6 +1446,12 @@ interface DeviceDestructivePort { /* disabled until independently specified */ }
 ```
 
 Read, write, maintenance, and destructive interfaces cannot be cast or combined into a generic `executeAction`. A target-bound write includes device fingerprint, expected session ID, expected capability hash, reviewed payload hash, idempotency key, and expiry. Any mismatch returns `unsafe_target` before bytes are encoded.
+
+`capabilityHash` is SHA-256 over canonical JSON containing protocol, target, and operation support/evidence; it excludes observation time and transient availability. Raw serials, device paths, capability frames, and credentials never appear in these DTOs. `DeviceOperationalStatus` contains the normalized idle/roasting/cooling/fault state, busy flag, optional elapsed time/storage, and bounded stable fault codes. Its exact Zod schema is generated with this registry.
+
+`SafeRemotePath` is constructed only by the device-filesystem adapter, never by a type cast or raw API string. Its grammar is a nonempty relative path of `/`-separated strictly decoded UTF-8 segments. A path has no leading/trailing separator, empty segment, `.`, `..`, backslash, NUL, C0/C1 control, bidi override, or unpaired surrogate. Each encoded device filename field must fit the negotiated filename-byte limit, and its enclosing frame must fit the packet limit. The adapter retains exact source bytes for read-back and requires `decode(encode(path))` to be byte-identical.
+
+The device is treated as bytewise case-sensitive, while a portable collision key applies Unicode NFC plus full case folding. Two distinct remote entries with one collision key are displayed but block any write/sync operation. Allowed roots are a protocol-versioned allowlist learned from verified inventory/capture fixtures; unknown roots are read-only. Until the filename/root semantics are captured, the production adapter can list/import root entries but cannot encode a write, rename, or delete path.
 
 ### 8.6 Three-way synchronization
 
@@ -1100,7 +1543,7 @@ The production parser may reference immutable byte slices instead of copying eve
 2. Sniff encoding/format without executing content.
 3. Tokenize line endings and first-colon property boundaries into source spans.
 4. Locate the `.klog` table boundary, optional offsets, header, rows, and `!` incidentals.
-5. Use `csv-parse` only for validated tab/comma table-cell interpretation; the lossless scanner remains authoritative for raw bytes, duplicate cells, and spans.
+5. Detect exactly one table delimiter from the format grammar, reject mixed delimiters, then use `csv-parse` with `quote: false`, the detected single delimiter, no record relaxation, and the exact expected column count. The lossless scanner remains authoritative for raw bytes, duplicate cells, and spans; generic CSV quote/escape inference is prohibited.
 6. Parse finite numeric values with explicit diagnostics. Never silently convert blank/invalid values to a real zero in the domain model.
 7. Build the semantic view and deterministic validation report.
 8. Map valid/partially valid evidence into domain commands in one transaction; preserve warnings and raw artifact even when mapping is rejected.
@@ -1133,54 +1576,83 @@ Studio `.sync_base` pickle content and legacy encrypted files are retained as op
 
 ```mermaid
 flowchart LR
-    Snapshot["Resolved label data snapshot"] --> Layout["LabelDocument layout"]
-    Layout --> Render["Deterministic renderer"]
-    Render --> SVG["Exact SVG"]
-    Render --> PDF["Exact PDF"]
-    Render --> Raster["Target-DPI 1-bit raster"]
-    PDF --> Queue["Installed OS queue adapter"]
-    PDF --> IPP["IPP/IPPS adapter"]
-    Raster --> ZPL["ZPL encoder"]
-    ZPL --> Raw["CUPS raw queue or TCP 9100 transport"]
+    Template["LabelTemplateDocument with bindings"] --> Resolver["LabelResolver"]
+    Data["Selected roast/catalog input"] --> Resolver
+    Resolver --> Snapshot["Immutable LabelDataSnapshot"]
+    Resolver --> Layout["Literal-only LabelDocument"]
+    Caps["Fresh capability snapshot"] --> Pipeline["PrintPipeline target selection"]
+    Layout --> Pipeline
+    Pipeline --> PDF["Exact PDF/SVG artifact"]
+    Pipeline --> PWG["Negotiated PWG Raster artifact"]
+    Pipeline --> Mono["Target-DPI monochrome raster"]
+    PDF --> Queue["Installed OS queue"]
+    PDF --> IPP["Direct IPP/IPPS when advertised"]
+    PWG --> IPP
+    Mono --> ZPL["ZPL encoder"] --> Raw["Advertised ZPL queue or approved TCP 9100"]
 ```
 
-The layout model, renderer, printer-language encoder, and transport are independently testable. An adapter named after a printer model that combines all four is prohibited.
+The resolver, layout model, renderer, printer-language encoder, and transport are independently testable. `PrintPipeline` orchestrates them and binds every submitted artifact to a printer capability snapshot. An adapter named after a printer model that combines all layers is prohibited.
 
 ### 10.2 Canonical label document
 
-All layout values are integer micrometres; rotation is integer millidegrees. Text content is plain Unicode and never contains printer commands.
+All layout values are integer micrometres; rotation is integer millidegrees. Array order is paint order. Text content is plain Unicode and never contains printer commands.
 
 ```ts
-type LabelDocument = {
+type LabelElementBase = {
+  id: string
+  rotationMdeg: number
+  opacityBasisPoints: number
+}
+
+type LabelBoxElementBase = LabelElementBase & { frame: PhysicalRect }
+
+type LabelBinding =
+  | { kind: "literal"; value: string }
+  | { kind: "field"; path: AllowedLabelField; format?: AllowedLabelFormatter; fallback?: string }
+
+type LabelTemplateDocument = {
   schemaVersion: 1
   widthUm: number
   heightUm: number
   bleedUm: number
   safeInsetUm: number
   background: SemanticInk
-  elements: LabelElement[]
+  elements: LabelTemplateElement[]
 }
 
-type LabelElement =
-  | { kind: "text"; id: string; frame: PhysicalRect; text: string; font: FontRef; sizeUm: number; weight: number; align: "start" | "center" | "end"; maxLines: number; overflow: "error" | "ellipsis" }
-  | { kind: "line"; id: string; from: PhysicalPoint; to: PhysicalPoint; strokeUm: number; ink: SemanticInk }
-  | { kind: "rect"; id: string; frame: PhysicalRect; radiusUm: number; fill?: SemanticInk; stroke?: SemanticStroke }
-  | { kind: "image"; id: string; frame: PhysicalRect; artifactHash: string; fit: "contain" | "cover" }
-  | { kind: "qr"; id: string; frame: PhysicalRect; data: string; correction: "M" | "Q"; quietModules: number }
-  | { kind: "barcode"; id: string; frame: PhysicalRect; symbology: "code128"; data: string; humanReadable: boolean }
+type LabelTemplateElement =
+  | (LabelBoxElementBase & { kind: "text"; content: LabelBinding; font: FontRef; sizeUm: number; weight: number; lineHeightBasisPoints: number; horizontalAlign: "start" | "center" | "end"; verticalAlign: "start" | "center" | "end"; maxLines: number; overflow: "error" | "ellipsis" })
+  | (LabelElementBase & { kind: "line"; from: PhysicalPoint; to: PhysicalPoint; strokeUm: number; ink: SemanticInk })
+  | (LabelBoxElementBase & { kind: "rect"; radiusUm: number; fill?: SemanticInk; stroke?: SemanticStroke })
+  | (LabelBoxElementBase & { kind: "image"; artifact: LabelBinding; fit: "contain" | "cover" })
+  | (LabelBoxElementBase & { kind: "qr"; data: LabelBinding; correction: "M" | "Q"; quietModules: number })
+  | (LabelBoxElementBase & { kind: "barcode"; data: LabelBinding; symbology: "code128"; humanReadable: boolean })
+
+type LabelDocument = Omit<LabelTemplateDocument, "elements"> & {
+  elements: ResolvedLabelElement[] // bindings replaced by literal text/hash/data
+}
+
+interface LabelResolver {
+  resolve(template: LabelTemplateDocument, input: LabelDataInput): Promise<{
+    snapshot: LabelDataSnapshot
+    document: LabelDocument
+  }>
+}
 ```
 
-Templates bind fields through a small declarative expression allowlist (`coffee.name`, `roast.date`, `profile.name`, and documented formatters). There is no JavaScript, HTML, CSS, network fetch, or arbitrary template execution. At render time, bindings resolve to an immutable `LabelDataSnapshot`; later catalog edits do not change a historical print job.
+`ResolvedLabelElement` has the same geometry/style variants but replaces every `LabelBinding` with validated literal text, artifact hash, QR data, or barcode data. Templates bind through a small declarative allowlist (`coffee.name`, `roast.date`, `profile.name`, and documented formatters). There is no JavaScript, HTML, CSS, network fetch, or arbitrary template execution. At render time, bindings resolve to an immutable `LabelDataSnapshot`; later catalog edits do not change a historical print job. `label_template_revisions` stores `LabelTemplateDocument`, while a print job stores the snapshot, resolved document hash, and target-specific artifact.
 
 The QR default contains an opaque Tan Studio roast UUID or an explicit export URL chosen later. It never embeds filesystem paths, device serials, launch/remote tokens, credentials, or private notes by default.
 
 ### 10.3 Rendering implementation
 
-`packages/printing` owns a deterministic display-list layout engine. It uses bundled, license-reviewed font files and `fontkit` metrics; no system-font substitution is allowed in release rendering. The initial font set is Geist Sans plus a Noto Sans fallback subset for required glyphs.
+`packages/printing-adapters` implements the application `LabelRenderer` port with a deterministic display-list layout engine. It uses bundled, license-reviewed font files and `fontkit` metrics; no system-font substitution is allowed in release rendering. The initial font set is Geist Sans plus a Noto Sans fallback subset for required glyphs.
 
 - SVG renderer emits exact physical dimensions and embedded/subset font data where permitted.
 - PDF renderer uses `pdf-lib`, embeds the same fonts, sets the media box from micrometres, and does not add print scaling.
 - Raster renderer uses `@resvg/resvg-js`/resvg for the exact SVG and `sharp` for target-DPI grayscale, threshold/dither, rotation, padding, and raw pixel extraction.
+- Every image decode sets `failOn: "warning"`, enforces source bytes, dimensions, total pixels, channels, decoded bytes, frame count, and worker deadline before allocation, and strips metadata on re-encode. QR/barcode payload bytes, symbol density, and copies are bounded before rendering.
+- PWG Raster output is written by the native print helper through the maintained libcups raster API from the renderer's validated target-DPI pixels; Tan Studio does not implement the PWG container protocol from scratch.
 - QR generation uses a maintained QR library with fixed error correction/quiet-zone rules; barcodes use `bwip-js`. Rendered symbols are decoded in tests.
 - Native rendering dependencies are subject to the same signed-resource and architecture packaging gate as SerialPort.
 
@@ -1199,56 +1671,95 @@ interface PrinterDiscoveryPort {
 }
 
 interface PrintSubmissionPort {
-  submit(job: PrintJob, artifact: PrintArtifact, signal: AbortSignal): Promise<PrintReceipt>
-  cancel(jobId: PrintJobId, signal: AbortSignal): Promise<CancelResult>
-  watch(jobId: PrintJobId, signal: AbortSignal): AsyncIterable<PrintStatusEvent>
+  submit(request: PrintSubmissionRequest, signal: AbortSignal): Promise<SubmissionHandle>
+  cancel(handle: SubmissionHandle, signal: AbortSignal): Promise<CancelResult>
+  watch(handle: SubmissionHandle, signal: AbortSignal): AsyncIterable<PrintStatusEvent>
 }
 
 interface PrinterLanguageEncoder {
   readonly language: "zpl" | "tspl2" | "brother_ql" | "escpos"
-  encode(document: LabelDocument, capabilities: PrinterCapabilities): Promise<EncodedPrintPayload>
+  encode(artifact: MonochromeRasterArtifact, capabilities: PrinterCapabilities, signal: AbortSignal): Promise<EncodedPrintPayload>
 }
 
 interface RawPrinterTransport {
   write(printer: PrinterDescriptor, payload: EncodedPrintPayload, signal: AbortSignal): Promise<TransportReceipt>
 }
+
+interface ArtifactExportPort {
+  saveArtifact(artifact: PrintArtifact, suggestedName: string, signal: AbortSignal): Promise<ExportReceipt>
+}
+
+interface SystemDocumentPort {
+  openPdf(artifact: PdfArtifact, signal: AbortSignal): Promise<void>
+  showPdfPrintDialog(artifact: PdfArtifact, signal: AbortSignal): Promise<SystemPrintReceipt>
+}
+
+interface PrintPipeline {
+  prepare(command: PrintCommand, signal: AbortSignal): Promise<{
+    job: PrintJob
+    artifact: PrinterReadyArtifact
+    capabilitySnapshot: PrinterCapabilities
+  }>
+}
+
+type PrintSubmissionRequest = {
+  endpointRef: string // adapter-scoped opaque reference, never a domain entity
+  artifact: PrinterReadyArtifact
+  documentFormat: string
+  media: NegotiatedMedia
+  copies: number
+  jobAttributes: AdvertisedJobAttributes
+}
+
+type SubmissionHandle = {
+  adapterId: string
+  opaqueJobRef: string
+  acceptedAt: string
+}
 ```
 
 `PrinterCapabilities` records identity, adapter/URI/queue, discovery provenance/time, document formats, raw languages, media ranges/presets, gap/black-mark/continuous modes, unprintable margins, supported DPI, color depth/bit order, orientation/scaling, copies, darkness/speed, cut/peel, status operations, QR/barcodes, security mode, and status fidelity. Unknown is a first-class value. Manufacturer/model text alone never grants a language or feature.
 
+`PrintPipeline` is an application-layer orchestrator, never an infrastructure adapter. `prepare` refreshes capabilities, resolves the template snapshot, validates media/margins/DPI/options, chooses an advertised document/language path, renders the exact target artifact, and persists its capability hash before submission. The application service owns `PrintJob`, idempotency, and the mapping from that local job to `SubmissionHandle`; adapters never receive a domain aggregate or Tan Studio job ID. A preview or generic PDF artifact cannot be reused blindly for a different DPI/media/language target.
+
 ### 10.5 Adapter strategy
 
-1. **Exact artifact fallback:** every valid label can be downloaded as PDF/SVG without a configured printer.
+1. **Exact artifact fallback:** every valid label can be saved as PDF/SVG, opened in the system PDF viewer, or passed to a native PDF print dialog through the narrow shell bridge without a configured Tan Studio printer.
 2. **CUPS installed queues on macOS/Linux:** a small Tauri-packaged Rust print helper wraps the supported OpenPrinting/libcups destination, capability, submit, query, and cancel APIs. This avoids localized CLI parsing and delegates broad driver/filter compatibility to the OS. If the helper is unavailable, the UI retains PDF fallback.
-3. **Direct IPP/IPPS:** the same libcups adapter performs DNS-SD discovery where available, `Get-Printer-Attributes`, and `Print-Job`. IPPS is preferred. It sends PDF only when advertised; otherwise it renders a supported PWG Raster/JPEG path. It never downgrades TLS or guesses media.
-4. **ZPL:** a pure TypeScript encoder converts the canonical document to bounded ZPL, normally rasterizing user text/art to `^GFA` and using only allowlisted commands. Delivery is a configured CUPS raw queue or TCP 9100 on a user-approved local address. USB raw access is deferred to the OS queue.
-5. **Later adapters:** TSPL2, Brother QL raster, and selected ESC/POS implement the same encoder/transport contracts. Vendor SDKs are optional adapters, never domain dependencies.
+3. **Direct IPP/IPPS:** the same libcups adapter performs DNS-SD discovery where available and `Get-Printer-Attributes`. It selects only advertised `document-format-supported`, resolution, `media-col`, and `job-creation-attributes-supported` values. The helper uses `Print-Job` when supported and otherwise `Create-Job`/`Send-Document`; PDF is sent only when advertised. For PWG Raster it initializes the negotiated page header with libcups (`cupsRasterInitPWGHeader`/equivalent) and writes `CUPS_RASTER_WRITE_PWG`. IPPS is preferred; the adapter never downgrades TLS or guesses media/options.
+4. **ZPL:** the renderer first creates a target-DPI monochrome artifact. A pure TypeScript encoder converts those validated pixels to bounded `^GFA` ZPL using only allowlisted commands. Delivery uses TCP 9100 on an explicitly approved local address or an installed queue only when its discovered formats explicitly advertise/pass through `application/vnd.zebra-zpl`. Generic/deprecated CUPS raw queues are not a normal route. Direct USB raw access is deferred.
+5. **Broader compatibility before custom growth:** evaluate OpenPrinting Printer Applications such as LPrint/PAPPL for supported Zebra, DYMO, and similar devices behind `PrintSubmissionPort`. Prefer that maintained compatibility path when it meets capability/status tests.
+6. **Later direct encoders:** TSPL2, Brother QL raster, and selected ESC/POS implement the same monochrome-artifact encoder/transport contracts. Vendor SDKs are optional adapters, never domain dependencies.
 
 The print helper has a versioned MessagePack-over-inherited-pipes contract and no arbitrary command-execution operation. CUPS process fallback, if ever needed for recovery, uses `Bun.spawn` argument arrays and `--`; shell strings and interpolated commands are prohibited.
 
+Immediately before automated submission, the pipeline refreshes expired capabilities and records the actual document format, `media`/`media-col`, resolution, orientation, margins, scaling, and copies sent. It requires an exact media representation and explicit no-fit/no-scale behavior. If a queue cannot express or verify the selected physical media, automated submission is blocked and Tan Studio offers exact PDF/system printing with a calibration warning.
+
 ### 10.6 Status fidelity and job lifecycle
 
-```text
-draft -> rendered -> submitted -> spooled -> deviceAccepted -> physicallyConfirmed
-                  \-> failed
-                  \-> cancelled
+Durable lifecycle and external evidence are separate because adapters do not traverse one universal linear chain.
+
+```ts
+type PrintLifecycle = "draft" | "rendering" | "ready" | "submitting" | "active" | "succeeded" | "failed" | "cancelled" | "indeterminate"
+
+type PrintEvidence =
+  | "adapter_accepted"
+  | "spooler_accepted"
+  | "printer_accepted"
+  | "printer_reported_completed"
+  | "physical_output_confirmed"
 ```
 
-Not every adapter can observe every state. Each event includes fidelity:
+Events record lifecycle, zero or more evidence observations, adapter job ID, protocol state/reasons, and confidence. TCP 9100 normally proves only `adapter_accepted`; an OS queue may prove `spooler_accepted`; direct IPP may prove `printer_accepted` without a spooler. IPP `completed` maps to `printer_reported_completed`, not physical output, whenever job-state reasons such as `queued-in-device` leave output uncertain. Only explicit output/completion evidence that the adapter contract defines as physical can set `physical_output_confirmed`.
 
-- `submitted`: Tan Studio handed bytes to an adapter.
-- `spooled`: an OS/server queue accepted the job.
-- `deviceAccepted`: the printer protocol accepted the job.
-- `physicallyConfirmed`: the adapter received explicit completed/output evidence for that job.
-- `unknown`: outcome cannot be determined after submission.
-
-The UI says “Sent to queue” or “Accepted by printer” unless physical completion is proven. Cancellation is best effort and cannot erase a job already printed. A retry creates a new job linked through `reprintOf`; it never mutates the original receipt.
+The UI says “Sent”, “Queued”, “Accepted by printer”, or “Printer reported complete” according to evidence and never collapses these into “Printed.” Cancellation is best effort and cannot erase a job already output. An unknown post-submit result becomes `indeterminate`, not `failed` or `succeeded`. A retry creates a new job linked through `reprintOf`; it never mutates the original receipt.
 
 ### 10.7 ZPL and printer security
 
 - User values are never concatenated into ZPL. Text is rasterized by default; allowlisted barcode data is validated and encoded by the encoder.
 - Maximum dimensions, DPI, decompressed raster bytes, copies, darkness, speed, and socket duration are bounded.
 - Raw TCP is disabled until the user selects a discovered/configured local endpoint and confirms the lack of transport security.
+- IPPS uses the operating-system trust store by default. A self-signed endpoint requires an explicit certificate/fingerprint review and pin; certificate validation is never disabled and a failed IPPS connection never downgrades to IPP. Plain IPP requires a per-printer warning/approval and is labeled unencrypted.
 - IPP credentials are future keychain references and never stored in printer JSON.
 - Discovery is local-link only by default and does not scan arbitrary subnets.
 - Artifacts and safe receipts may be retained; raw capability payloads are redacted before diagnostics.
@@ -1281,7 +1792,7 @@ TanStack Router uses file-based, typed routes. Loaders prefetch only data requir
 | --- | --- | --- | --- |
 | `/` | Redirect by current device state | system bootstrap | none |
 | `/roast` | Live command center or idle state | device status, active roast, event jobs | `liveRoastStore`, chart store |
-| `/roast/preflight` | Lot/profile/level/load and prior evidence | lot, profile revision, recent roasts, active plan | validated form draft |
+| `/roast/preflight` | Lot/profile/level/load and prior evidence | lot, profile revision, recent roasts, ready plan | validated form draft |
 | `/roasts` | Virtualized roast library and detail pane | library query/facets, saved views, selected detail | selection anchor, pane size only |
 | `/roasts/$roastId` | Log review, annotations, tastings | roast detail, Arrow series, events, annotations, tastings | chart viewport/hover |
 | `/roasts/compare` | Up to four roast overlays | details/series for URL-selected IDs | chart alignment/display store |
@@ -1299,7 +1810,7 @@ Future `/assistant` and remote viewer routes are absent from production builds u
 
 ### 11.3 Query keys and mutation behavior
 
-One key factory in `packages/api-client` defines keys such as:
+One handwritten policy layer in `packages/api-client-runtime` defines keys over the generated, never-hand-edited `packages/api-client` functions:
 
 ```ts
 queryKeys.system.bootstrap()
@@ -1314,7 +1825,7 @@ queryKeys.job(jobId)
 queryKeys.printer.capabilities(printerId, snapshotId)
 ```
 
-- Generated API functions accept TanStack's `AbortSignal`; cancelled list/facet/series requests must abort SQLite work or streaming promptly.
+- The root `QueryClient` sets `networkMode: "always"` for queries and mutations and disables `refetchOnReconnect`, because `navigator.onLine` does not describe the loopback companion. Companion bootstrap health, WebSocket freshness, and request results are authoritative. Generated functions forward TanStack's `AbortSignal`; cancellation immediately closes fetch/streaming, removes queued read work, and discards late results. A synchronous `bun:sqlite` call already running may finish off the main loop before its read-only worker is recycled; cancellation never claims to interrupt synchronous SQLite or a writer transaction mid-commit.
 - Resource data defaults to a 30-second stale time. Immutable revisions and content hashes use infinite stale time. Device/job data is updated by events and uses a 5-second safety refetch while visible.
 - Read retries use capped 250/500 ms delays for two attempts only on unavailable/reset errors. Mutations do not automatically retry unless their generated operation is marked idempotent and already has an idempotency key.
 - WebSocket resource events invalidate the narrowest key; high-frequency live samples update the live store directly and do not invalidate roast detail per sample.
@@ -1331,7 +1842,7 @@ Stores are feature-scoped vanilla stores consumed through selectors:
 - `labelEditorStore`: base template revision, element selection, layout delta, preview request version, and printer choice. Rendered artifacts remain Query data.
 - `workspaceStore`: resizable pane dimensions and density. Only these safe layout preferences may use versioned local persistence.
 
-High-frequency subscriptions use store-level transient listeners and `requestAnimationFrame` batching. Components select the smallest stable slice; the live chart is the only consumer of sample arrays.
+High-frequency subscriptions use store-level transient listeners and `requestAnimationFrame` batching. Typed-array rings mutate only behind store actions; each committed batch increments an immutable `frameVersion`. React selectors observe metadata and `frameVersion`, never a mutable buffer reference, and the imperative chart adapter reads a bounded snapshot through an explicit method. Components select the smallest stable slice; the live chart is the only consumer of full sample arrays.
 
 ### 11.5 ECharts adapter
 
@@ -1343,19 +1854,19 @@ Charts use `echarts/core` directly with CanvasRenderer and only required series/
 - Uses `ResizeObserver`, not window-size polling.
 - Converts the API Arrow stream to typed column arrays in a Web Worker.
 - Applies presentation-only smoothing/downsampling without changing raw arrays.
-- Batches live updates to at most 10 visual commits per second with `setOption({lazyUpdate:true})` and stable series IDs.
+- Batches live updates to at most 10 visual commits per second using stable series IDs and `chart.setOption(nextOption, { lazyUpdate: true, notMerge: false })`; `replaceMerge: ["series"]` is used only when the series set structurally changes, and option flags are never passed as chart data.
 - Uses Largest-Triangle-Three-Buckets for zoomed-out display and full points for the visible narrow window; events/gaps are never downsampled away.
-- Implements synchronized tooltip, data zoom, brush/selection, event/annotation marks, and accessible tabular fallback.
+- Registers ECharts' `AriaComponent`, supplies an app-authored chart description, and implements synchronized tooltip, data zoom, brush/selection, and event/annotation marks.
 - Reads colors from computed semantic CSS variables and adds line style/marker distinctions so meaning is not color-only.
 - Disables animation during live append and honors `prefers-reduced-motion` everywhere.
 
-Tooltip content is created as escaped text/DOM, not untrusted HTML formatters. Exported chart images include visible units, legend, event labels, and data-range disclosure.
+Tooltip content is created as escaped rich text or an app-owned DOM overlay, never an untrusted HTML formatter. Persisted chart preferences are a versioned allowlist of IDs, booleans, and numeric ranges; arbitrary ECharts option objects, formatter functions, regular expressions, and executable strings are prohibited. Beside every chart, a keyboard-navigable event/value summary exposes visible extrema, gaps, roast events, annotations, and cursor values without requiring canvas interaction. Exported chart images include visible units, legend, event labels, and data-range disclosure.
 
 The Bezier profile editor is a separate SVG/canvas feature with pure geometry functions and keyboard-operable nodes/handles. It does not reuse the telemetry chart as an editing engine.
 
 ### 11.6 shadcn and Tailwind rules
 
-The project initializes shadcn once with Vite, Tailwind v4, `base-nova`, Base UI primitives, CSS variables, and the shared `@tan-studio/ui` alias. Components are added or updated through the shadcn CLI and reviewed as owned source.
+The project initializes shadcn with Vite, Tailwind v4, `base-nova`, Base UI primitives, CSS variables, and the shared `@tan-studio/ui` package. `apps/web/components.json` and `packages/ui/components.json` both set `style: "base-nova"`, `rsc: false`, `tsx: true`, `iconLibrary: "lucide"`, `baseColor: "neutral"`, `cssVariables: true`, and the Tailwind v4 config path to empty; their CSS and aliases target the shared package. `packages/ui` exports `globals.css`, `components/*`, `lib/*`, and `hooks/*`; app aliases resolve to those exports. Tailwind v4 is CSS-first (`@import "tailwindcss"` plus `@theme inline`) and has no legacy JavaScript config unless a documented plugin requires one. Run `bunx --bun shadcn@latest add <component> -c apps/web`; component updates use CLI dry-run/diff and are reviewed as owned source.
 
 - Base UI composition uses its `render` prop. Radix-only `asChild` examples must not be copied into Base UI components.
 - Existing component variants and sizes are used before a new variant is added. Product-wide variants live in the shared component; one-screen color overrides are prohibited.
@@ -1364,6 +1875,10 @@ The project initializes shadcn once with Vite, Tailwind v4, `base-nova`, Base UI
 - Use `Alert` for durable contextual warnings, `sonner` for transient confirmations, `Skeleton` for initial content shape, `Spinner` for bounded inline work, `Empty` for no-data/no-results, `Badge` for compact status, and `AlertDialog` for resolved destructive targets.
 - Grouped controls use shadcn input/button/toggle groups. Icons come from the configured Lucide set, carry text or accessible names, and are not hand-authored SVG duplicates.
 - App features import shared components; they do not import `@base-ui/react` directly unless implementing a missing shared primitive with an accompanying accessibility test.
+- Use `gap-*`, not `space-*`, for flex/grid spacing; `size-*` for equal width/height; `truncate` for single-line overflow; and `cn()` for conditional classes. Features do not invent overlay z-index values.
+- `TabsTrigger` is always inside `TabsList`; grouped items live inside the matching shadcn `*Group`; every `Dialog`, `Sheet`, and `Drawer` has a programmatic title and description even when visually hidden.
+- Invalid fields place `data-invalid` on `Field` and `aria-invalid` on the control. Checkbox/radio groups use `FieldSet` and `FieldLegend`; a two-to-seven choice mode selector uses `ToggleGroup` when semantics fit.
+- A pending `Button` is disabled and uses `Spinner data-icon`; button icons use the component's `data-icon` contract and are not resized with one-off classes. ESLint/static checks and component tests enforce these composition rules.
 
 ### 11.7 Semantic theme
 
@@ -1373,18 +1888,46 @@ The Excalidraw hex palette is the design source. Implementation uses semantic OK
 | --- | --- | --- |
 | `--background` / warm paper | `oklch(97.03% 0.0111 89.72)` | App background |
 | `--foreground` / espresso | `oklch(32.21% 0.0257 54.32)` | Primary text |
-| `--card`, `--popover` / linen | `oklch(99.20% 0.0073 80.72)` | Raised surfaces |
+| `--card`, `--popover` / linen | `oklch(99.20% 0.0073 80.72)` | Raised surfaces; paired foreground is `--foreground` |
 | `--muted`, `--secondary` / pale sand/rattan | `oklch(93.37% 0.0194 80.12)` | Quiet bands and controls |
+| `--muted-foreground` | `oklch(52.00% 0.0225 64.86)` | Secondary text with measured AA contrast |
+| `--secondary-foreground`, `--accent-foreground` | `oklch(32.21% 0.0257 54.32)` | Text on quiet/selected surfaces |
 | `--accent` / pale oak | `oklch(81.95% 0.0532 76.44)` | Selection wash, never body text |
 | `--primary` / accessible clay | `oklch(56.39% 0.1020 38.90)` | Primary interactive control |
 | `--primary-foreground` | `oklch(99.20% 0.0073 80.72)` | Text on primary |
 | `--border`, `--input` / sand line | `oklch(86.89% 0.0266 76.77)` | Dividers and fields |
-| `--ring`, `--info` / dark lagoon | `oklch(52.58% 0.0597 184.98)` | Focus and connected information |
+| `--ring` / dark lagoon | `oklch(52.58% 0.0597 184.98)` | Focus indication |
 | `--destructive` / safety red | `oklch(51.94% 0.1238 27.77)` | Fault/destructive only |
+| `--destructive-foreground` | `oklch(99.20% 0.0073 80.72)` | Text/icons on destructive |
+| `--success`, `--success-foreground` | `oklch(92.79% 0.0170 137.03)` / `var(--foreground)` | Confirmed success pair |
+| `--warning`, `--warning-foreground` | `oklch(92.89% 0.0412 90.25)` / `var(--foreground)` | Caution pair |
+| `--info`, `--info-foreground` | `oklch(92.68% 0.0108 204.12)` / `var(--foreground)` | Connected/information pair |
 | `--chart-1` / source clay | `oklch(61.55% 0.1007 40.28)` | Roast heat series |
 | `--chart-2` / lagoon | `oklch(58.77% 0.0630 185.89)` | Profile/connection series |
 | `--chart-3` / sage | `oklch(64.59% 0.0516 139.43)` | Coffee/best-result series |
 | `--chart-4` / ochre | `oklch(58.81% 0.0768 77.85)` | Prediction/caution series |
+| `--chart-5` / blue-grey | `oklch(60.77% 0.0425 219.15)` | Fifth comparison series |
+
+The remaining required variables are fixed aliases/values, not left for feature code:
+
+```css
+:root {
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --input: var(--border);
+  --radius: 0.625rem;
+  --sidebar: oklch(91.78% 0.0262 76.79);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+}
+```
+
+Paired foreground values are explicit variables, not runtime opacity. `@theme inline` maps every semantic variable—including success, warning, and info pairs—to Tailwind names. A token test renders every foreground/background pair and fails below WCAG AA for its intended text size.
 
 Muted text uses the driftwood source only when measured contrast reaches WCAG AA on the rendered surface; otherwise it falls back to foreground with opacity implemented by a semantic token. The original lighter clay remains a chart/material color; the darker semantic primary is intentionally used for accessible button text contrast.
 
@@ -1396,7 +1939,7 @@ No dark theme ships until a separately reviewed semantic token set and chart con
 - Desktop has one shadcn Sidebar; narrow view uses a compact bottom navigation and Sheets for secondary inspectors.
 - Every operation is keyboard reachable with visible focus. Global shortcuts avoid browser/assistive-technology collisions and are shown in the command menu.
 - Telemetry/event controls expose live state through text and ARIA live regions without announcing every sample.
-- Tables preserve header semantics despite virtualization, provide row position/count, keep focused rows mounted, and offer a non-virtualized accessible export.
+- The high-density grid exposes row/column position and count and keeps focused rows mounted. The same query also offers a paginated, non-virtualized semantic `<table>` mode with captions, real header associations, keyboard-operable sorting, and identical actions; a file export alone is not an accessibility alternative.
 - Dragging curve points, annotations, columns, or label elements always has keyboard controls and numeric form alternatives.
 - Status never relies on color alone. Motion and sounds are optional; fault/first-crack notifications follow explicit user preferences.
 - Automated axe checks and manual VoiceOver keyboard passes are required for every primary route.
@@ -1419,14 +1962,14 @@ The design protects against hostile imported files/notes, web content, DNS rebin
 ### 12.2 Required controls
 
 - Loopback random port, per-launch 256-bit token, exact Host/Origin, no wildcard CORS, strict content types, and one-use WebSocket tickets.
-- Production CSP defaults to `default-src 'self'`; scripts/styles are bundled; no remote scripts, `eval`, inline event handlers, or arbitrary navigation. Loopback `connect-src` is injected narrowly for the assigned origin.
+- The packaged CSP is static and verified against the real Tauri/WebKit build: `default-src 'self'; script-src 'self'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; worker-src 'self'; connect-src http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. The variable loopback port requires the port wildcard, while the companion independently enforces its exact assigned Host, exact platform Tauri Origin, client header, and bearer token. There is no `unsafe-inline` script, `eval`, remote script, or arbitrary navigation. Packaged CSP/network tests are a Stage 0 release gate.
 - Tauri capabilities grant the main webview no generic filesystem, shell, process, updater, or keychain commands. React uses the companion API only.
 - Native paths are app-generated or come from bounded upload/download streams. Future mirror-folder access uses an OS-selected scoped token, not a string supplied by the webview.
 - Imported text renders as text. Markdown, if later enabled, uses a strict sanitizer with raw HTML/URLs disabled by default.
 - SQL is parameterized through Drizzle/adapter builders and allowlisted query fields. No user-defined SQL.
 - Device writes require trusted identity, current capability hash, reviewed payload hash, expiry, and independent service capability. Maintenance/destructive operations are absent until implemented.
 - Printer commands are generated from typed documents and allowlisted encoders; user text is escaped or rasterized.
-- Persistent secrets use an OS keychain/Stronghold-backed `SecretStore` adapter when cloud features arrive. SQLite stores only opaque secret references.
+- The v1 `DeviceIdentityKeyStore` uses the OS keychain and is mandatory for persistent device trust. Future IPP/AI/relay credentials use a separate OS-keychain/Stronghold-backed `SecretStore`; SQLite stores only opaque references. Neither key material nor credentials enter the webview, database, logs, backups, or diagnostics.
 - Logs redact authorization, cookies/tickets, serials, paths, printer URIs/credentials, imported text, AI prompts/responses, and network payloads.
 - Backup, label QR, export, screenshot, and diagnostics policies explicitly classify and exclude secrets/private device identifiers.
 
@@ -1494,13 +2037,35 @@ interface AiProvider {
 }
 
 type ValidatedProfileProposal = {
+  schemaVersion: 1
   proposalId: string
   baseRevisionId: string
+  sourceRoastIds: string[]
   objective: string
-  changes: Array<{ field: string; operation: "set" | "move_node" | "add_node" | "remove_node"; value: unknown; rationale: string; evidenceIds: string[] }>
-  uncertainty: string[]
+  summary: string
+  changes: Array<{
+    operation: "replace" | "move_node" | "add_node" | "remove_node"
+    path: AllowedProfilePath
+    before: unknown
+    after: unknown
+    reason: string
+    evidence: Array<{
+      roastId: string
+      tastingId?: string
+      annotationId?: string
+      metric?: string
+      timeMs?: number
+    }>
+    expectedEffect: string
+    confidence: "low" | "medium" | "high"
+    risk: "low" | "medium" | "high"
+  }>
+  cautions: string[]
+  validation: {
+    status: "pass" | "fail"
+    issues: Array<{ ruleId: string; path?: AllowedProfilePath; message: string }>
+  }
   providerMetadata: { provider: string; model: string; generatedAt: string }
-  deterministicValidation: ValidationReport
 }
 ```
 
@@ -1552,12 +2117,16 @@ Tests use temporary directories created by the test framework and explicit fake 
 - Every application port has a reusable contract suite run against fake and production adapters.
 - Every job handler has restart-at-each-checkpoint and duplicate-delivery tests.
 - Every domain event consumer proves idempotency and projection rebuild equivalence.
+- Every P0 mutation test queries its affected library row/FTS entry before the response boundary and proves read-your-writes behavior. Inventory-transfer tests prove the equal/opposite ledger invariant under retries and injected commit failure.
+- API fixtures cover every registered field/operator/group/aggregate, null semantics, cursor tamper/expiry/session changes, DTO strictness, event payload version, snapshot sequence barrier, replay, and every documented WebSocket close code.
 
 ### 16.3 USB and file gates
 
 - Codec golden tests cover fragmented, combined, oversized, invalid CRC, seed change, unknown type, invalid Base64, sequence gaps, and carriage-return framing.
 - Fixtures include the live-verified type-2 structure only with a synthetic serial and recomputed CRC.
 - `serialport` MockBinding covers enumeration, ownership, partial reads, write backpressure, disconnect, close, and timeout.
+- Candidate-to-device tests prove keychain HMAC stability without exposing the serial; missing/changed key material leaves identity transient and every mutation capability unavailable.
+- Sync tests prove immutable persisted plan review, expiry, target/capability/inventory preconditions, Unicode/case path collisions, and restart behavior before any write adapter is enabled.
 - A complete host type-3/device type-4 capture is required before enabling negotiation; status/file captures precede their features; harmless push/profile deployment requires a separately approved HIL scenario.
 - Native fixtures cover schemas 1.4–1.8, duplicates, unknown keys/channels, mixed endings, Unicode, malformed curves/cells, incidentals, partial live lines, unsupported encrypted content, and hostile sizes/paths.
 - Empty-edit output is byte-identical; supported edits preserve every untouched slice and produce a semantic diff.
@@ -1568,16 +2137,20 @@ Tests use temporary directories created by the test framework and explicit fake 
 - Rendered QR/barcodes are decoded from raster output at minimum supported physical size.
 - Fake CUPS/IPP/raw transports cover discovery, stale capabilities, accepted/rejected jobs, cancellation, timeout, duplicate submit, and indeterminate outcomes.
 - OpenPrinting `ippeveprinter` verifies capability and job negotiation.
+- IPPS tests cover valid system trust, explicit self-signed fingerprint pin, changed certificate rejection, hostname failure, and proof that TLS failure never downgrades to IPP. Image tests reject oversized, multiframe, excess-channel, metadata-heavy, timed-out, and SVG/markup input before sharp allocation.
 - HIL prints calibrated rulers/corners/QR/text on Zebra ZD421-class 203 and 300 DPI devices; measured error must be at most 0.5 mm or one device dot, whichever is larger.
 - A compatibility claim identifies exact OS, queue/IPP/language path, media, DPI, status fidelity, and test date.
 
 ### 16.5 Security and recovery gates
 
 - Invalid/missing/replayed tokens and tickets; hostile Host/Origin; DNS rebinding; disallowed content types; WebSocket gap/overflow; and CSP navigation are tested.
+- A packaged CSP smoke suite opens Base UI overlays, renders ECharts, starts the Arrow Web Worker, previews blob/data images, and proves scripts/eval/remote resources remain blocked. Local queries continue when the harness forces `navigator.onLine === false`.
 - Path traversal, symlink/archive escape, SQL/filter injection, stored XSS, Markdown/URL abuse, ZPL/IPP injection, malicious native files, and decompression bombs are tested.
 - Secret scanning asserts that logs, errors, labels/QRs, backups, exports, screenshots, and diagnostic bundles contain no seeded canary secrets.
 - Failure injection covers each database commit boundary, artifact rename, migration, backup, restore activation, projection swap, live inbox append, device request, and print submission.
+- Read-worker cancellation proves queued work disappears and running results are discarded/recycled without interrupting the database writer or USB/event-loop heartbeat.
 - A corrupt database is never replaced silently; restore and raw-index rebuild preserve prior evidence.
+- The non-virtualized semantic roast table and adjacent chart summaries pass keyboard and VoiceOver flows with the same actions as their visual counterparts.
 
 ### 16.6 Performance gates
 
@@ -1599,9 +2172,9 @@ Each release candidate stores a signed test manifest with application/build IDs,
 
 ### Stage 0 — compatibility foundation
 
-Implement workspace boundaries, domain primitives, SQLite/migrations, content-addressed store, native plugin harness, `.kpro`/`.klog` parsers, SASSI codec, label display list/renderers, API conventions, and testkit.
+Implement workspace boundaries, domain primitives, SQLite/migrations, content-addressed store, worker execution topology, native plugin harness, `.kpro`/`.klog` parsers, SASSI codec, label display list/renderers, normative API/query/event contracts, and testkit. Spike the packaged Tauri bootstrap/control channel, OS-keychain device identity, static CSP, Web Worker, Bun sidecar/native-module loading, and native print bridge before feature construction depends on them.
 
-Exit: architecture tests pass; migrations/backup work; fixtures round-trip; synthetic type-2/CRC tests pass; exact SVG/PDF/raster goldens pass; no hardware write exists.
+Exit: architecture tests pass; migrations/backup work; fixtures round-trip; synthetic type-2/CRC tests pass; exact SVG/PDF/raster goldens pass; the packaged security/native spikes pass on arm64 and x86_64 macOS; no hardware write exists.
 
 ### Stage 1 — offline knowledge base
 
