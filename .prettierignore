@@ -7,4 +7,5 @@ docs
 mockups
 apps/desktop/src-tauri/gen
 apps/desktop/src-tauri/target
+apps/serial-bridge/target
 bun.lock

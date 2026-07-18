@@ -7,6 +7,7 @@ Tan Studio is a local-first, modern desktop replacement for Kaffelogic Studio, b
 ```text
 apps/web          React 19, Vite, TanStack, Zustand, ECharts and shadcn/Base UI
 apps/companion    Authenticated Hono API, SQLite migrations, catalog and roast data
+apps/serial-bridge Small Rust CDC-serial process; transports bytes but knows no SASSI commands
 apps/desktop      Tauri 2 shell and signed-sidecar packaging foundation
 packages/domain   Framework-free product model and invariants
 packages/application  Use cases and outward-facing ports
@@ -26,7 +27,15 @@ bun run dev
 
 The web app is served at `http://127.0.0.1:1420`; the development companion binds only to `127.0.0.1:4317`, uses the development-only token, and seeds a representative local workspace. Production gets a fresh 256-bit launch token and random loopback port from the Tauri shell.
 
-The current implementation is the compatibility foundation plus an offline product vertical slice: catalog/lot reads, the roast database, log detail and telemetry charts, lossless parsers, SASSI framing, deterministic label rendering, and the secured desktop/companion lifecycle are executable. Hardware connection, device writes, automated print submission, persisted profile editing, and AI/remote adapters remain capability-disabled until their implementation and verification gates pass. Packaged builds fail closed and never replace unavailable device, roast, or print state with sample data; the sample workspace is enabled only by the explicit development setting in `apps/web/.env.development`.
+The current implementation is the compatibility foundation plus an offline product vertical slice: catalog/lot reads, the roast database, log detail and telemetry charts, lossless parsers, SASSI framing, deterministic label rendering, and the secured desktop/companion lifecycle are executable. An attached Nano 7 is now discovered and connected through its standard USB CDC serial interface; Tan Studio completes the SASSI v1 time-sync handshake and reads operational/system information in read-only mode. Filesystem access, live telemetry, device writes, automated print submission, persisted profile editing, and AI/remote adapters remain capability-disabled until their implementation and verification gates pass. Packaged builds fail closed and never replace unavailable device, roast, or print state with sample data; the sample workspace is enabled only by the explicit development setting in `apps/web/.env.development`.
+
+## Connect a Nano 7
+
+1. Quit Kaffelogic Studio so it releases the serial port.
+2. Connect the powered Nano directly with a USB data cable.
+3. Run `bun run dev`, then open `http://127.0.0.1:1420/devices`.
+
+Tan Studio automatically selects the Kaffelogic RP2040 CDC device (`VID 0x2e8a`, `PID 0x000a`); users do not select or type a `/dev` path. A successful connection shows the model, firmware, negotiated SASSI version, and `read-only`. Device identity and the ephemeral OS path stay inside the serial process and are not returned to the browser.
 
 Run the complete verification gate with:
 
@@ -34,10 +43,11 @@ Run the complete verification gate with:
 bun run check
 ```
 
-Build the target-specific Bun sidecar before packaging the desktop application:
+Build the target-specific Bun sidecar and Rust serial bridge before packaging the desktop application:
 
 ```sh
 bun apps/desktop/scripts/build-sidecar.ts
+bun apps/desktop/scripts/build-serial-bridge.ts
 ```
 
 ## Product and engineering references
@@ -52,8 +62,8 @@ bun apps/desktop/scripts/build-sidecar.ts
 
 ## Discovery status
 
-Discovery is based on official Kaffelogic documentation, a read-only inspection of Kaffelogic Studio 7.4.3 on macOS, local `.kpro`/`.klog` samples, and static interoperability analysis of the installed application. No roaster commands, firmware writes, formats, deletes, or remote-control actions were performed.
+Discovery is based on official Kaffelogic documentation, a read-only inspection of Kaffelogic Studio 7.4.3 on macOS, local `.kpro`/`.klog` samples, static interoperability analysis of the installed application, and a bounded hardware-in-the-loop session. Tan Studio sent only Studio-compatible type-3 time synchronization and type-13 operational/system information requests. No profile or filesystem write, firmware write, format, delete, roast-control, or remote-control action was performed.
 
 The PRD and mockups include the full green-coffee lineage—provider, purchase, coffee identity, physical lot, roast history, multiple tastings, and next-roast plan—plus a database-scale roast notebook and calm Bali-house visual system.
 
-The Nano initially was not powered/enumerating, but a follow-up after power-on verified the expected RP2040 CDC ACM interfaces and full-speed USB device node. After Studio exited, a read-only host-side observation captured repeated type-2 SASSI requests and verified their identity fields, advertised limits, changing seed, and CRC. No application bytes or explicit modem-control operations were sent. The remaining transport gates are the host response, complete handshake, status/filesystem traffic, transfers, and supervised live-roast capture.
+The Nano initially was not powered/enumerating, but a follow-up after power-on verified the expected RP2040 CDC ACM interfaces and full-speed USB device node. After Studio exited, a host-side observation captured repeated type-2 SASSI requests and verified their identity fields, advertised limits, changing seed, and CRC. The implemented adapter then reproduced Studio's 115200 8N1/DTR serial setup, sent a type-3 time-sync response, validated the matching type-4 acknowledgement, and read type-14 responses for information codes 9 and 3. The remaining gates are filesystem inventory/pulls, supervised live-roast capture, and separately reviewed write operations.

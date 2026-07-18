@@ -109,18 +109,13 @@ describe("production-safe companion reads", () => {
 })
 
 describe("capability-gated device and printing adapters", () => {
-  test("reads the usb adapter key and honors the disabled device feature", async () => {
+  test("reads the dedicated fail-closed device resource", async () => {
     mockFetch().mockResolvedValue(
       jsonResponse({
-        features: { deviceConnection: false, printing: false },
-        adapters: {
-          device: {
-            state: "ready",
-            model: "This incorrect key must be ignored",
-          },
-          usb: { state: "unavailable", reason: "not_implemented" },
-          printing: { state: "unavailable", reason: "not_implemented" },
-        },
+        state: "unavailable",
+        reason: "not_implemented",
+        connection: "disconnected",
+        readOnly: true,
       })
     )
 
@@ -131,7 +126,7 @@ describe("capability-gated device and printing adapters", () => {
       data: {
         available: false,
         adapterState: "unavailable",
-        reason: "feature_disabled",
+        reason: "not_implemented",
         connection: "disconnected",
         model: null,
         firmware: null,

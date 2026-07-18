@@ -2,7 +2,7 @@
 
 Status: interoperability specification draft
 Research date: 18 July 2026
-Evidence: official documentation, public USB registry, local `.kpro`/`.klog` samples, static analysis of installed Studio 7.4.3, and read-only host-side observation of an attached Nano 7
+Evidence: official documentation, public USB registry, local `.kpro`/`.klog` samples, static analysis of installed Studio 7.4.3, read-only host-side observation, and a bounded read-only hardware-in-the-loop session with an attached Nano 7
 
 ## 1. What is known, and what still needs capture
 
@@ -15,7 +15,7 @@ Public corroboration:
 - RP2040 provides USB 1.1 full-speed device support: [RP2040 specifications](https://www.raspberrypi.com/products/rp2040/specifications/).
 - Kaffelogic's Connect guide describes built-in storage reached through Studio: [Connect guide](https://webservices.kaffelogic.com/downloads/manuals/connect%20manual%20insert.pdf).
 
-The roaster was unavailable during the initial pass. A later IORegistry inspection verified its RP2040 CDC ACM interfaces while Studio owned the serial port. After Studio exited, `/dev/cu.usbmodem2101` and `/dev/tty.usbmodem2101` were unowned, and a read-only, nonblocking open of the callout node captured repeated SASSI type-2 connection requests. The capture code used `O_RDONLY | O_NONBLOCK | O_NOCTTY`, wrote no application bytes, and issued no explicit termios or modem-control operations. Opening a macOS TTY can nevertheless cause driver-initiated USB CDC control transfers, so this is accurately described as a read-only host-side observation, not a passive USB bus-analyzer capture. The device request, advertised identity/capabilities/limits, and seeded CRC are now verified; the host response, completed handshake, status/filesystem reads, transfers, and live-roast traffic remain uncaptured.
+The roaster was unavailable during the initial pass. A later IORegistry inspection verified its RP2040 CDC ACM interfaces while Studio owned the serial port. After Studio exited, `/dev/cu.usbmodem2101` and `/dev/tty.usbmodem2101` were unowned, and a read-only, nonblocking open of the callout node captured repeated SASSI type-2 connection requests. The first capture wrote no application bytes or modem-control operations. A later bounded hardware-in-the-loop run used the implemented serial adapter at Studio's settings, received and validated type 2, sent type 3, validated the matching type-4 acknowledgement, then sent type-13 reads for operational status (code 9) and system information (code 3). The Nano returned type-14 responses and the system payload yielded firmware `7.20.6`. This verifies discovery, negotiation, and those two information reads. Filesystem transfers, live-roast traffic, and every mutating command remain disabled and uncaptured.
 
 ## 2. USB serial transport
 
@@ -29,11 +29,12 @@ The roaster was unavailable during the initial pass. A later IORegistry inspecti
 | Product ID | `0x000a` | Public + live IORegistry |
 | Link speed class | USB full-speed; `bcdUSB=0x0200`, endpoint-zero maximum packet 64 | Live IORegistry |
 | macOS node | Observed as `/dev/cu.usbmodem2101` with paired `/dev/tty.usbmodem2101`; the numeric suffix is ephemeral and implementations must enumerate `/dev/cu.usbmodem*` | Live observation |
-| Serial configuration | Studio requests 115200 baud, 8 data bits, no parity, and 1 stop bit. The read-only capture did not set line coding, so firmware dependence on those values remains unverified. | Local static analysis |
-| Flow/control lines | Studio configures `dsrdtr=true` and explicitly asserts DTR; XON/XOFF and RTS/CTS are off. The read-only capture issued no explicit DTR/RTS or termios operation; macOS driver-generated CDC control traffic cannot be excluded without a bus trace. | Static analysis + bounded live observation |
+| Serial configuration | 115200 baud, 8 data bits, no parity, and 1 stop bit; the implemented adapter completed the read-only handshake with these settings. | Static analysis + live HIL |
+| Flow/control lines | DTR asserted; XON/XOFF and RTS/CTS off. This matches Studio and completed the read-only handshake on the attached Nano. Whether all firmware/OS combinations require DTR remains unknown. | Static analysis + live HIL |
 | Read timeout | 10 ms | Local static analysis |
-| Read-only capture access | `O_RDONLY`, `O_NONBLOCK`, and `O_NOCTTY`; no application writes or explicit ioctls/termios changes | Live observation |
-| Port ownership | One owner at a time. Studio previously held the callout node; after Studio exited the nodes were unowned and only the read-only observer opened them. | Static + live observation |
+| Initial capture access | `O_RDONLY`, `O_NONBLOCK`, and `O_NOCTTY`; no application writes or explicit ioctls/termios changes | Live observation |
+| Implemented adapter | Rust `serialport` 4.9.0 helper with exclusive open, opaque candidate/session IDs, bounded JSONL/base64 IPC, and no SASSI knowledge; TypeScript owns framing and commands | Implemented + live HIL |
+| Port ownership | One owner at a time. Studio must be closed before Tan Studio acquires the callout node; exclusive ownership was verified during the bounded HIL session. | Static analysis + live HIL |
 | Device emission | Repeated 74-byte type-2 frames arrived without an application-level host write; the first was observed about 1.0 s after open and subsequent frames about 0.5 s apart. Treat this as an observed short-run cadence, not a guaranteed retry interval. | Live observation |
 | Packet terminator | Carriage return, `\r` | Static analysis + live type-2 frames |
 
@@ -104,7 +105,7 @@ KL*2|<elapsed-hex>|1|128|<serial-redacted>|1|KN1007B|kaffelogic.com||4064|192|<c
 | CRC seed | Hexadecimal and different across observed frames |
 | CRC | Four hexadecimal digits; validated with that frame's seed |
 
-This is a structural example, not a CRC-valid fixture: replacing the serial changes the CRC input. Any committed test fixture must use a synthetic serial and recompute its CRC rather than combining a redacted body with an original CRC. The meaning of capability value `128` remains unknown. The limits are advertised, not yet negotiated, because no type-3/type-4 exchange occurred.
+This is a structural example, not a CRC-valid fixture: replacing the serial changes the CRC input. Any committed test fixture must use a synthetic serial and recompute its CRC rather than combining a redacted body with an original CRC. The meaning of capability value `128` remains unknown. The live type-3/type-4 exchange accepted these limits for the connected session.
 
 The host identifies as platform 10 and returns capability/version data and UTC time in this form:
 
@@ -116,15 +117,15 @@ YYYYMMDDdHHMMSS
 
 ### 3.2 Minimum read-only connection sequence
 
-An initial compatibility client must stage this sequence by evidence. Steps 1-5 are now supported by the read-only type-2 observation. Steps 6-9 remain disabled until the relevant host response, acknowledgement, status, filesystem, and live traffic have been captured and converted into redacted fixtures:
+An initial compatibility client must stage this sequence by evidence. Steps 1-6 and the bounded information reads in step 7 are implemented and verified against the attached Nano. Filesystem and live behavior in steps 7-9 remain disabled until captured and converted into redacted fixtures:
 
 1. Select the CDC port whose USB VID/PID is `0x2e8a:0x000a`.
 2. Open it at 115200 baud, assert DTR, and buffer bytes until `\r`.
 3. Require the `KL*` prefix, split the CRC at the final `|`, and retain the raw frame for diagnostics.
 4. For the first type-2 connection request, parse the candidate CRC seed from its payload and use that seed to validate the same frame. Reject it if the computed CRC does not match.
 5. Validate manufacturer domain, supported Nano model, SASSI version, limits, and required capabilities. VID/PID alone identifies a candidate RP2040 CDC device, not a trusted Kaffelogic target.
-6. After the type-3/type-4 capture gate passes, negotiate the advertised packet/filename limits and reply as host platform 10 with SASSI version 1 and UTC device time.
-7. Request system, filesystem, technical, and operational status; list and pull files only after identity and capabilities are known.
+6. Reply as host platform 10 with capability 256, SASSI version 1, and UTC time; require a matching type-4 acknowledgement before reporting connected.
+7. Request operational status code 9 and system information code 3 serially. System information currently supplies the displayed firmware. Filesystem and technical reads, directory listing, and file pulls remain capability-disabled.
 8. Continue consuming type-30 status and acknowledge every type-32 incremental-file chunk with type 1 while busy, but defer ordinary folder synchronization until the device reports not busy.
 9. On disconnect, keep all complete frames and partial live-log state, then restart negotiation on the next port open.
 
@@ -227,16 +228,16 @@ seed 0x0000, input KL*1|0| -> f490 -> KL*1|0|f490\r
 
 #### 3.4.4 Remaining wire-capture ambiguities
 
-The read-only type-2 observation does not establish:
+The bounded read-only handshake does not establish:
 
 1. Whether type-6 `p2`/`p4` and type-8 `p2` echo the request exactly.
 2. The meaning/population of type-16 `p2` and `p4`.
 3. Direct type-31/type-33 payloads; Studio does not use them.
 4. Type-32 `p4`, intended handling of gaps/out-of-order chunks, or error-plus-final combinations.
 5. Whether firmware accepts/produces lower-error values ORed with `0x80`.
-6. Whether the device actually relies on requested USB CDC line coding and DSR/DTR rather than merely exposing them. The observer did not deliberately configure line coding or DTR, but macOS implicit CDC control transfers were not bus-captured.
+6. Whether every supported firmware/OS combination relies on the requested USB CDC line coding or DTR. The attached Nano connected with Studio-compatible 115200 8N1 and asserted DTR.
 7. Field character constraints beyond the observed absence of `|` escaping.
-8. Whether the observed roughly 0.5-second repetition is a fixed retry interval, a temporary startup cadence, or changes after a host type-3 response.
+8. Whether the observed roughly 0.5-second pre-handshake repetition is a fixed retry interval or a temporary startup cadence.
 
 ### 3.5 Directory list encoding
 
@@ -699,8 +700,8 @@ Do not publish or reuse Studio's embedded encrypted-format key, saved Wi-Fi cred
 Before calling the transport production-ready, capture these scenarios against an enumerating roaster:
 
 1. USB descriptors and endpoint layout. **Completed read-only:** composite CDC ACM control/data interfaces, full-speed link, VID/PID, and macOS bindings verified.
-2. Device connection request. **Partially completed read-only:** repeated type-2 requests confirmed platform `1`, capability value `128`, redacted 10-byte serial position, SASSI version `1`, model `KN1007B`, manufacturer domain, empty description, advertised limits `4064`/`192`, changing CRC seed, and CRC validation. Still required: host type-3 response, device type-4 acknowledgement, accepted negotiation behavior, and time synchronization.
-3. System, filesystem, technical, and operational-status reads.
+2. Device connection request and negotiation. **Completed read-only on the reference Nano:** repeated type-2 requests confirmed platform `1`, capability value `128`, redacted 10-byte serial position, SASSI version `1`, model `KN1007B`, manufacturer domain, empty description, advertised limits `4064`/`192`, changing CRC seed, and CRC validation. A Studio-compatible type-3 response was accepted and returned the matching type-4 acknowledgement.
+3. System, filesystem, technical, and operational-status reads. **Partially completed read-only:** type-13 codes 9 and 3 returned matching type-14 responses; system information yielded firmware `7.20.6`. Filesystem and technical reads still require capture and fixtures.
 4. Directory list, file pull, file push to a harmless test name, and conflict behavior.
 5. Idle to busy transition without starting the roast from software.
 6. Incremental live log and event notification during a supervised physical roast.

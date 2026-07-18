@@ -45,7 +45,7 @@ AI proposals, internet remote monitoring, the official LAN bridge, broad printer
 | Persistence | SQLite through `bun:sqlite` and Drizzle; immutable content-addressed raw store |
 | Frontend | React 19, Vite 8, strict TypeScript, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6 |
 | Design system | shadcn `base-nova`, Base UI, Tailwind CSS v4, semantic OKLCH tokens |
-| USB | Node SerialPort adapter first; pure TypeScript SASSI codec; Rust serial-helper fallback only if packaging gate fails |
+| USB | Small Rust `serialport` byte-transport helper; pure TypeScript SASSI codec and session actor |
 | Printing | Exact PDF/SVG, installed OS queues, direct IPP/IPPS, then ZPL; Zebra ZD421-class 203/300 DPI is the first HIL target |
 | Inventory | Canonical signed integer milligrams; display conversion happens at boundaries |
 | Money | Optional reference metadata in integer minor currency units; no costing/accounting engine in v1 |
@@ -87,16 +87,19 @@ flowchart TB
       subgraph Companion["Bun companion sidecar"]
         API["Hono REST + WebSocket"]
         App["Application use cases"]
-        Adapters["SQLite, raw files, USB, print adapters"]
+        Adapters["SQLite, raw files, SASSI, print adapters"]
       end
+      SerialHelper["Rust serial byte-transport helper"]
     end
 
     Bootstrap --> Companion
     Bootstrap --> Webview
     Client <--> API
     API --> App --> Adapters
+    Adapters <--> SerialHelper
     Adapters <--> SQLite["SQLite + content-addressed store"]
-    Adapters <--> Device["Nano / printer / OS"]
+    SerialHelper <--> Nano["Nano USB CDC"]
+    Adapters <--> Device["Printer / OS"]
 ```
 
 #### Tauri shell
@@ -115,11 +118,11 @@ The shell must not contain product use cases, parse native files, interpret SASS
 
 #### Bun companion
 
-The companion must be the sole owner of:
+The companion must be the sole logical owner of:
 
 - The active SQLite connection pool and write transaction queue.
 - Raw, derived, attachment, backup, inbox, and diagnostic files.
-- USB serial ports and printer transports.
+- The serial-helper lifecycle/session and all printer transports. The helper alone holds the OS serial handle but has no independent lifecycle, protocol policy, or API.
 - Domain/application services and durable jobs.
 - The authenticated loopback HTTP and WebSocket server.
 
@@ -193,7 +196,7 @@ flowchart LR
 - A bounded pool of request-owned workers, each with a read-only SQLite connection, serves library/facet/report reads. HTTP cancellation stops streaming immediately and marks the task cancelled; a worker running an uninterruptible synchronous query is allowed to finish off the main loop and is recycled or terminated only where the read-only connection can be safely discarded.
 - A separate bounded CPU/job pool performs native parsing, hashing, Arrow conversion, label rendering, compression, and exports. Each task has byte/time/memory limits and checkpoints. Cancellation terminates only the request-owned job worker, never the writer.
 - Complete live native fragments use a priority append path before presentation events. Backpressure coalesces UI sample events and pauses background reads/jobs before it drops device evidence.
-- Worker messages are versioned structured data or transferable byte buffers. SQLite connections, SerialPort handles, native renderer objects, and mutable domain aggregates are never shared between workers.
+- Worker messages are versioned structured data or transferable byte buffers. SQLite connections, serial handles, native renderer objects, and mutable domain aggregates are never shared between workers.
 
 Default production limits are one writer, two read workers, and `max(1,min(2,logicalCpuCount-2))` CPU workers on the reference Mac. These limits are configurable by platform profile, not user-facing arbitrary tuning. Worker crashes fail only their task, preserve durable inputs, and trigger bounded replacement.
 
@@ -1271,45 +1274,34 @@ flowchart LR
     Session --> Protocol["SASSI message contracts"]
     Protocol --> Codec["Incremental framer + seeded CRC"]
     Session --> Transport["SerialTransport port"]
-    Transport --> Node["Node SerialPort adapter"]
-    Transport -. "packaging fallback" .-> Rust["Rust serial helper adapter"]
+    Transport --> Rust["Rust serialport helper"]
+    Rust --> CDC["OS USB CDC serial"]
     Session --> Sync["Three-way SyncEngine"]
     Sync --> Files["Native artifact/application ports"]
 ```
 
 ```ts
 type SerialCandidate = {
-  adapterKey: string
-  path: string
-  vendorId?: number
-  productId?: number
-  manufacturer?: string
-  product?: string
+  candidateId: string
+  vendorId: number | null
+  productId: number | null
+  kind: "usb" | "pci" | "bluetooth" | "unknown"
 }
 
-type SerialOpenOptions = {
-  baudRate: 115200
-  dataBits: 8
-  stopBits: 1
-  parity: "none"
-  rtscts: false
-  xon: false
-  xoff: false
-  exclusive: true
-  explicitDtr: "unchanged" // no deliberate toggle until line-control capture proves a requirement
-  explicitRts: "unchanged"
-}
-
-interface SerialConnection {
-  readonly candidate: SerialCandidate
-  readonly incoming: AsyncIterable<Uint8Array>
-  write(bytes: Uint8Array, signal: AbortSignal): Promise<void>
-  close(): Promise<void>
+type SerialCandidateList = {
+  generation: number
+  candidates: readonly SerialCandidate[]
 }
 
 interface SerialTransport {
-  list(signal: AbortSignal): Promise<SerialCandidate[]>
-  open(candidate: SerialCandidate, options: SerialOpenOptions, signal: AbortSignal): Promise<SerialConnection>
+  start(): Promise<void>
+  list(): Promise<SerialCandidateList>
+  open(candidateId: string, generation: number): Promise<string>
+  write(sessionId: string, payload: Uint8Array): Promise<void>
+  close(sessionId: string): Promise<void>
+  stop(): Promise<void>
+  onData(listener: (event: SerialDataEvent) => void): () => void
+  onDisconnect(listener: (event: SerialDisconnectEvent) => void): () => void
 }
 
 interface RoasterProtocol {
@@ -1319,11 +1311,11 @@ interface RoasterProtocol {
 }
 ```
 
-`SerialTransport` owns enumeration, OS open flags, requested line settings, exclusive ownership, byte delivery, bounded writes, disconnect mapping, and cleanup. It has no knowledge of Kaffelogic identity, SASSI fields, files, or commands.
+`SerialTransport` owns enumeration, OS open flags, line settings, exclusive ownership, byte delivery, bounded writes, disconnect mapping, and cleanup. It has no knowledge of Kaffelogic identity, SASSI fields, files, or commands.
 
-The initial adapter requests Studio's observed 115200/8N1 line coding with software/hardware flow control disabled and exclusive ownership, but issues no separate DTR/RTS toggle. The fact that the device emitted type 2 without an explicit toggle is not proof that every OS/firmware combination ignores control lines; the negotiation capture/HIL matrix must record effective line state.
+The adapter is a small Tauri-packaged Rust process using the maintained `serialport` crate. It opens 115200/8N1 with software/hardware flow control disabled, exclusive ownership, and DTR asserted, matching Studio. The reference Nano completed the type-3/type-4 handshake with these settings. The helper communicates with Bun through bounded JSON Lines messages and Base64 byte payloads over inherited pipes. It exposes generation-bound opaque candidate IDs and session IDs; raw OS paths, USB serials, and descriptor strings never cross into Bun or the API. The macOS callout node is preferred over the paired TTY node, and numeric node suffixes are treated as ephemeral.
 
-The Node adapter uses the maintained `serialport` package and its binding API. It enumerates candidates but does not trust USB display strings. The macOS callout node is preferred over the paired TTY node. Numeric node suffixes are ephemeral and never become a device ID.
+The Rust helper remains a byte transport, not a custom driver or a second protocol implementation. `packages/device-sassi` and `RoasterSession` alone decide which exact frames may be sent. In the current read-only capability, the session allowlist contains type 3 and type 13 codes 9 and 3 only.
 
 ### 8.2 Codec requirements
 
@@ -1355,7 +1347,7 @@ type DecodedSassiMessage = {
 
 Unknown types are diagnosable but cannot trigger a use case. Invalid CRC frames are discarded from the trusted stream and counted; three consecutive integrity failures close the session.
 
-### 8.3 Verified type-2 observation
+### 8.3 Verified read-only connection
 
 The attached Nano 7 emitted repeated 74-byte requests without an application-level host write:
 
@@ -1363,7 +1355,7 @@ The attached Nano 7 emitted repeated 74-byte requests without an application-lev
 KL*2|<elapsed-hex>|1|128|<serial-redacted>|1|KN1007B|kaffelogic.com||4064|192|<crc-seed>|<crc>\r
 ```
 
-Platform `1`, capability value `128`, 10-byte serial position, SASSI version `1`, model `KN1007B`, empty description, limits `4064`/`192`, changing seed, and seeded CRC are verified. The meaning of capability `128`, stable retry cadence, host type-3 response, device type-4 response, status reads, transfers, and writes remain capture-dependent. A redacted captured body must never be paired with the original CRC; fixtures use a synthetic serial and recomputed CRC.
+Platform `1`, capability value `128`, 10-byte serial position, SASSI version `1`, model `KN1007B`, empty description, limits `4064`/`192`, changing seed, and seeded CRC are verified. A bounded HIL session then sent Studio-compatible type 3, received the matching type 4, sent type-13 information requests for codes 9 and 3 one at a time, and received matching type-14 responses. System information produced firmware `7.20.6`; the UI reported the session connected and read-only. The meaning of capability `128`, filesystem transfers, live notifications, and all writes remain capture-dependent. A redacted captured body must never be paired with the original CRC; fixtures use a synthetic serial and recomputed CRC.
 
 ### 8.4 Session actor and state machine
 
@@ -1378,8 +1370,8 @@ stateDiagram-v2
     opening --> backoff: ownership/open failure
     awaiting_request --> trusted_read_only: valid type-2 identity
     awaiting_request --> rejected: timeout/identity/CRC failure
-    trusted_read_only --> negotiating: verified host response enabled
-    negotiating --> idle: type-4 and status accepted
+    trusted_read_only --> negotiating: send allowlisted type 3
+    negotiating --> idle: matching type 4 accepted
     idle --> busy: busy status/live fragment
     busy --> reconciling: not-busy/final file available
     reconciling --> idle: final log verified
@@ -1396,7 +1388,8 @@ stateDiagram-v2
 ```
 
 - `trusted_read_only` proves device identity but does not imply a completed host handshake.
-- The transition to `negotiating` remains behind a compatibility feature gate until type 3/4 is captured and fixture-tested.
+- Type 3/4 negotiation and type-13/type-14 information codes 9 and 3 are live-verified and enabled. The session reports connected immediately after the matching type 4, then reads codes 9 and 3 serially; a missing information response does not retroactively invent device data.
+- Directory, file, action, maintenance, and destructive messages remain behind their separate capture, fixture, and HIL gates.
 - One response-bearing request may be active. The scheduler records expected response type, deadline, sequence, idempotency class, and cancellation behavior.
 - Default response/ACK deadline is 10 seconds as observed in Studio. A timeout never invents success.
 - Automatic retries are limited to read-only idempotent requests. File pushes and actions require outcome reconciliation or a new reviewed command.
@@ -1516,13 +1509,13 @@ Reconciliation produces:
 
 UI charts distinguish received, gap, provisional, and reconciled ranges without fabricating interpolation into stored data.
 
-### 8.8 Native-module packaging gate and fallback
+### 8.8 Serial-helper packaging gate
 
-Local validation established that `serialport` works under Bun 1.2.22 and its `MockBinding`, but a fully bundled executable fails because of the generated native-module wrapper. The primary package therefore compiles the companion with `serialport` externalized and places the exact locked package/native binding tree in a signed, read-only resource directory. Tauri starts the companion with that directory as its fixed module-resolution working directory.
+Local validation established that the Node `serialport` package can enumerate under Bun 1.2.22 but crashes when opening this CDC device because the native binding reaches an unsupported `uv_default_loop` path; bundling adds a second native-module failure mode. Tan Studio therefore uses the simpler production boundary now: only `SerialTransport` lives in a small Rust executable built against exact `serialport` crate version 4.9.0. The TypeScript SASSI codec, session actor, use cases, API, and tests remain unchanged.
 
-The release gate runs on every supported OS/architecture and proves enumeration, mock open/read/write/close, real candidate listing, missing-module failure, signature integrity, and operation from a path containing spaces/non-ASCII characters.
+`apps/desktop/scripts/build-serial-bridge.ts` builds the helper with Cargo `--release --locked --target <Tauri target triple>` and copies it to Tauri's target-suffixed external-binary directory. Tauri installs both the Bun companion and serial helper, normally removing that build suffix inside the app bundle. The companion resolves only an explicit absolute development override, an exact or target-suffixed sibling executable, or the known workspace Cargo output in development.
 
-If this gate fails on a release platform, only the `SerialTransport` adapter moves to a small Tauri-packaged Rust helper using the maintained Rust `serialport`/`tokio-serial` ecosystem. The Bun adapter exchanges length-prefixed MessagePack requests and byte events over inherited pipes. The TypeScript SASSI codec, session actor, use cases, API, and tests remain unchanged. The project must not implement a USB CDC driver, move domain logic into Rust, switch to Electron, or expose serial access to React.
+The release gate runs on every supported OS/architecture and proves enumeration, mock open/read/write/close, real candidate listing, partial/combined reads, bounded IPC, sequence-gap failure, child-process failure, missing-helper failure, signature integrity, and operation from a path containing spaces/non-ASCII characters. Tan Studio does not implement a USB CDC driver, move protocol/domain logic into Rust, switch to Electron, or expose serial access to React.
 
 ## 9. Native file plugin specification
 
@@ -1753,7 +1746,7 @@ The QR default contains an opaque Tan Studio roast UUID or an explicit export UR
 - Every image decode sets `failOn: "warning"`, enforces source bytes, dimensions, total pixels, channels, decoded bytes, frame count, and worker deadline before allocation, and strips metadata on re-encode. QR/barcode payload bytes, symbol density, and copies are bounded before rendering.
 - PWG Raster output is written by the native print helper through the maintained libcups raster API from the renderer's validated target-DPI pixels; Tan Studio does not implement the PWG container protocol from scratch.
 - QR generation uses a maintained QR library with fixed error correction/quiet-zone rules; barcodes use `bwip-js`. Rendered symbols are decoded in tests.
-- Native rendering dependencies are subject to the same signed-resource and architecture packaging gate as SerialPort.
+- Native rendering dependencies are subject to the same signed-resource and architecture packaging gate as the serial helper.
 
 Text overflow, missing glyphs, content outside the media/safe box, insufficient QR module size, and unsupported images are validation errors before submission. Preview uses the exact rendered SVG or raster artifact, not a separately styled HTML approximation.
 
@@ -2170,7 +2163,7 @@ Feature flags cannot grant a capability for which the relevant service/adapter i
 
 ### 12.4 Dependency and supply-chain policy
 
-- Prefer standards/platform implementations: SerialPort bindings for CDC, SQLite/Drizzle for persistence, OpenAPI/Zod for API contracts, Apache Arrow for derived series, OpenPrinting/libcups for queues/IPP, resvg/sharp/pdf-lib for rendering, and official printer-language specifications.
+- Prefer standards/platform implementations: the Rust `serialport` crate for CDC, SQLite/Drizzle for persistence, OpenAPI/Zod for API contracts, Apache Arrow for derived series, OpenPrinting/libcups for queues/IPP, resvg/sharp/pdf-lib for rendering, and official printer-language specifications.
 - Exact direct/transitive versions and integrity are locked. Install scripts are disabled by default; only reviewed native packages are listed in Bun `trustedDependencies`.
 - CI runs license allowlisting, vulnerability audit, secret scan, generated-file diff, and SBOM generation.
 - Native binaries are built or obtained from authenticated upstream releases, included before signing, and verified on every architecture.
@@ -2184,7 +2177,7 @@ The first release is a universal or paired arm64/x86_64 Tauri 2 application cont
 
 - Vite frontend assets served by Tauri's custom protocol.
 - One Bun companion executable per target architecture.
-- Externalized SerialPort/native binding resource tree.
+- One target-specific Rust serial-helper executable.
 - Rust print helper linked against the supported system/OpenPrinting CUPS interface.
 - Bundled fonts and rendering native modules.
 - Migration files, OpenAPI schema, licenses, and build manifest.
@@ -2284,7 +2277,7 @@ Critical local alerts are database recovery mode, device identity change, live c
 | --- | --- | --- |
 | Domain/application unit | `bun:test`, fake clock/IDs/ports | Invariants, use-case outcomes, idempotency, capability separation |
 | Property/fuzz | `fast-check` under Bun | SASSI chunking/CRC, parser round trips, numeric/unit boundaries, query ASTs, label bounds |
-| Adapter contract | `bun:test`, testkit fakes | Repositories, artifact store, SerialPort MockBinding, printers/transports, secret redaction |
+| Adapter contract | `bun:test`, Rust tests, testkit fakes | Repositories, artifact store, serial-helper IPC/transports, printers/transports, secret redaction |
 | Database integration | Real temporary SQLite | Migrations, constraints, WAL/restart, projections, FTS, backup/restore, query plans |
 | API contract | Hono in-process + generated client | OpenAPI parity, Problem Details, ETags, idempotency, jobs, origin/auth, event recovery |
 | Frontend component | Vitest, Testing Library, axe | Forms, routes, loading/empty/error states, keyboard/accessibility |
@@ -2307,10 +2300,10 @@ Tests use temporary directories created by the test framework and explicit fake 
 
 - Codec golden tests cover fragmented, combined, oversized, invalid CRC, seed change, unknown type, invalid Base64, sequence gaps, and carriage-return framing.
 - Fixtures include the live-verified type-2 structure only with a synthetic serial and recomputed CRC.
-- `serialport` MockBinding covers enumeration, ownership, partial reads, write backpressure, disconnect, close, and timeout.
+- Rust unit/contract tests and a fake JSONL helper cover enumeration mapping, opaque generations/sessions, ownership, partial reads, write bounds/backpressure, sequence gaps, disconnect, close, child exit, and timeout.
 - Candidate-to-device tests prove keychain HMAC stability without exposing the serial; missing/changed key material leaves identity transient and every mutation capability unavailable.
 - Sync tests prove immutable persisted plan review, expiry, target/capability/inventory preconditions, Unicode/case path collisions, and restart behavior before any write adapter is enabled.
-- A complete host type-3/device type-4 capture is required before enabling negotiation; status/file captures precede their features; harmless push/profile deployment requires a separately approved HIL scenario.
+- The live-verified type-3/type-4 negotiation and type-13/type-14 information codes 9 and 3 remain covered by redacted contract tests and an opt-in HIL test. Filesystem/status-notification captures precede those features; harmless push/profile deployment requires a separately approved HIL scenario.
 - Native fixtures cover schemas 1.4–1.8, duplicates, unknown keys/channels, mixed endings, Unicode, malformed curves/cells, incidentals, partial live lines, unsupported encrypted content, and hostile sizes/paths.
 - Empty-edit output is byte-identical; supported edits preserve every untouched slice and produce a semantic diff.
 
@@ -2369,7 +2362,7 @@ Exit: all offline P0 PRD journeys pass; 10,000-roast dump/restore is identical; 
 
 ### Stage 2 — connected desktop
 
-Implement Tauri shell/bootstrap/security, signed Bun packaging, SerialPort resource gate, read-only session, captured negotiation/status/filesystem behavior, safe sync planning/execution, live ingestion/reconciliation, profile deployment after its capture gate, CUPS/IPPS and ZPL adapters, and macOS signing/notarization.
+Implement Tauri shell/bootstrap/security, signed Bun and Rust-helper packaging, the remaining captured status/filesystem behavior, safe sync planning/execution, live ingestion/reconciliation, profile deployment after its capture gate, CUPS/IPPS and ZPL adapters, and macOS signing/notarization. The read-only USB discovery, negotiation, and bounded system/operational information path are already executable.
 
 Exit: 20 supervised roasts with no complete-sample/native-file loss; idle/live reconnect passes; conflicts preserve both versions; all device writes have capture/HIL evidence; Zebra geometry passes; packaged app works offline from `/Applications`.
 
@@ -2424,7 +2417,7 @@ These choices do not block Stages 0–2 and must not be guessed by an implemente
 - [Tauri sidecars](https://v2.tauri.app/develop/sidecar/)
 - [Tauri capabilities](https://v2.tauri.app/reference/acl/capability/)
 - [Bun standalone executables](https://bun.sh/docs/bundler/executables)
-- [Node SerialPort API](https://serialport.io/docs/api-serialport/)
+- [Rust serialport crate](https://docs.rs/serialport/4.9.0/serialport/)
 - [shadcn Vite setup](https://ui.shadcn.com/docs/installation/vite)
 - [shadcn theming](https://ui.shadcn.com/docs/theming)
 - [OpenPrinting CUPS](https://openprinting.github.io/cups/)

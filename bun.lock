@@ -16,6 +16,7 @@
       "dependencies": {
         "@tan-studio/api-contract": "workspace:*",
         "@tan-studio/application": "workspace:*",
+        "@tan-studio/device-sassi": "workspace:*",
         "hono": "^4.10.6",
         "zod": "^4.1.12",
       },
@@ -31,6 +32,10 @@
         "@tan-studio/web": "workspace:*",
         "@tauri-apps/cli": "^2.11.3",
       },
+    },
+    "apps/serial-bridge": {
+      "name": "@tan-studio/serial-bridge",
+      "version": "0.1.0",
     },
     "apps/web": {
       "name": "@tan-studio/web",
@@ -366,6 +371,8 @@
     "@tan-studio/native-format-adapters": ["@tan-studio/native-format-adapters@workspace:packages/native-format-adapters"],
 
     "@tan-studio/printing-adapters": ["@tan-studio/printing-adapters@workspace:packages/printing-adapters"],
+
+    "@tan-studio/serial-bridge": ["@tan-studio/serial-bridge@workspace:apps/serial-bridge"],
 
     "@tan-studio/ui": ["@tan-studio/ui@workspace:packages/ui"],
 

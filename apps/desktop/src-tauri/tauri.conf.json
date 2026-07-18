@@ -19,7 +19,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/tan-studio-companion"],
+    "externalBin": [
+      "binaries/tan-studio-companion",
+      "binaries/tan-studio-serial-bridge"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

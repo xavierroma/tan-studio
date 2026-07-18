@@ -10,12 +10,14 @@ import { CursorService } from "./services/cursor"
 import { RoastLibraryQueryService } from "./services/roast-library-query"
 import { registerCatalogRoutes } from "./routes/catalog-routes"
 import { registerRoastRoutes } from "./routes/roast-routes"
+import type { DeviceManagerPort } from "./device/device-manager"
 
 export type CompanionAppOptions = {
   database: CompanionDatabase
   security: SecurityOptions
   sessionId?: string
   appVersion?: string
+  deviceManager?: DeviceManagerPort
 }
 
 export function createCompanionApp(options: CompanionAppOptions) {
@@ -29,6 +31,19 @@ export function createCompanionApp(options: CompanionAppOptions) {
     cursors
   )
   const roastLibrary = new QueryRoastLibrary(roastLibraryAdapter)
+  const deviceSnapshot = () =>
+    options.deviceManager?.snapshot() ?? {
+      state: "unavailable" as const,
+      reason: "not_implemented",
+      connection: "disconnected" as const,
+      model: null,
+      firmware: null,
+      protocol: null,
+      packetLimitBytes: null,
+      profileCount: null,
+      logCount: null,
+      readOnly: true as const,
+    }
 
   app.use("*", async (c, next) => {
     const supplied = c.req.header("x-correlation-id")
@@ -59,6 +74,7 @@ export function createCompanionApp(options: CompanionAppOptions) {
       .query("PRAGMA quick_check")
       .get() as Record<string, string>
     const databaseHealthy = Object.values(integrity)[0] === "ok"
+    const usb = deviceSnapshot()
 
     return c.json({
       apiVersion: "v1",
@@ -74,7 +90,7 @@ export function createCompanionApp(options: CompanionAppOptions) {
         roastLibrary: true,
         roastDetail: true,
         seriesJson: true,
-        deviceConnection: false,
+        deviceConnection: options.deviceManager !== undefined,
         profileEditing: false,
         printing: false,
         aiProposals: false,
@@ -82,10 +98,31 @@ export function createCompanionApp(options: CompanionAppOptions) {
       },
       adapters: {
         database: { state: databaseHealthy ? "ready" : "failed" },
-        usb: { state: "unavailable", reason: "not_implemented" },
+        usb,
         printing: { state: "unavailable", reason: "not_implemented" },
       },
     })
+  })
+
+  app.get("/api/v1/device", (c) => c.json(deviceSnapshot()))
+
+  app.post("/api/v1/device/refresh", async (c) => {
+    if (!options.deviceManager) {
+      return c.json(
+        {
+          type: "about:blank",
+          title: "Device adapter unavailable",
+          status: 501,
+          detail: "The USB device adapter is not installed.",
+          code: "device_adapter_unavailable",
+          correlationId: c.get("correlationId"),
+          retryable: false,
+        },
+        501
+      )
+    }
+    await options.deviceManager.refresh()
+    return c.json(options.deviceManager.snapshot())
   })
 
   registerCatalogRoutes(app, catalogRepository, cursors)

@@ -234,7 +234,7 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 
 | ID | Pri | Requirement |
 | --- | --- | --- |
-| CON-01 | P0 | Discover candidate RP2040 CDC devices by `0x2e8a:0x000a`; never trust VID/PID alone. A valid type-2 frame may establish a read-only candidate identity, but no status, transfer, or write capability is enabled until the corresponding host handshake/operation is captured, fixture-tested, and accepted. |
+| CON-01 | P0 | Discover candidate RP2040 CDC devices by `0x2e8a:0x000a`; never trust VID/PID alone. Require a valid type-2 identity and seeded CRC, then complete the live-verified type-3/type-4 handshake before reporting connected. Type-13 information reads are limited initially to verified codes 9 and 3; no transfer or write capability is enabled until that operation is captured, fixture-tested, and accepted. |
 | CON-02 | P0 | Implement SASSI framing, negotiated CRC seed, ACK timeout, Base64 file chunks, and safe reconnect. |
 | CON-03 | P0 | Read identity, filesystem, technical, and operational status before any write is offered. |
 | CON-04 | P0 | Synchronize `roast-profiles` and `roast-logs` with a safe three-way ledger. |
@@ -552,8 +552,9 @@ flowchart TB
       subgraph Local["Signed Bun companion sidecar"]
         HTTP["Hono /api/v1 + /api/v1/events"]
         APP["Application use cases and ports"]
-        ADAPTERS["SQLite/raw files, USB/SASSI, parsers, print adapters"]
+        ADAPTERS["SQLite/raw files, SASSI, parsers, print adapters"]
       end
+      SERIAL["Rust serial byte-transport helper"]
     end
 
     subgraph Optional["Future optional services"]
@@ -566,6 +567,8 @@ flowchart TB
     RQ <--> HTTP
     ZS --> CH
     HTTP --> APP --> ADAPTERS
+    ADAPTERS <--> SERIAL
+    SERIAL <--> NANO["Nano USB CDC"]
     APP -. explicit consent .-> AI
     HTTP -. read-only outbound TLS .-> RELAY
 ```
@@ -616,7 +619,7 @@ Independently testable bounded modules are catalog/inventory; roasts/telemetry; 
 
 Tauri serves the built frontend through its custom protocol, generates a per-launch 256-bit in-memory token, and launches the compatible signed Bun sidecar with that token over a private inherited control channel. The sidecar binds a random loopback-only port and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
 
-The SerialPort native module is externalized into signed resources and tested on every target architecture. If that packaging gate fails, only the `SerialTransport` adapter moves to a small Rust helper; SASSI, use cases, and the API remain TypeScript. A separate Web Serial demo may be researched later but is not part of the production frontend.
+USB byte transport runs in a small target-specific Rust helper using the maintained `serialport` crate because Bun's Node native serial binding cannot open the reference CDC device reliably. SASSI framing, command allowlisting, session behavior, use cases, and the API remain TypeScript. The helper receives only bounded byte-transport requests over inherited pipes; it is not a custom USB driver or a second protocol implementation. A separate Web Serial demo may be researched later but is not part of the production frontend.
 
 ## 12. Data model
 
@@ -822,7 +825,7 @@ For performance gates, the reference machine is a 2020 Apple M1 MacBook Air with
 - Versioned lossless native-format plugin contract and hostile-input harness.
 - Golden fixtures and semantic diff tool.
 - SASSI codec and recorded-frame test harness.
-- Documented read-only type-2 observation, followed by controlled type-3/type-4, status, filesystem, and live captures before their corresponding features are enabled.
+- Documented type-2 observation plus completed read-only type-3/type-4 and type-13/type-14 codes 9/3 HIL session; filesystem, live, and mutating captures still precede their corresponding features.
 - Domain models and SQLite schema.
 - Deterministic label display list, PDF/SVG/raster renderers, fake printers, and golden print fixtures.
 
@@ -844,7 +847,7 @@ Exit: useful daily post-roast workflow without controlling a device.
 ### Phase 2 - connected signed desktop
 
 - Signed/notarized Tauri 2 application with authenticated Bun sidecar and compatible frontend/native resources.
-- Cross-platform externalized-`serialport` packaging gate; use the specified Rust `SerialTransport` helper fallback if a target fails.
+- Cross-platform Rust `serialport` helper packaging, signing, and adapter-contract gate.
 - USB connection, status, safe sync, conflicts, and device browser.
 - Live incremental log and event marking.
 - Final reconciliation and soak testing.
@@ -908,7 +911,7 @@ The bridge is not a USB 3 project; it is a reliable USB 1.1 CDC host plus secure
 
 ## 18. Deferred product and external decisions
 
-Tan Studio, its Bali-house visual direction, macOS-first Tauri/Bun packaging, canonical integer-milligram persistence, optional monetary reference fields, provider-neutral AI port, outbound-only read-only relay boundary, and Zebra ZD421-class ZPL HIL target are settled. The remaining decisions do not block P0:
+Tan Studio, its Bali-house visual direction, macOS-first Tauri/Bun/Rust-helper packaging, canonical integer-milligram persistence, optional monetary reference fields, provider-neutral AI port, outbound-only read-only relay boundary, and Zebra ZD421-class ZPL HIL target are settled. The remaining decisions do not block P0:
 
 1. Windows versus Linux release order after macOS.
 2. Default label-size presets beyond arbitrary exact custom dimensions.

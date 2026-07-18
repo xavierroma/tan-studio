@@ -79,6 +79,23 @@ describe("security and bootstrap", () => {
     })
   })
 
+  test("returns a dedicated fail-closed device resource", async () => {
+    const response = await request("/api/v1/device")
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      state: "unavailable",
+      reason: "not_implemented",
+      connection: "disconnected",
+      model: null,
+      firmware: null,
+      protocol: null,
+      packetLimitBytes: null,
+      profileCount: null,
+      logCount: null,
+      readOnly: true,
+    })
+  })
+
   test("rejects malformed JSON without exposing internals", async () => {
     const response = await request("/api/v1/providers", {
       method: "POST",

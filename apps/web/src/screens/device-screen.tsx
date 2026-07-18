@@ -28,7 +28,12 @@ import {
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
-import { getDeviceState, isDemoResult, queryKeys } from "@/lib/api"
+import {
+  getDeviceState,
+  isDemoResult,
+  queryKeys,
+  refreshDevice,
+} from "@/lib/api"
 
 const files = [
   {
@@ -72,9 +77,13 @@ export function DeviceScreen() {
   const device = useQuery({
     queryKey: queryKeys.device(),
     queryFn: getDeviceState,
+    refetchInterval: 1_500,
+    refetchIntervalInBackground: true,
   })
   const state = device.data?.data
   const deviceAvailable = state?.available === true
+  const adapterReady =
+    state?.adapterState === "ready" || state?.adapterState === "degraded"
   const demoDevice = isDemoResult(device.data) && deviceAvailable
 
   return (
@@ -84,7 +93,15 @@ export function DeviceScreen() {
         description="One owner for USB, protocol negotiation, device files and safe synchronization plans"
         actions={
           <>
-            <Button variant="outline" onClick={() => void device.refetch()}>
+            <Button
+              variant="outline"
+              disabled={device.isFetching}
+              onClick={() =>
+                void refreshDevice()
+                  .catch(() => undefined)
+                  .then(() => device.refetch())
+              }
+            >
               <RefreshCwIcon data-icon="inline-start" />
               Refresh
             </Button>
@@ -110,24 +127,32 @@ export function DeviceScreen() {
               <span className="bg-info flex size-11 items-center justify-center rounded-full">
                 <CableIcon className="size-5" />
               </span>
-              <Badge variant={deviceAvailable ? "info" : "secondary"}>
+              <Badge variant={deviceAvailable ? "success" : "secondary"}>
                 {device.isPending
                   ? "Checking"
                   : deviceAvailable
-                    ? state.connection
-                    : (state?.adapterState ?? "Unavailable")}
+                    ? "Connected"
+                    : state?.connection === "reconnecting"
+                      ? "Negotiating"
+                      : adapterReady
+                        ? "Waiting"
+                        : (state?.adapterState ?? "Unavailable")}
               </Badge>
             </div>
             <h2 className="mt-4 font-semibold">
               {state?.model ??
                 (deviceAvailable
                   ? "Connected roaster"
-                  : "No roaster available")}
+                  : state?.connection === "reconnecting"
+                    ? "Identifying Nano"
+                    : "No roaster connected")}
             </h2>
             <p className="text-muted-foreground mt-1 text-sm">
               {deviceAvailable
                 ? "USB CDC · identity redacted · exclusive local session"
-                : "No device identity or inventory has been assumed"}
+                : adapterReady
+                  ? "Connect and power the Nano; discovery runs automatically"
+                  : "The local serial adapter is unavailable"}
             </p>
           </div>
           <div className="bg-card rounded-xl border p-5">
@@ -159,15 +184,23 @@ export function DeviceScreen() {
             {demoDevice
               ? "Development-only sample device"
               : deviceAvailable
-                ? "USB adapter ready"
-                : "USB adapter unavailable"}
+                ? "Nano connected in read-only mode"
+                : state?.connection === "reconnecting"
+                  ? "Negotiating SASSI session"
+                  : adapterReady
+                    ? "Waiting for Nano"
+                    : "USB adapter unavailable"}
           </AlertTitle>
           <AlertDescription>
             {demoDevice
               ? "This is an explicitly enabled development simulation; no physical roaster state is being reported."
               : deviceAvailable
                 ? `${state.model ?? "Connected roaster"}${state.protocol ? ` · ${state.protocol}` : ""}${state.packetLimitBytes == null ? "" : ` · packet limit ${state.packetLimitBytes.toLocaleString()} bytes`}. The device serial is never shown, logged or included in fixtures.`
-                : `Tan Studio has not fabricated a connected device${state?.reason ? ` (${state.reason})` : ""}. Connect the companion and an available USB adapter, then refresh.`}
+                : state?.connection === "reconnecting"
+                  ? "The CDC port is open exclusively. Tan Studio is validating the Nano identity, seeded CRC and time-sync acknowledgement."
+                  : adapterReady
+                    ? `The serial reader is ready${state?.reason ? ` (${state.reason})` : ""}. Power the Nano and connect its USB data cable; Tan Studio will retry automatically.`
+                    : `Tan Studio could not start the serial reader${state?.reason ? ` (${state.reason})` : ""}.`}
           </AlertDescription>
         </Alert>
 
@@ -335,6 +368,13 @@ export function DeviceScreen() {
                   <CheckCircle2Icon className="text-primary size-4" />
                   <span className="flex-1">Seeded CRC-16/CCITT-XMODEM</span>
                   <Badge variant="success">Verified</Badge>
+                </li>
+                <li className="flex items-center gap-3">
+                  <CheckCircle2Icon className="text-primary size-4" />
+                  <span className="flex-1">
+                    Type-3 time sync and type-4 acknowledgement
+                  </span>
+                  <Badge variant="success">Read-only</Badge>
                 </li>
                 <li className="flex items-center gap-3">
                   <LockKeyholeIcon className="text-muted-foreground size-4" />

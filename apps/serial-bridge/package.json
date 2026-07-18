@@ -1,0 +1,10 @@
+{
+  "name": "@tan-studio/serial-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release --locked --manifest-path Cargo.toml",
+    "test": "cargo test --locked --manifest-path Cargo.toml",
+    "typecheck": "cargo check --locked --manifest-path Cargo.toml"
+  }
+}

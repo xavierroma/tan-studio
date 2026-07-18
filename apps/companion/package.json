@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun build src/index.ts --target=bun --outdir=dist/src",
-    "dev": "bun --watch src/dev.ts",
+    "dev": "cargo build --locked --manifest-path ../serial-bridge/Cargo.toml && bun --watch src/dev.ts",
     "start": "bun src/index.ts",
     "db:migrate": "bun src/db/migrate.ts",
     "db:seed": "bun src/db/seed-cli.ts",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@tan-studio/api-contract": "workspace:*",
     "@tan-studio/application": "workspace:*",
+    "@tan-studio/device-sassi": "workspace:*",
     "hono": "^4.10.6",
     "zod": "^4.1.12"
   },

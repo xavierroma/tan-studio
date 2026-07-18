@@ -541,34 +541,33 @@ export async function getSystemCapabilities(): Promise<
 }
 
 export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
-  const capabilities = await getSystemCapabilities()
-  if (isDemoResult(capabilities)) {
-    return { data: demoDeviceState, source: "demo" }
+  try {
+    const usb = normalizeAdapter(await companionFetch<unknown>("/device"))
+    const connection = usb.connection ?? "disconnected"
+    return {
+      source: "companion",
+      data: {
+        available: usb.state === "ready" && connection === "connected",
+        adapterState: usb.state,
+        reason: usb.reason,
+        connection,
+        model: usb.model ?? null,
+        firmware: usb.firmware ?? null,
+        protocol: usb.protocol ?? null,
+        packetLimitBytes: usb.packetLimitBytes ?? null,
+        profileCount: usb.profileCount ?? null,
+        logCount: usb.logCount ?? null,
+        readOnly: usb.readOnly !== false,
+      },
+    }
+  } catch (error) {
+    if (demoDataEnabled) return { data: demoDeviceState, source: "demo" }
+    throw error
   }
+}
 
-  const usb = capabilities.data.adapters.usb
-  const available =
-    capabilities.data.features.deviceConnection && usb.state === "ready"
-  return {
-    source: "companion",
-    data: {
-      available,
-      adapterState: usb.state,
-      reason: capabilities.data.features.deviceConnection
-        ? usb.reason
-        : "feature_disabled",
-      connection: available
-        ? (usb.connection ?? "disconnected")
-        : "disconnected",
-      model: usb.model ?? null,
-      firmware: usb.firmware ?? null,
-      protocol: usb.protocol ?? null,
-      packetLimitBytes: usb.packetLimitBytes ?? null,
-      profileCount: usb.profileCount ?? null,
-      logCount: usb.logCount ?? null,
-      readOnly: usb.readOnly !== false,
-    },
-  }
+export async function refreshDevice(): Promise<void> {
+  await companionFetch("/device/refresh", { method: "POST" })
 }
 
 export async function submitPrintJob(input: {

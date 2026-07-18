@@ -146,6 +146,20 @@ describe("incremental framing", () => {
     })
     expect(decoder.push(textBytes(TYPE_2_FIXTURE_A))[0]?.kind).toBe("message")
   })
+
+  test("returns to pre-handshake limits after reset", () => {
+    const decoder = new SassiDecoder()
+    decoder.setNegotiatedLimits({
+      maximumPacketBytes: 4_064,
+      crcSeed: 0x1d0f,
+    })
+    decoder.reset()
+
+    expect(decoder.push(new Uint8Array(513).fill(0x41))[0]).toMatchObject({
+      kind: "error",
+      error: { code: "too_large" },
+    })
+  })
 })
 
 describe("unknown messages", () => {

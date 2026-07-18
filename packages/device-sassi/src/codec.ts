@@ -6,7 +6,9 @@ import type {
   SassiCodecEvent,
   SassiCodecFailure,
   SassiDecoderOptions,
+  Type14InfoResponse,
   Type2ConnectionRequest,
+  Type4TimeSyncAcknowledgement,
 } from "./types"
 
 const FRAME_TERMINATOR = 0x0d
@@ -57,6 +59,8 @@ export class SassiDecoder {
   reset(): void {
     this.#buffer = []
     this.#discardUntilTerminator = false
+    this.#negotiatedMaximumPacketBytes = undefined
+    this.#negotiatedCrcSeed = undefined
   }
 
   push(chunk: Uint8Array): readonly SassiCodecEvent[] {
@@ -268,14 +272,14 @@ export function decodeSassiFrame(
     }
   }
 
-  const parsedType2 = type === 2 ? parseType2(fields) : undefined
-  if (parsedType2 !== undefined && !parsedType2.ok) {
-    return parsedType2
+  const parsedKnown = parseKnownMessage(type, fields)
+  if (parsedKnown !== undefined && !parsedKnown.ok) {
+    return parsedKnown
   }
 
   const crcSeed =
-    parsedType2?.ok === true
-      ? parsedType2.value.crcSeed
+    parsedKnown?.ok === true && parsedKnown.value.kind === "connection_request"
+      ? parsedKnown.value.crcSeed
       : (validateOptionalUint16(options.negotiatedCrcSeed) ?? 0)
   const crcInput = body.subarray(0, finalSeparator + 1)
   const actualCrc = crc16CcittXmodem(crcInput, crcSeed)
@@ -293,15 +297,21 @@ export function decodeSassiFrame(
     }
   }
 
-  if (parsedType2?.ok === true) {
+  if (parsedKnown?.ok === true) {
     const message: DecodedSassiMessage = {
       type,
       elapsedMs,
-      fields: redactType2Fields(fields),
+      fields:
+        parsedKnown.value.kind === "connection_request"
+          ? redactType2Fields(fields)
+          : fields,
       evidence: "live_verified",
-      parsed: parsedType2.value,
+      parsed: parsedKnown.value,
       diagnostics: [],
-      diagnosticFrame: redactedType2Diagnostic(tokens),
+      diagnosticFrame:
+        parsedKnown.value.kind === "connection_request"
+          ? redactedType2Diagnostic(tokens)
+          : genericDiagnostic(type, fields.length, true),
     }
     return { ok: true, message }
   }
@@ -328,6 +338,63 @@ export function decodeSassiFrame(
 type Type2ParseResult =
   | { ok: true; value: Type2ConnectionRequest }
   | { ok: false; error: SassiCodecFailure }
+
+type KnownParseResult =
+  | {
+      ok: true
+      value:
+        | Type2ConnectionRequest
+        | Type4TimeSyncAcknowledgement
+        | Type14InfoResponse
+    }
+  | { ok: false; error: SassiCodecFailure }
+
+function parseKnownMessage(
+  type: number,
+  fields: readonly string[]
+): KnownParseResult | undefined {
+  if (type === 2) return parseType2(fields)
+  if (type === 4) {
+    return fields.length === 0
+      ? { ok: true, value: { kind: "time_sync_ack" } }
+      : {
+          ok: false,
+          error: failure(
+            "invalid_field",
+            "SASSI type 4 must not contain payload fields",
+            genericDiagnostic(type, fields.length, false)
+          ),
+        }
+  }
+  if (type === 14) {
+    if (fields.length !== 2) {
+      return {
+        ok: false,
+        error: failure(
+          "invalid_field",
+          "SASSI type 14 must contain data and info-code fields",
+          genericDiagnostic(type, fields.length, false)
+        ),
+      }
+    }
+    const [data, codeText] = fields
+    const infoCode = parseDecimalField(codeText, "info code", 0xffff)
+    return data !== undefined && infoCode !== undefined
+      ? {
+          ok: true,
+          value: { kind: "info_response", data, infoCode },
+        }
+      : {
+          ok: false,
+          error: failure(
+            "invalid_field",
+            "SASSI type 14 contains an invalid info code",
+            genericDiagnostic(type, fields.length, false)
+          ),
+        }
+  }
+  return undefined
+}
 
 function parseType2(fields: readonly string[]): Type2ParseResult {
   if (fields.length !== 10) {

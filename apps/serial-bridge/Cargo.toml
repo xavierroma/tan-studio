@@ -1,0 +1,15 @@
+[package]
+name = "tan-studio-serial-bridge"
+version = "0.1.0"
+description = "Transport-only serial bridge for Tan Studio"
+authors = ["Tan Studio contributors"]
+license = "UNLICENSED"
+repository = "https://github.com/xavierroma/tan-studio"
+edition = "2021"
+rust-version = "1.77.2"
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serialport = { version = "=4.9.0", default-features = false }

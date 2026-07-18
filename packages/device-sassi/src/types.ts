@@ -28,12 +28,23 @@ export type Type2ConnectionRequest = {
   crcSeed: number
 }
 
+export type Type4TimeSyncAcknowledgement = {
+  kind: "time_sync_ack"
+}
+
+export type Type14InfoResponse = {
+  kind: "info_response"
+  data: string
+  infoCode: number
+}
+
 export type UnknownInboundMessage = {
   kind: "unknown"
   type: number
 }
 
-export type KnownInboundMessage = Type2ConnectionRequest
+export type KnownInboundMessage =
+  Type2ConnectionRequest | Type4TimeSyncAcknowledgement | Type14InfoResponse
 
 export type DecodedSassiMessage = {
   type: number
