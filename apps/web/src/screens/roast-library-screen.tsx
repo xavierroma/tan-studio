@@ -26,11 +26,11 @@ import {
   ListFilterIcon,
   SearchIcon,
 } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { useMemo, useRef } from "react"
 
 import { PageHeader } from "@/components/page-header"
 import { StatusChip } from "@/components/status-chip"
-import { listRoasts, queryKeys } from "@/lib/api"
+import { listRoasts, queryKeys, type RoastLibraryOptions } from "@/lib/api"
 import { formatRoastDate, formatScore } from "@/lib/format"
 import { useWorkspaceStore } from "@/stores/workspace-store"
 import type { RoastSummary } from "@/types"
@@ -82,48 +82,23 @@ function exportRoasts(roasts: RoastSummary[]) {
 }
 
 export function RoastLibraryScreen() {
+  const search = useSearch({ strict: false }) as RoastLibraryOptions
+  const view = {
+    ...search,
+    group: search.group ?? "lot",
+    sort: search.sort ?? "newest",
+    date: search.date ?? "all",
+  } satisfies RoastLibraryOptions
   const { data, isPending, error } = useQuery({
-    queryKey: queryKeys.roasts(),
-    queryFn: ({ signal }) => listRoasts(signal),
+    queryKey: queryKeys.roasts(view),
+    queryFn: ({ signal }) => listRoasts(view, signal),
   })
-  const search = useSearch({ strict: false }) as {
-    q?: string
-    process?: string
-    status?: string
-  }
   const navigate = useNavigate()
-  const [group, setGroup] = useState("lot")
   const selectedRoastIds = useWorkspaceStore((state) => state.selectedRoastIds)
   const toggleComparison = useWorkspaceStore((state) => state.addToComparison)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const roasts = useMemo(() => {
-    const query = (search.q ?? "").trim().toLocaleLowerCase()
-    return (data?.data ?? []).filter((roast) => {
-      const haystack = [
-        roast.coffeeName,
-        roast.providerName,
-        roast.country,
-        roast.region,
-        roast.farm,
-        roast.process,
-        roast.profileName,
-        roast.tastingNotes,
-        ...roast.descriptors,
-      ]
-        .join(" ")
-        .toLocaleLowerCase()
-      return (
-        (!query || haystack.includes(query)) &&
-        (!search.process ||
-          search.process === "all" ||
-          roast.process.includes(search.process)) &&
-        (!search.status ||
-          search.status === "all" ||
-          roast.status === search.status)
-      )
-    })
-  }, [data?.data, search.process, search.q, search.status])
+  const roasts = useMemo(() => data?.data ?? [], [data?.data])
 
   const columns = useMemo(
     () => [
@@ -156,14 +131,17 @@ export function RoastLibraryScreen() {
 
   if (error) throw error
 
-  const setSearch = (
-    patch: Partial<Record<"q" | "process" | "status", string | undefined>>
-  ) => {
+  const setSearch = (patch: Partial<RoastLibraryOptions>) => {
     void navigate({
       to: "/roasts",
       search: {
         q: "q" in patch ? patch.q : search.q,
+        group: "group" in patch ? patch.group : search.group,
+        sort: "sort" in patch ? patch.sort : search.sort,
+        date: "date" in patch ? patch.date : search.date,
+        provider: "provider" in patch ? patch.provider : search.provider,
         process: "process" in patch ? patch.process : search.process,
+        minScore: "minScore" in patch ? patch.minScore : search.minScore,
         status: "status" in patch ? patch.status : search.status,
       },
       replace: true,
@@ -210,8 +188,12 @@ export function RoastLibraryScreen() {
           </label>
 
           <Select
-            value={group}
-            onValueChange={(value) => setGroup(value ?? "lot")}
+            value={view.group}
+            onValueChange={(value) =>
+              setSearch({
+                group: (value ?? "lot") as RoastLibraryOptions["group"],
+              })
+            }
           >
             <SelectTrigger
               className="bg-card h-10 w-full"
@@ -227,7 +209,14 @@ export function RoastLibraryScreen() {
             </SelectContent>
           </Select>
 
-          <Select value="newest">
+          <Select
+            value={view.sort}
+            onValueChange={(value) =>
+              setSearch({
+                sort: (value ?? "newest") as RoastLibraryOptions["sort"],
+              })
+            }
+          >
             <SelectTrigger
               className="bg-card h-10 w-full"
               aria-label="Sort roasts"
@@ -253,7 +242,14 @@ export function RoastLibraryScreen() {
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[repeat(5,minmax(0,1fr))_auto]">
-          <Select value="90-days">
+          <Select
+            value={view.date}
+            onValueChange={(value) =>
+              setSearch({
+                date: (value ?? "all") as RoastLibraryOptions["date"],
+              })
+            }
+          >
             <SelectTrigger className="bg-card w-full" aria-label="Date range">
               <SelectValue />
             </SelectTrigger>
@@ -263,19 +259,15 @@ export function RoastLibraryScreen() {
               <SelectItem value="all">All dates</SelectItem>
             </SelectContent>
           </Select>
-          <Select value="all">
-            <SelectTrigger
-              className="bg-card w-full"
-              aria-label="Provider filter"
-            >
-              <SelectValue>All providers</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All providers</SelectItem>
-              <SelectItem value="Sey Coffee">Sey Coffee</SelectItem>
-              <SelectItem value="Osito Coffee">Osito Coffee</SelectItem>
-            </SelectContent>
-          </Select>
+          <Input
+            value={search.provider ?? ""}
+            onChange={(event) =>
+              setSearch({ provider: event.target.value || undefined })
+            }
+            className="bg-card"
+            aria-label="Provider filter"
+            placeholder="Any provider"
+          />
           <Select
             value={search.process ?? "all"}
             onValueChange={(value) =>
@@ -297,12 +289,22 @@ export function RoastLibraryScreen() {
               <SelectItem value="Honey">Honey</SelectItem>
             </SelectContent>
           </Select>
-          <Select value="80">
+          <Select
+            value={search.minScore ? String(search.minScore) : "none"}
+            onValueChange={(value) =>
+              setSearch({
+                minScore:
+                  value === "80" || value === "85"
+                    ? (Number(value) as 80 | 85)
+                    : undefined,
+              })
+            }
+          >
             <SelectTrigger
               className="bg-card w-full"
               aria-label="Tasting score filter"
             >
-              <SelectValue>Score 80+</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="80">Score 80+</SelectItem>
@@ -314,7 +316,13 @@ export function RoastLibraryScreen() {
             value={search.status ?? "all"}
             onValueChange={(value) =>
               setSearch({
-                status: value === "all" ? undefined : (value ?? undefined),
+                status:
+                  value === "tasted" ||
+                  value === "needs-tasting" ||
+                  value === "ready" ||
+                  value === "interrupted"
+                    ? value
+                    : undefined,
               })
             }
           >
@@ -329,6 +337,7 @@ export function RoastLibraryScreen() {
               <SelectItem value="tasted">Tasted</SelectItem>
               <SelectItem value="needs-tasting">Taste due</SelectItem>
               <SelectItem value="ready">Plan ready</SelectItem>
+              <SelectItem value="interrupted">Interrupted</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -343,8 +352,12 @@ export function RoastLibraryScreen() {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Badge variant="success">Saved view · Roasting notebook</Badge>
           <span className="text-muted-foreground text-xs">
-            {group === "none" ? "Ungrouped" : `Grouped by ${group}`} · score
-            sorted within each group
+            {view.group === "none" ? "Ungrouped" : `Grouped by ${view.group}`} ·
+            {view.sort === "score"
+              ? " score descending"
+              : view.sort === "coffee"
+                ? " coffee A–Z"
+                : " newest first"}
           </span>
           <span className="text-muted-foreground ml-auto text-xs">
             {data?.source === "companion"

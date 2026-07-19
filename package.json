@@ -11,10 +11,10 @@
   "scripts": {
     "dev": "bun script/dev.ts",
     "dev:web": "bun run --filter @tan-studio/web dev",
-    "dev:companion": "bun run --filter @tan-studio/companion dev",
     "dev:service": "cargo run --manifest-path apps/service/Cargo.toml",
     "dev:desktop": "bun run --filter @tan-studio/desktop dev",
-    "build": "bun run --filter @tan-studio/companion build && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
+    "build:service": "cargo build --locked --release --manifest-path apps/service/Cargo.toml",
+    "build": "bun run contract:generate && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
     "build:pi": "./script/build_pi_release.sh",
     "deploy:pi": "./script/deploy_pi.sh",
     "test": "cargo test --manifest-path apps/service/Cargo.toml && bun run --filter '@tan-studio/*' test",

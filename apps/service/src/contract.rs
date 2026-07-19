@@ -32,6 +32,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::lots_create,
         crate::api::lots_get,
         crate::api::lots_patch,
+        crate::api::acquisitions_create,
         crate::api::preferences_get,
         crate::api::preferences_patch,
         crate::api::brews_list,
@@ -72,6 +73,8 @@ use crate::error::{FieldError, ProblemDetails};
         LotCreate,
         LotPatch,
         LotPage,
+        AcquisitionCreate,
+        AcquisitionResource,
         ResourceMutationProvider,
         ResourceMutationCoffee,
         ResourceMutationLot,
@@ -389,6 +392,28 @@ pub struct LotPage {
     pub page_info: PageInfo,
 }
 
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcquisitionCreate {
+    pub provider_name: String,
+    pub coffee_name: String,
+    pub supplier_reference: Option<String>,
+    pub received_mass_mg: i64,
+    pub cost_per_kg_minor: Option<i64>,
+    pub currency_code: Option<String>,
+    pub received_at: String,
+    pub source_timezone: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AcquisitionResource {
+    pub kind: String,
+    pub provider_created: bool,
+    pub coffee_created: bool,
+    pub lot: LotResource,
+}
+
 macro_rules! mutation {
     ($name:ident, $resource:ty) => {
         #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -617,11 +642,13 @@ pub enum RoastLibraryResult {
         scope: Vec<GroupPathEntry>,
         rows: Vec<RoastLibraryRow>,
         aggregates: BTreeMap<String, Value>,
+        #[schema(rename = "pageInfo")]
         page_info: PageInfo,
     },
     Groups {
         scope: Vec<GroupPathEntry>,
         groups: Vec<RoastLibraryGroup>,
+        #[schema(rename = "pageInfo")]
         page_info: PageInfo,
     },
 }
@@ -660,7 +687,9 @@ pub enum GroupKey {
         value: Option<Value>,
     },
     Range {
+        #[schema(rename = "startInclusive")]
         start_inclusive: Value,
+        #[schema(rename = "endExclusive")]
         end_exclusive: Value,
     },
 }
@@ -823,4 +852,31 @@ pub struct SeriesPoint {
     pub actual_fan_rpm: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<BTreeMap<String, Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_schema_uses_the_same_enum_field_names_as_json() {
+        let response = RoastLibraryResult::Rows {
+            scope: Vec::new(),
+            rows: Vec::new(),
+            aggregates: BTreeMap::new(),
+            page_info: PageInfo {
+                has_next_page: false,
+                end_cursor: None,
+            },
+        };
+        let json = serde_json::to_value(response).unwrap();
+        assert!(json.get("pageInfo").is_some());
+        assert!(json.get("page_info").is_none());
+
+        let specification = ApiDoc::openapi().to_pretty_json().unwrap();
+        assert!(specification.contains("\"pageInfo\""));
+        assert!(specification.contains("\"startInclusive\""));
+        assert!(!specification.contains("\"page_info\""));
+        assert!(!specification.contains("\"start_inclusive\""));
+    }
 }

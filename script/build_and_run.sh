@@ -10,8 +10,7 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 stop_app() {
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-  pkill -x "tan-studio-companion" >/dev/null 2>&1 || true
-  pkill -x "tan-studio-serial-bridge" >/dev/null 2>&1 || true
+  pkill -x "tan-studio-service" >/dev/null 2>&1 || true
 
   for _ in {1..20}; do
     if ! pgrep -x "$APP_NAME" >/dev/null 2>&1; then
@@ -29,15 +28,22 @@ open_app() {
 }
 
 verify_launch() {
-  for _ in {1..50}; do
-    if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
-      echo "Tan Studio is running from $APP_BUNDLE"
-      return
+  local app_pid=""
+
+  for _ in {1..100}; do
+    app_pid="$(pgrep -x "$APP_NAME" | head -n 1 || true)"
+    if [[ -n "$app_pid" ]] && pgrep -P "$app_pid" -x "tan-studio-service" >/dev/null 2>&1; then
+      sleep 1
+      if kill -0 "$app_pid" >/dev/null 2>&1 \
+        && pgrep -P "$app_pid" -x "tan-studio-service" >/dev/null 2>&1; then
+        echo "Tan Studio and its service are running from $APP_BUNDLE"
+        return
+      fi
     fi
     sleep 0.1
   done
 
-  echo "Tan Studio did not start within five seconds." >&2
+  echo "Tan Studio and its service did not remain healthy after launch." >&2
   exit 1
 }
 

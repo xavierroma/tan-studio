@@ -1,5 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button } from "@tan-studio/ui/components/button"
 import {
@@ -9,6 +14,13 @@ import {
   FieldLabel,
 } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@tan-studio/ui/components/empty"
 import {
   Sheet,
   SheetContent,
@@ -26,24 +38,29 @@ import {
   SproutIcon,
   TrendingUpIcon,
 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useState, type FormEvent } from "react"
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
-import { listCoffeeLots, queryKeys } from "@/lib/api"
+import { createAcquisition, listCoffeeLots, queryKeys } from "@/lib/api"
 import { formatMass, formatScore } from "@/lib/format"
 
 export function CoffeeCatalogScreen() {
-  const { data } = useQuery({
+  const searchState = useSearch({ strict: false }) as {
+    q?: string
+    lotId?: string
+  }
+  const navigate = useNavigate({ from: "/coffees" })
+  const queryClient = useQueryClient()
+  const lotsQuery = useQuery({
     queryKey: queryKeys.coffeeLots(),
     queryFn: listCoffeeLots,
   })
-  const [search, setSearch] = useState("")
-  const [selectedId, setSelectedId] = useState("lot-hamasho")
   const [sheetOpen, setSheetOpen] = useState(false)
   const [coffeeName, setCoffeeName] = useState("")
   const [providerName, setProviderName] = useState("")
-  const lots = data?.data ?? []
+  const lots = lotsQuery.data?.data ?? []
+  const search = searchState.q ?? ""
   const visibleLots = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     if (!query) return lots
@@ -62,8 +79,59 @@ export function CoffeeCatalogScreen() {
         .includes(query)
     )
   }, [lots, search])
-  const selected = lots.find((lot) => lot.id === selectedId) ?? lots[0]
+  const selected = lots.find((lot) => lot.id === searchState.lotId) ?? lots[0]
   const totalOnHand = lots.reduce((total, lot) => total + lot.onHandKg, 0)
+  const providerCount = new Set(lots.map((lot) => lot.providerName)).size
+  const learningCoverage =
+    lots.length === 0
+      ? 0
+      : Math.round(
+          (lots.filter((lot) => lot.nextAction.trim().length > 0).length /
+            lots.length) *
+            100
+        )
+  const acquisitionMutation = useMutation({
+    mutationFn: createAcquisition,
+    onSuccess: (acquisition) => {
+      toast.success(`Lot ${acquisition.lot.internalCode} added`)
+      setSheetOpen(false)
+      setCoffeeName("")
+      setProviderName("")
+      void queryClient.invalidateQueries({ queryKey: queryKeys.coffeeLots() })
+      void navigate({
+        search: (previous) => ({
+          ...previous,
+          lotId: acquisition.lot.id,
+        }),
+        replace: true,
+      })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+
+  const submitAcquisition = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const massKg = Number(form.get("receivedMassKg"))
+    const costPerKg = String(form.get("costPerKg") ?? "").trim()
+    if (!Number.isFinite(massKg) || massKg <= 0) {
+      toast.error("Received mass must be greater than zero")
+      return
+    }
+    acquisitionMutation.mutate({
+      providerName: providerName.trim(),
+      coffeeName: coffeeName.trim(),
+      supplierReference:
+        String(form.get("supplierReference") ?? "").trim() || undefined,
+      receivedMassMg: Math.round(massKg * 1_000_000),
+      costPerKgMinor: costPerKg
+        ? Math.round(Number(costPerKg) * 100)
+        : undefined,
+      currencyCode: String(form.get("currencyCode") || "USD"),
+      receivedAt: new Date().toISOString(),
+      sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    })
+  }
 
   return (
     <div className="min-h-screen">
@@ -87,20 +155,20 @@ export function CoffeeCatalogScreen() {
             <Metric
               label="Active lots"
               value={lots.length}
-              detail="Across 4 providers"
+              detail={`Across ${providerCount} provider${providerCount === 1 ? "" : "s"}`}
             />
           </div>
           <div className="bg-card rounded-xl border p-5">
             <Metric
               label="Green on hand"
               value={formatMass(totalOnHand)}
-              detail="Estimated from roast allocations"
+              detail="Across active inventory lots"
             />
           </div>
           <div className="bg-card rounded-xl border p-5">
             <Metric
               label="Learning coverage"
-              value="88%"
+              value={`${learningCoverage}%`}
               detail="Lots with a tasting-derived next action"
             />
           </div>
@@ -125,7 +193,13 @@ export function CoffeeCatalogScreen() {
                 <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
                 <Input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    const q = event.target.value || undefined
+                    void navigate({
+                      search: (previous) => ({ ...previous, q }),
+                      replace: true,
+                    })
+                  }}
                   className="bg-background pl-9"
                   placeholder="Search coffee, origin, provider…"
                 />
@@ -147,7 +221,15 @@ export function CoffeeCatalogScreen() {
                     <button
                       key={lot.id}
                       type="button"
-                      onClick={() => setSelectedId(lot.id)}
+                      onClick={() => {
+                        void navigate({
+                          search: (previous) => ({
+                            ...previous,
+                            lotId: lot.id,
+                          }),
+                          replace: true,
+                        })
+                      }}
                       aria-pressed={selected?.id === lot.id}
                       className="hover:bg-secondary/40 aria-pressed:bg-accent/30 grid w-full grid-cols-[minmax(190px,1.3fr)_145px_170px_110px_100px_90px] items-center gap-4 px-5 py-4 text-left text-sm transition-colors"
                     >
@@ -181,12 +263,36 @@ export function CoffeeCatalogScreen() {
                       </span>
                     </button>
                   ))}
+                  {!lotsQuery.isLoading && visibleLots.length === 0 ? (
+                    <Empty className="m-5 border">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <SproutIcon />
+                        </EmptyMedia>
+                        <EmptyTitle>
+                          {search
+                            ? "No matching coffee lots"
+                            : "No coffee lots yet"}
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          {search
+                            ? "Change the URL-backed search or clear it to see every lot."
+                            : "Add your first green coffee purchase to create its inventory lot."}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  ) : null}
                 </div>
               </div>
             </div>
           </section>
 
-          {selected ? (
+          {lotsQuery.isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Catalog unavailable</AlertTitle>
+              <AlertDescription>{lotsQuery.error.message}</AlertDescription>
+            </Alert>
+          ) : selected ? (
             <aside className="min-w-0">
               <section
                 className="bg-card rounded-xl border p-5"
@@ -306,66 +412,93 @@ export function CoffeeCatalogScreen() {
               then allocate physical lots and inventory.
             </SheetDescription>
           </SheetHeader>
-          <FieldGroup className="overflow-y-auto px-4">
-            <Field>
-              <FieldLabel htmlFor="new-provider">Provider</FieldLabel>
-              <Input
-                id="new-provider"
-                value={providerName}
-                onChange={(event) => setProviderName(event.target.value)}
-                placeholder="Provider name"
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="new-coffee">Coffee</FieldLabel>
-              <Input
-                id="new-coffee"
-                value={coffeeName}
-                onChange={(event) => setCoffeeName(event.target.value)}
-                placeholder="Coffee display name"
-              />
-              <FieldDescription>
-                Use the name you expect to search for when planning future
-                roasts.
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="new-reference">
-                Supplier reference
-              </FieldLabel>
-              <Input
-                id="new-reference"
-                placeholder="Invoice or order reference"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
+          <form onSubmit={submitAcquisition}>
+            <FieldGroup className="overflow-y-auto px-4">
               <Field>
-                <FieldLabel htmlFor="new-mass">Received mass</FieldLabel>
-                <Input id="new-mass" type="number" placeholder="5.00 kg" />
+                <FieldLabel htmlFor="new-provider">Provider</FieldLabel>
+                <Input
+                  id="new-provider"
+                  value={providerName}
+                  onChange={(event) => setProviderName(event.target.value)}
+                  placeholder="Provider name"
+                />
               </Field>
               <Field>
-                <FieldLabel htmlFor="new-cost">Cost per kg</FieldLabel>
-                <Input id="new-cost" type="number" placeholder="Optional" />
+                <FieldLabel htmlFor="new-coffee">Coffee</FieldLabel>
+                <Input
+                  id="new-coffee"
+                  value={coffeeName}
+                  onChange={(event) => setCoffeeName(event.target.value)}
+                  placeholder="Coffee display name"
+                />
+                <FieldDescription>
+                  Use the name you expect to search for when planning future
+                  roasts.
+                </FieldDescription>
               </Field>
-            </div>
-          </FieldGroup>
-          <SheetFooter>
-            <Button
-              disabled={!providerName.trim() || !coffeeName.trim()}
-              onClick={() => {
-                toast.success("Purchase draft added to the local catalog")
-                setSheetOpen(false)
-                setCoffeeName("")
-                setProviderName("")
-              }}
-            >
-              <BoxesIcon data-icon="inline-start" />
-              Add purchase draft
-            </Button>
-            <Button variant="outline" onClick={() => setSheetOpen(false)}>
-              Cancel
-            </Button>
-          </SheetFooter>
+              <Field>
+                <FieldLabel htmlFor="new-reference">
+                  Supplier reference
+                </FieldLabel>
+                <Input
+                  id="new-reference"
+                  name="supplierReference"
+                  placeholder="Invoice or order reference"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field>
+                  <FieldLabel htmlFor="new-mass">Received mass</FieldLabel>
+                  <Input
+                    id="new-mass"
+                    name="receivedMassKg"
+                    type="number"
+                    min="0.001"
+                    step="0.001"
+                    required
+                    placeholder="5.00"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="new-cost">Cost per kg</FieldLabel>
+                  <Input
+                    id="new-cost"
+                    name="costPerKg"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Optional"
+                  />
+                </Field>
+              </div>
+              <Field>
+                <FieldLabel htmlFor="new-currency">Currency</FieldLabel>
+                <Input
+                  id="new-currency"
+                  name="currencyCode"
+                  defaultValue="USD"
+                  minLength={3}
+                  maxLength={3}
+                />
+              </Field>
+            </FieldGroup>
+            <SheetFooter>
+              <Button
+                type="submit"
+                disabled={
+                  acquisitionMutation.isPending ||
+                  !providerName.trim() ||
+                  !coffeeName.trim()
+                }
+              >
+                <BoxesIcon data-icon="inline-start" />
+                {acquisitionMutation.isPending ? "Adding…" : "Add purchase"}
+              </Button>
+              <Button variant="outline" onClick={() => setSheetOpen(false)}>
+                Cancel
+              </Button>
+            </SheetFooter>
+          </form>
         </SheetContent>
       </Sheet>
     </div>

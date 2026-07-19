@@ -1,4 +1,5 @@
-export type RoastStatus = "tasted" | "needs-tasting" | "ready" | "imported"
+export type RoastStatus =
+  "tasted" | "needs-tasting" | "ready" | "imported" | "interrupted"
 
 export type RoastSummary = {
   id: string

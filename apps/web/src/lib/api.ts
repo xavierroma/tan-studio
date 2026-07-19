@@ -30,6 +30,17 @@ export type CompanionResult<T> = {
   source: DataSource
 }
 
+export type RoastLibraryOptions = {
+  q?: string | undefined
+  group?: "lot" | "coffee" | "provider" | "none" | undefined
+  sort?: "newest" | "score" | "coffee" | undefined
+  date?: "90-days" | "year" | "all" | undefined
+  provider?: string | undefined
+  process?: string | undefined
+  minScore?: 80 | 85 | undefined
+  status?: "tasted" | "needs-tasting" | "ready" | "interrupted" | undefined
+}
+
 type AdapterCapability = {
   state: AdapterState
   reason: string | null
@@ -213,13 +224,13 @@ function mapLibraryRow(row: Record<string, unknown>): RoastSummary {
       : null
   const statusText = text(row.status, "imported")
   const status: RoastStatus =
-    statusText === "tasted" ||
-    statusText === "needs-tasting" ||
-    statusText === "ready"
-      ? statusText
-      : scoreBasisPoints == null
-        ? "needs-tasting"
-        : "tasted"
+    statusText === "interrupted"
+      ? "interrupted"
+      : text(row.readyPlanStatus) === "ready"
+        ? "ready"
+        : scoreBasisPoints == null
+          ? "needs-tasting"
+          : "tasted"
   const resultText = text(row.result)
 
   return {
@@ -260,18 +271,108 @@ function mapLibraryRow(row: Record<string, unknown>): RoastSummary {
 }
 
 export async function listRoasts(
+  options: RoastLibraryOptions = {},
   signal?: AbortSignal
 ): Promise<CompanionResult<RoastSummary[]>> {
   try {
     requireCompanion()
+    const clauses: Array<Record<string, unknown>> = []
+    if (options.q?.trim()) {
+      clauses.push({ op: "search", query: options.q.trim() })
+    }
+    if (options.provider?.trim()) {
+      clauses.push({
+        op: "field",
+        field: "providerName",
+        operator: "contains",
+        value: options.provider.trim(),
+      })
+    }
+    if (options.process) {
+      clauses.push({
+        op: "field",
+        field: "process",
+        operator: "contains",
+        value: options.process,
+      })
+    }
+    if (options.status === "interrupted") {
+      clauses.push({
+        op: "field",
+        field: "status",
+        operator: "eq",
+        value: "interrupted",
+      })
+    } else if (options.status === "ready") {
+      clauses.push({
+        op: "field",
+        field: "readyPlanStatus",
+        operator: "eq",
+        value: "ready",
+      })
+    } else if (
+      options.status === "tasted" ||
+      options.status === "needs-tasting"
+    ) {
+      clauses.push({
+        op: "field",
+        field: "needsTasting",
+        operator: "eq",
+        value: options.status === "needs-tasting",
+      })
+    }
+    if (options.minScore) {
+      clauses.push({
+        op: "field",
+        field: "tastingScoreBasisPoints",
+        operator: "gte",
+        value: options.minScore * 100,
+      })
+    }
+    if (options.date && options.date !== "all") {
+      const cutoff = new Date()
+      if (options.date === "90-days") {
+        cutoff.setUTCDate(cutoff.getUTCDate() - 90)
+      } else {
+        cutoff.setUTCMonth(0, 1)
+        cutoff.setUTCHours(0, 0, 0, 0)
+      }
+      clauses.push({
+        op: "field",
+        field: "roastedAt",
+        operator: "gte",
+        value: cutoff.toISOString(),
+      })
+    }
+
+    const primarySort =
+      options.sort === "score"
+        ? { field: "tastingScoreBasisPoints", direction: "desc", nulls: "last" }
+        : options.sort === "coffee"
+          ? { field: "coffeeName", direction: "asc", nulls: "last" }
+          : { field: "roastedAt", direction: "desc", nulls: "last" }
+    const groupSort =
+      options.group === "lot"
+        ? { field: "lotCode", direction: "asc", nulls: "last" }
+        : options.group === "coffee"
+          ? { field: "coffeeName", direction: "asc", nulls: "last" }
+          : options.group === "provider"
+            ? { field: "providerName", direction: "asc", nulls: "last" }
+            : null
+    const sorts = groupSort
+      ? groupSort.field === primarySort.field
+        ? [primarySort]
+        : [groupSort, primarySort]
+      : [primarySort]
+
     const response = unwrapResponse(
       await companionClient.POST("/api/v1/roast-library/query", {
         ...(signal ? { signal } : {}),
         body: {
           viewVersion: 1,
-          filters: { op: "and", clauses: [] },
+          filters: { op: "and", clauses },
           groups: [],
-          sorts: [{ field: "roastedAt", direction: "desc", nulls: "last" }],
+          sorts,
           columns: [
             "roastId",
             "roastNumber",
@@ -296,6 +397,7 @@ export async function listRoasts(
             "tastingNotes",
             "result",
             "status",
+            "readyPlanStatus",
           ],
           aggregates: [],
           page: { first: 100 },
@@ -454,8 +556,8 @@ async function mapRoastDetail(
         )
       : [],
     status:
-      text(resource.status) === "ready"
-        ? "ready"
+      text(resource.status) === "interrupted"
+        ? "interrupted"
         : scoreBasisPoints === undefined
           ? "needs-tasting"
           : "tasted",
@@ -640,6 +742,39 @@ export async function listCoffeeIdentities(): Promise<CoffeeIdentity[]> {
       process: optionalText(coffee.process) ?? null,
     }
   })
+}
+
+export async function createAcquisition(input: {
+  providerName: string
+  coffeeName: string
+  supplierReference?: string | undefined
+  receivedMassMg: number
+  costPerKgMinor?: number | undefined
+  currencyCode?: string | undefined
+  receivedAt: string
+  sourceTimezone: string
+}) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/acquisitions", {
+      body: {
+        providerName: input.providerName,
+        coffeeName: input.coffeeName,
+        receivedMassMg: input.receivedMassMg,
+        receivedAt: input.receivedAt,
+        sourceTimezone: input.sourceTimezone,
+        ...(input.supplierReference === undefined
+          ? {}
+          : { supplierReference: input.supplierReference }),
+        ...(input.costPerKgMinor === undefined
+          ? {}
+          : { costPerKgMinor: input.costPerKgMinor }),
+        ...(input.currencyCode === undefined
+          ? {}
+          : { currencyCode: input.currencyCode }),
+      },
+    })
+  )
 }
 
 export async function assignRoastCoffee(
@@ -892,7 +1027,8 @@ export async function submitPrintJob(input: {
 }
 
 export const queryKeys = {
-  roasts: () => ["roasts"] as const,
+  roasts: (options?: RoastLibraryOptions) =>
+    options ? (["roasts", options] as const) : (["roasts"] as const),
   roast: (id: string) => ["roasts", id] as const,
   coffeeLots: () => ["coffee-lots"] as const,
   coffeeIdentities: () => ["coffee-identities"] as const,

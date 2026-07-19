@@ -688,7 +688,7 @@ Firmware installation is a separately gated, high-consequence flow with uninterr
 ```mermaid
 flowchart LR
     UI["React + Vite web UI"] --> API["Typed local API + WebSocket"]
-    API --> AGENT["Bun companion service"]
+    API --> AGENT["Rust local service"]
     AGENT --> USB["USB CDC / SASSI adapter"]
     AGENT --> LAN["TCP 9056 bridge adapter"]
     AGENT --> FILES["Lossless kpro/klog parser"]

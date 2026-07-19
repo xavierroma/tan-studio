@@ -78,6 +78,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route("/lots", get(lots_list).post(lots_create))
         .route("/lots/{id}", get(lots_get).patch(lots_patch))
+        .route("/acquisitions", post(acquisitions_create))
         .route(
             "/preferences",
             get(preferences_get).patch(preferences_patch),
@@ -367,7 +368,7 @@ pub async fn device_refresh(State(state): State<ApiState>) -> Json<DeviceSnapsho
 
 #[utoipa::path(post, path = "/api/v1/device/synchronize", tag = "device", request_body = Object, responses((status = 200, body = DeviceSnapshot), (status = 409, body = ProblemDetails)))]
 pub async fn device_synchronize(State(state): State<ApiState>) -> ApiResult<Json<DeviceSnapshot>> {
-    state.device.synchronize().map_err(|reason| {
+    state.device.synchronize().await.map_err(|reason| {
         let (status, code, title) = if reason == "device_not_connected" {
             (
                 StatusCode::CONFLICT,
@@ -726,6 +727,140 @@ pub async fn lots_create(
         StatusCode::CREATED,
         Json(ResourceMutationLot {
             resource: get_lot(&state.database.connection(), &id)?,
+        }),
+    ))
+}
+
+#[utoipa::path(post, path = "/api/v1/acquisitions", tag = "catalog", request_body = AcquisitionCreate, responses((status = 201, body = AcquisitionResource), (status = 422, body = ProblemDetails), (status = 409, body = ProblemDetails)))]
+pub async fn acquisitions_create(
+    State(state): State<ApiState>,
+    Json(input): Json<AcquisitionCreate>,
+) -> ApiResult<(StatusCode, Json<AcquisitionResource>)> {
+    validate_name(&input.provider_name)?;
+    validate_name(&input.coffee_name)?;
+    if input.received_mass_mg <= 0 || input.received_mass_mg > 1_000_000_000_000 {
+        return Err(ApiError::validation(
+            "Received mass must be greater than zero and at most 1,000,000 kg.",
+        ));
+    }
+    if input
+        .cost_per_kg_minor
+        .is_some_and(|value| value < 0 || value > 1_000_000_000)
+    {
+        return Err(ApiError::validation(
+            "Cost per kg is outside the supported range.",
+        ));
+    }
+    let currency_code = input
+        .currency_code
+        .map(|value| value.trim().to_ascii_uppercase())
+        .filter(|value| !value.is_empty());
+    if currency_code.as_ref().is_some_and(|value| {
+        value.len() != 3 || !value.bytes().all(|byte| byte.is_ascii_alphabetic())
+    }) {
+        return Err(ApiError::validation(
+            "currencyCode must contain three letters.",
+        ));
+    }
+    if input.source_timezone.trim().is_empty() || input.source_timezone.len() > 100 {
+        return Err(ApiError::validation("sourceTimezone is invalid."));
+    }
+    let received_at = parse_instant(&input.received_at)?;
+    let provider_name = input.provider_name.trim();
+    let coffee_name = input.coffee_name.trim();
+    let now = now_ms();
+    let mut connection = state.database.connection();
+    let transaction = connection.transaction()?;
+
+    let normalized_provider = normalize_name(provider_name);
+    let existing_provider = transaction
+        .query_row(
+            "SELECT id FROM providers WHERE normalized_name=? AND archived_at_ms IS NULL ORDER BY id LIMIT 1",
+            [&normalized_provider],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let provider_created = existing_provider.is_none();
+    let provider_id = existing_provider.unwrap_or_else(new_id);
+    if provider_created {
+        transaction.execute(
+            "INSERT INTO providers
+             (id, display_name, normalized_name, aliases_json, contact_json, default_currency_code, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, '[]', '{}', ?, ?, ?)",
+            params![provider_id, provider_name, normalized_provider, currency_code, now, now],
+        )?;
+    }
+
+    let normalized_coffee = normalize_name(coffee_name);
+    let existing_coffee = transaction
+        .query_row(
+            "SELECT id FROM coffee_identities WHERE normalized_name=? AND archived_at_ms IS NULL ORDER BY id LIMIT 1",
+            [&normalized_coffee],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let coffee_created = existing_coffee.is_none();
+    let coffee_id = existing_coffee.unwrap_or_else(new_id);
+    if coffee_created {
+        let serial: i64 = transaction.query_row(
+            "SELECT coalesce(max(serial_number), 0) + 1 FROM coffee_identities",
+            [],
+            |row| row.get(0),
+        )?;
+        transaction.execute(
+            "INSERT INTO coffee_identities
+             (id, serial_number, display_name, normalized_name, varieties_json, created_at_ms, updated_at_ms)
+             VALUES (?, ?, ?, ?, '[]', ?, ?)",
+            params![coffee_id, serial, coffee_name, normalized_coffee, now, now],
+        )?;
+    }
+
+    let purchase_id = new_id();
+    let purchase_line_id = new_id();
+    let lot_id = new_id();
+    let total_cost_minor = input
+        .cost_per_kg_minor
+        .map(|cost| ((input.received_mass_mg as i128 * cost as i128 + 500_000) / 1_000_000) as i64);
+    transaction.execute(
+        "INSERT INTO green_purchases
+         (id, provider_id, supplier_reference, purchased_at_ms, received_at_ms, source_timezone, total_mass_mg, currency_code, total_cost_minor, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        params![purchase_id, provider_id, input.supplier_reference, received_at, received_at, input.source_timezone, input.received_mass_mg, currency_code, total_cost_minor, now, now],
+    )?;
+    transaction.execute(
+        "INSERT INTO purchase_lines
+         (id, purchase_id, coffee_id, ordered_mass_mg, received_mass_mg, cost_minor, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![purchase_line_id, purchase_id, coffee_id, input.received_mass_mg, input.received_mass_mg, total_cost_minor, now, now],
+    )?;
+    let next_lot_number: i64 = transaction.query_row(
+        "SELECT coalesce(max(CASE WHEN internal_code GLOB 'LOT-[0-9]*' THEN CAST(substr(internal_code, 5) AS INTEGER) END), 0) + 1 FROM green_lots",
+        [],
+        |row| row.get(0),
+    )?;
+    let internal_code = format!("LOT-{next_lot_number}");
+    transaction.execute(
+        "INSERT INTO green_lots
+         (id, purchase_line_id, internal_code, received_mass_mg, on_hand_mass_mg, received_at_ms, source_timezone, storage_notes, state, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, '', 'active', ?, ?)",
+        params![lot_id, purchase_line_id, internal_code, input.received_mass_mg, input.received_mass_mg, received_at, input.source_timezone, now, now],
+    )?;
+    transaction.execute(
+        "INSERT INTO inventory_transactions
+         (id, lot_id, transaction_kind, delta_mg, occurred_at_ms, reason, created_at_ms)
+         VALUES (?, ?, 'receipt', ?, ?, 'Initial acquisition receipt', ?)",
+        params![new_id(), lot_id, input.received_mass_mg, received_at, now],
+    )?;
+    transaction.commit()?;
+    drop(connection);
+
+    Ok((
+        StatusCode::CREATED,
+        Json(AcquisitionResource {
+            kind: "acquisition".into(),
+            provider_created,
+            coffee_created,
+            lot: get_lot(&state.database.connection(), &lot_id)?,
         }),
     ))
 }

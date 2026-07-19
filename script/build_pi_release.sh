@@ -26,8 +26,7 @@ OUTPUT_DIRECTORY="$OUTPUT_PARENT/$VERSION"
 mkdir -p "$OUTPUT_PARENT"
 
 if [[ -e "$OUTPUT_DIRECTORY" ]]; then
-  if [[ -x "$OUTPUT_DIRECTORY/bin/tan-studio-server" ]] &&
-    [[ -x "$OUTPUT_DIRECTORY/bin/tan-studio-serial-bridge" ]] &&
+  if [[ -x "$OUTPUT_DIRECTORY/bin/tan-studio-service" ]] &&
     [[ -f "$OUTPUT_DIRECTORY/web/index.html" ]] &&
     [[ "$(tr -d '\n' < "$OUTPUT_DIRECTORY/VERSION")" == "$VERSION" ]]; then
     printf '%s\n' "$OUTPUT_DIRECTORY"
@@ -49,8 +48,7 @@ docker buildx build \
   "$ROOT_DIRECTORY"
 
 chmod 0755 \
-  "$STAGING_DIRECTORY/bin/tan-studio-server" \
-  "$STAGING_DIRECTORY/bin/tan-studio-serial-bridge" \
+  "$STAGING_DIRECTORY/bin/tan-studio-service" \
   "$STAGING_DIRECTORY/install.sh"
 mv "$STAGING_DIRECTORY" "$OUTPUT_DIRECTORY"
 trap - EXIT

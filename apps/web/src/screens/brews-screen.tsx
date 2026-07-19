@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useSearch } from "@tanstack/react-router"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
@@ -42,8 +42,13 @@ function grams(value: FormDataEntryValue | null) {
 }
 
 export function BrewsScreen() {
-  const search = useSearch({ strict: false }) as { roastNumber?: number }
+  const search = useSearch({ strict: false }) as {
+    roastNumber?: number
+    tab?: "brew" | "defaults"
+  }
   const roastNumber = search.roastNumber
+  const tab = search.tab ?? "brew"
+  const navigate = useNavigate({ from: "/brews" })
   const queryClient = useQueryClient()
   const preferences = useQuery({
     queryKey: queryKeys.preferences(),
@@ -59,6 +64,7 @@ export function BrewsScreen() {
       toast.success(`Brew #${brew.number} saved`)
       void queryClient.invalidateQueries({ queryKey: ["brews"] })
     },
+    onError: (error) => toast.error(error.message),
   })
   const defaultsMutation = useMutation({
     mutationFn: (input: Parameters<typeof updatePreferences>[1]) =>
@@ -67,6 +73,7 @@ export function BrewsScreen() {
       toast.success("Brew defaults updated")
       void queryClient.invalidateQueries({ queryKey: queryKeys.preferences() })
     },
+    onError: (error) => toast.error(error.message),
   })
 
   const defaults = preferences.data
@@ -132,7 +139,18 @@ export function BrewsScreen() {
 
       <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <main className="min-w-0">
-          <Tabs defaultValue="brew">
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  tab: value === "defaults" ? "defaults" : undefined,
+                }),
+                replace: true,
+              })
+            }}
+          >
             <TabsList variant="line">
               <TabsTrigger value="brew">Log a brew</TabsTrigger>
               <TabsTrigger value="defaults">My defaults</TabsTrigger>

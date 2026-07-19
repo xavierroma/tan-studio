@@ -1,7 +1,7 @@
 # Tan Studio technical specification
 
 Status: **normative engineering specification**
-Version: 1.1
+Version: 1.2
 Date: 19 July 2026
 Product: **Tan Studio**
 Primary release targets: macOS desktop and Raspberry Pi LAN appliance, local-first, single user
@@ -39,14 +39,14 @@ AI proposals, internet remote monitoring, the official LAN bridge, broad printer
 | Area | Decision |
 | --- | --- |
 | Product name | Tan Studio |
-| Application shape | Shared React/Vite frontend and Bun companion, composed either by a Tauri 2 desktop shell or a headless Raspberry Pi systemd service |
+| Application shape | Shared React/Vite frontend and one Rust service, composed either as a Tauri 2 sidecar or a headless Raspberry Pi systemd service |
 | First platforms | Signed/notarized macOS app and native ARM64 Raspberry Pi appliance; Windows/Linux desktop follow through the same ports |
-| Local ownership | One authoritative database per installation; exactly one companion process owns that database and roaster port |
-| API | Hono REST `/api/v1` + one ordered WebSocket `/api/v1/events`; OpenAPI 3.1 is the contract source |
-| Persistence | SQLite through `bun:sqlite` and Drizzle; immutable content-addressed raw store |
+| Local ownership | One authoritative database per installation; exactly one Rust service owns that database and roaster port |
+| API | Axum REST `/api/v1`; Utoipa-generated OpenAPI 3.1 is the contract source and generates the TypeScript client |
+| Persistence | SQLite through `rusqlite`, embedded forward-only SQL migrations, WAL, and an immutable content-addressed raw store |
 | Frontend | React 19, Vite 8, strict TypeScript, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6 |
 | Design system | shadcn `base-nova`, Base UI, Tailwind CSS v4, semantic OKLCH tokens |
-| USB | Small Rust `serialport` byte-transport helper; pure TypeScript SASSI codec and session actor |
+| USB | Rust `serialport` transport, incremental SASSI codec, session actor, filesystem synchronization, and `.klog` importer in the service process |
 | Printing | Exact PDF/SVG, installed OS queues, direct IPP/IPPS, then ZPL; Zebra ZD421-class 203/300 DPI is the first HIL target |
 | Inventory | Canonical signed integer milligrams; display conversion happens at boundaries |
 | Money | Optional reference metadata in integer minor currency units; no costing/accounting engine in v1 |
@@ -88,21 +88,19 @@ flowchart TB
         Client["Generated OpenAPI client"]
         LiveState["Bounded live presentation state"]
       end
-      subgraph Companion["Bun companion sidecar"]
-        API["Hono REST + WebSocket"]
+      subgraph Companion["Rust service sidecar"]
+        API["Axum REST + generated OpenAPI"]
         App["Application use cases"]
         Adapters["SQLite, raw files, SASSI, print adapters"]
       end
-      SerialHelper["Rust serial byte-transport helper"]
     end
 
     Bootstrap --> Companion
     Bootstrap --> Webview
     Client <--> API
     API --> App --> Adapters
-    Adapters <--> SerialHelper
     Adapters <--> SQLite["SQLite + content-addressed store"]
-    SerialHelper <--> Nano["Nano USB CDC"]
+    Adapters <--> Nano["Nano USB CDC"]
     Adapters <--> Device["Printer / OS"]
 ```
 
@@ -120,19 +118,19 @@ The shell must:
 
 The shell must not contain product use cases, parse native files, interpret SASSI, query domain tables, or render labels. Shell-bridge requests reference an already validated app-owned artifact and an allowlisted operation; there is no generic shell command, arbitrary path, or arbitrary Tauri invoke surface.
 
-#### Bun companion
+#### Rust service
 
-The companion must be the sole logical owner of:
+The service must be the sole logical owner of:
 
 - The active SQLite connection pool and write transaction queue.
 - Raw, derived, attachment, backup, inbox, and diagnostic files.
-- The serial-helper lifecycle/session and all printer transports. The helper alone holds the OS serial handle but has no independent lifecycle, protocol policy, or API.
+- The OS serial handle, SASSI session actor, native-file synchronization, and all printer transports.
 - Domain/application services and durable jobs.
 - The authenticated HTTP and WebSocket server, bound according to the selected composition root.
 
-In the desktop composition root there is no separately installed daemon. Closing the desktop app gracefully stops the companion after active writes are flushed. During an active roast, closing requires an explicit warning; if termination still occurs, the durable live inbox allows reconciliation after restart.
+In the desktop composition root there is no separately installed daemon. Closing the desktop app gracefully stops the Rust sidecar after active writes are flushed. During an active roast, closing requires an explicit warning; if termination still occurs, the durable live inbox allows reconciliation after restart.
 
-In the Raspberry Pi composition root the companion is an explicitly installed, always-on systemd service. It serves the built frontend and `/api/v1` from one origin, owns the Pi-attached USB port, persists under `/var/lib/tan-studio`, and continues collecting when no browser is open. Docker is a build tool only and is not required on the Pi.
+In the Raspberry Pi composition root the same binary is an explicitly installed, always-on systemd service. It serves the built frontend and `/api/v1` from one origin, owns the Pi-attached USB port, persists under `/var/lib/tan-studio`, and continues collecting when no browser is open. Docker is a build tool only and is not required on the Pi.
 
 #### React frontend
 
@@ -143,7 +141,7 @@ The frontend may know API contracts, view models, routes, and presentation state
 ```mermaid
 sequenceDiagram
     participant T as Tauri shell
-    participant C as Bun companion
+    participant C as Rust service
     participant W as React webview
     participant D as SQLite/device services
 
@@ -169,58 +167,56 @@ The companion bootstrap record is:
 
 ```ts
 type CompanionBootstrap = {
-  protocolVersion: 1
-  origin: `http://127.0.0.1:${number}`
-  companionPid: number
-  buildVersion: string
+  schemaVersion: 1
+  host: "127.0.0.1"
+  port: number
+  apiBasePath: "/api/v1"
 }
 ```
 
-The record must be consumed by the Tauri parent and must never contain the launch token or device-identity key. Any additional stdout before or after the record is a packaging-test failure; structured companion logs go to a dedicated rotating file sink. The launch token is 32 random bytes, represented as base64url without padding only inside the shell/webview bootstrap and companion memory.
+The record must be consumed by the Tauri parent and must never contain the launch token or device-identity key. Any additional stdout before or after the record is a packaging-test failure; structured service logs go to stderr or a dedicated rotating file sink. The launch token is 32 random bytes, represented as base64url without padding only inside the shell/webview bootstrap and service memory.
 
 Tauri creates a private inherited pipe pair, or a user-only Unix-domain socket/Windows named pipe where inherited descriptors are unavailable, for the versioned shell bridge. Before HTTP starts, the channel carries the launch token and an application-scoped device-identity HMAC key loaded from the OS keychain; those values are never sent back or requested by React. The companion implements `ArtifactExportPort`, `SystemDocumentPort`, and `DeviceIdentityKeyStore` over this bridge. Later provider credentials extend a separate `SecretStore` interface. Requests are length-prefixed MessagePack, carry a correlation ID, and are limited to `saveArtifact`, `openArtifact`, `showPdfPrintDialog`, and separately permissioned keychain operations. Tauri independently verifies that an artifact path resolves beneath the active generation's immutable artifact root before opening a native panel. The bridge carries no domain queries and never exposes a selected destination path to React. If the device key cannot be loaded, Tan Studio may inspect a candidate transiently but remains read-only and does not persist or trust its identity.
 
-### 2.4 Companion execution topology
+### 2.4 Service execution topology
 
-Synchronous SQLite and CPU/native work must never run on the event loop that owns USB ingestion, WebSocket heartbeats, or Hono connection handling.
+The Tokio HTTP runtime, blocking SQLite operations, and the serial actor have explicit ownership boundaries.
 
 ```mermaid
 flowchart LR
-    Main["Main Bun event loop\nHTTP/WS, device actors, scheduling"]
-    Main --> Writer["Single database worker\nwrite connection + UnitOfWork priority queue"]
-    Main --> Readers["Bounded read workers\nread-only SQLite connections"]
-    Main --> Jobs["Bounded job workers\nparse, Arrow, render, export, hash"]
-    Main --> Inbox["Priority inbox writer\nappend complete live fragments"]
-    Writer --> DB["SQLite WAL"]
-    Readers --> DB
-    Jobs --> Store["Content-addressed stores"]
-    Inbox --> Store
+    HTTP["Tokio/Axum runtime\nHTTP and lifecycle"]
+    HTTP --> DB["Database adapter\ntransactional SQLite writer"]
+    HTTP <--> Actor["Dedicated serial actor thread\nSASSI session + deadlines"]
+    Actor --> Import["Validated klog importer"]
+    Import --> DB
+    DB --> SQLite["SQLite WAL"]
+    Import --> Store["Immutable native bytes"]
+    Actor <--> Nano["Nano USB CDC"]
 ```
 
-- The main loop performs framing/session state and queues persistence; it does not run synchronous SQL, parse a complete log, generate Arrow, render PDF/SVG/raster, invoke sharp/resvg, build a backup, or rebuild a projection.
-- One dedicated database worker owns the read/write connection and all migrations/transactions. Its priority queue services live-roast metadata/finalization before ordinary UI mutations and background jobs. It is never terminated mid-transaction.
-- A bounded pool of request-owned workers, each with a read-only SQLite connection, serves library/facet/report reads. HTTP cancellation stops streaming immediately and marks the task cancelled; a worker running an uninterruptible synchronous query is allowed to finish off the main loop and is recycled or terminated only where the read-only connection can be safely discarded.
-- A separate bounded CPU/job pool performs native parsing, hashing, Arrow conversion, label rendering, compression, and exports. Each task has byte/time/memory limits and checkpoints. Cancellation terminates only the request-owned job worker, never the writer.
-- Complete live native fragments use a priority append path before presentation events. Backpressure coalesces UI sample events and pauses background reads/jobs before it drops device evidence.
-- Worker messages are versioned structured data or transferable byte buffers. SQLite connections, serial handles, native renderer objects, and mutable domain aggregates are never shared between workers.
+- A dedicated actor thread exclusively owns the serial handle, incremental decoder, command deadlines, and reconnect state. Async API calls communicate through bounded commands and one-shot replies.
+- SQLite access is behind the database adapter. Mutations and native-log imports use explicit transactions; migrations are embedded and validated by SHA-256 before the service reports ready.
+- Blocking database and CPU-heavy jobs must move to bounded blocking workers as concurrency grows; no serial read loop may wait on an HTTP client.
+- Native bytes are retained before semantic projection. Parse or compatibility failure quarantines the source instead of committing a partial roast.
+- Serial handles, SQLite connections, and mutable session state never cross the HTTP/OpenAPI boundary.
 
 Default production limits are one writer, two read workers, and `max(1,min(2,logicalCpuCount-2))` CPU workers on the reference Mac. These limits are configurable by platform profile, not user-facing arbitrary tuning. Worker crashes fail only their task, preserve durable inputs, and trigger bounded replacement.
 
 ### 2.5 Raspberry Pi appliance topology
 
-The appliance is a second composition root over the same domain, application services, Hono routes, React assets, database migrations, TypeScript SASSI implementation, and Rust serial helper. It must not fork product behavior.
+The appliance is a second composition root over the same Rust domain/application modules, Axum routes, React assets, database migrations, SASSI implementation, and native serial transport. It must not fork product behavior.
 
 ```mermaid
 flowchart LR
-    Browser["Trusted-LAN browser"] <-->|"same-origin HTTP / WebSocket"| Service["Bun headless companion"]
+    Browser["Trusted-LAN browser"] <-->|"same-origin HTTP"| Service["Rust headless service"]
     Service --> DB["SQLite under /var/lib/tan-studio"]
-    Service <--> Helper["Rust serial helper"] <--> Nano["Nano USB CDC"]
+    Service <--> Nano["Nano USB CDC"]
     Systemd["systemd"] --> Service
     Avahi["Avahi mDNS"] --> Name["tan-studio.local"]
 ```
 
 - `tan-studio.service` runs as a non-login `tan-studio` user with only the `dialout` supplementary group and `CAP_NET_BIND_SERVICE`; it has no root runtime process.
-- The release contains two ARM64 executables and immutable Vite assets under `/opt/tan-studio/releases/<version>`. `/opt/tan-studio/current` is an atomic symlink.
+- The release contains one ARM64 Rust executable and immutable Vite assets under `/opt/tan-studio/releases/<version>`. `/opt/tan-studio/current` is an atomic symlink.
 - A pinned Docker multi-stage build produces the release. The Pi runs the native executables directly to avoid container USB indirection and memory overhead on 1 GB hardware.
 - The installer is idempotent for an already verified version, preserves the database and 256-bit LAN token, creates a pre-deployment database backup, performs a local health check, and restores the prior release symlink if the new service does not become healthy.
 - The service binds port 80 on all interfaces but accepts only configured exact Host authorities. The initial set is `tan-studio.local`, the installation-time LAN address, and the temporary conflict alias `tan-studio-2.local`; Avahi restart normally reclaims the canonical name.
@@ -236,47 +232,43 @@ flowchart LR
 flowchart BT
     Domain["Domain: entities, values, policies, domain events"]
     Application["Application: use cases and ports"] --> Domain
-    Contracts["API contracts: runtime-neutral transport schemas"]
+    Contracts["OpenAPI 3.1 generated from Rust DTOs/routes"]
     Infrastructure["Infrastructure adapters"] --> Application
-    Companion["Companion composition root"] --> Infrastructure
+    Companion["Rust service composition root"] --> Infrastructure
     Companion --> Contracts
     Web["Web app"] --> Contracts
     Desktop["Tauri composition root"] --> Companion
 ```
 
-- `domain` depends only on the TypeScript standard library and small, runtime-neutral value helpers.
-- `application` depends on `domain` and defines every outbound port.
-- Transport contracts are runtime-neutral Zod/TypeScript DTOs and do not import application or domain. The companion HTTP adapter maps DTOs to application commands/results; web imports cannot transitively pull domain/use-case code into the frontend.
+- Rust domain code depends only on value types and invariants. Application services depend inward and define outward ports.
+- Transport DTOs and routes derive OpenAPI from the same Rust definitions used by Axum. The web imports only generated TypeScript operations/components plus a small handwritten HTTP runtime.
+- Generated client files are never hand-edited. CI regenerates them and fails on a diff.
 - Infrastructure adapters depend inward and translate external failures into application error categories.
 - Composition roots construct concrete adapters explicitly. A reflective dependency-injection container is prohibited.
 - Cross-module communication uses application interfaces or typed domain events, never another module's database implementation.
 - CI must reject forbidden imports with dependency-cruiser or an equivalent static boundary test.
 
-### 3.2 Bun workspace
+### 3.2 Workspace
 
 The repository will use Bun workspaces with this target structure:
 
 ```text
 apps/
 ├── web/                    # React/Vite routes and feature composition
-├── companion/              # Hono server, adapters, jobs, composition root
-└── desktop/                # Tauri 2 Rust shell, native print/serial helpers, packaging
+├── service/                # Axum API, SQLite, SASSI, parsers, jobs, composition root
+└── desktop/                # Tauri 2 Rust shell and sidecar packaging
 packages/
 ├── domain/                 # Pure domain model and policies
 ├── application/            # Use cases, ports, commands, results
-├── api-contract/           # Runtime-neutral Zod/OpenAPI DTOs and event envelopes
-├── api-client/             # Generated client; never hand-edited
-├── api-client-runtime/     # Handwritten query keys, retry/cache policy, event integration
-├── device-sassi/           # Pure incremental framing/CRC/session messages
-├── native-format-adapters/ # Lossless kpro/klog parser/writer implementations
+├── api-contract/           # Legacy compatibility schemas during migration only
 ├── printing-adapters/      # Renderer/encoder implementations; depends inward
 ├── ui/                     # shadcn source components and semantic tokens
 └── testkit/                # Fixtures, fake clocks, ports, builders, matchers
 ```
 
-Infrastructure implementations live under `apps/companion/src/adapters`; they are not published as general-purpose packages until a second composition root needs them. This avoids a package-per-class structure while keeping boundaries testable.
+Infrastructure implementations live behind ports in `apps/service`; they are not published as general-purpose crates until a second composition root needs them. This avoids a crate-per-class structure while keeping boundaries testable.
 
-Domain label/profile/roast value types live in `domain`. Every repository, parser, renderer, printer, transport, clock, identity, and filesystem port lives in `application`. `device-sassi`, `native-format-adapters`, and `printing-adapters` are outward implementations and may depend on domain/application; application code must never import them. The dependency test treats these adapter packages exactly like `apps/companion/src/adapters`.
+Existing TypeScript domain/printing packages remain usable by the frontend and test fixtures during migration, but no TypeScript package owns the production database, device, parser, or HTTP server. Production Rust adapters depend inward on Rust application/domain modules and are constructed explicitly in the service composition root.
 
 ### 3.3 Code and contract rules
 
@@ -549,7 +541,7 @@ Artifact writes use a sibling random temporary file, restrictive permissions, a 
 
 ### 6.2 SQLite configuration and ownership
 
-The companion owns one read/write `bun:sqlite` database and a small bounded set of read-only connections. At open it must execute and verify:
+The Rust service owns the SQLite database through `rusqlite`. At open it must execute and verify:
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -736,7 +728,7 @@ Default automatic retention is seven daily and four weekly verified backups. Use
 
 ### 7.1 Contract source and versioning
 
-Hono route definitions and Zod schemas generate one OpenAPI 3.1 document. The checked-in generated document is diffed in CI; `packages/api-client` is regenerated with `openapi-typescript`, `openapi-fetch`, and `openapi-react-query` and must have no manual edits.
+Axum route handlers and Utoipa DTO annotations generate one OpenAPI 3.1 document. The checked-in generated document is diffed in CI; `apps/web/src/generated/api.ts` is regenerated with `openapi-typescript`, consumed through `openapi-fetch`, and must have no manual edits. Contract tests assert that Serde wire names and documented schema names agree, including named enum fields.
 
 All product routes are under `/api/v1`. Backward-compatible fields may be added within v1; removals or semantic changes require `/api/v2`. Event `type` values carry their own schema suffix. API and database versions are independent.
 
@@ -1344,13 +1336,13 @@ interface RoasterProtocol {
 
 `SerialTransport` owns enumeration, OS open flags, line settings, exclusive ownership, byte delivery, bounded writes, disconnect mapping, and cleanup. It has no knowledge of Kaffelogic identity, SASSI fields, files, or commands.
 
-The adapter is a small Tauri-packaged Rust process using the maintained `serialport` crate. It opens 115200/8N1 with software/hardware flow control disabled, exclusive ownership, and DTR asserted, matching Studio. The reference Nano completed the type-3/type-4 handshake with these settings. The helper communicates with Bun through bounded JSON Lines messages and Base64 byte payloads over inherited pipes. It exposes generation-bound opaque candidate IDs and session IDs; raw OS paths, USB serials, and descriptor strings never cross into Bun or the API. The macOS callout node is preferred over the paired TTY node, and numeric node suffixes are treated as ephemeral.
+The adapter is part of the Rust service and uses the maintained `serialport` crate. It opens 115200/8N1 with software/hardware flow control disabled, exclusive ownership, and DTR asserted, matching Studio. The reference Nano completed the type-3/type-4 handshake with these settings. A dedicated actor thread owns the handle and exposes bounded in-process commands to application services; raw OS paths, USB serials, and descriptor strings never cross the API. The macOS callout node is preferred over the paired TTY node, and numeric node suffixes are treated as ephemeral.
 
-The Rust helper remains a byte transport, not a custom driver or a second protocol implementation. `packages/device-sassi` and `RoasterSession` alone decide which exact frames may be sent. In the current read-only capability, the session allowlist contains type 3 and type 13 codes 9 and 3 only.
+`SerialTransport` remains byte-oriented and is not a custom driver. The Rust `SassiCodec` and `RoasterSession` alone decide which exact frames may be sent. Read-only synchronization adds only captured and fixture-validated directory, file-read, and acknowledgement messages; profile/file/device writes remain disabled.
 
 ### 8.2 Codec requirements
 
-`packages/device-sassi` is pure TypeScript with no OS, timing, logging, or application dependency. It must:
+The Rust `sassi` module is pure protocol code with no OS, timing, logging, database, or application dependency. It must:
 
 - Accept arbitrary chunk boundaries and emit zero, one, or many complete frames.
 - Bound the pre-handshake buffer to 512 bytes and the post-handshake buffer to the advertised maximum plus 64 bytes.
@@ -1540,13 +1532,13 @@ Reconciliation produces:
 
 UI charts distinguish received, gap, provisional, and reconciled ranges without fabricating interpolation into stored data.
 
-### 8.8 Serial-helper packaging gate
+### 8.8 Native serial packaging gate
 
-Local validation established that the Node `serialport` package can enumerate under Bun 1.2.22 but crashes when opening this CDC device because the native binding reaches an unsupported `uv_default_loop` path; bundling adds a second native-module failure mode. Tan Studio therefore uses the simpler production boundary now: only `SerialTransport` lives in a small Rust executable built against exact `serialport` crate version 4.9.0. The TypeScript SASSI codec, session actor, use cases, API, and tests remain unchanged.
+Local validation established that the Node `serialport` package can enumerate under Bun but its native binding is not dependable in a compiled sidecar. Tan Studio therefore uses one Rust service for transport, SASSI, session policy, filesystem synchronization, parsing, SQLite, and HTTP. It uses the maintained Rust `serialport` crate and does not implement a USB CDC driver.
 
-`apps/desktop/scripts/build-serial-bridge.ts` builds the helper with Cargo `--release --locked --target <Tauri target triple>` and copies it to Tauri's target-suffixed external-binary directory. Tauri installs both the Bun companion and serial helper, normally removing that build suffix inside the app bundle. The companion resolves only an explicit absolute development override, an exact or target-suffixed sibling executable, or the known workspace Cargo output in development.
+`apps/desktop/scripts/build-service.ts` builds the service with Cargo `--release --locked --target <Tauri target triple>` and copies it to Tauri's target-suffixed external-binary directory. Tauri installs that single binary as its sidecar. The Raspberry Pi Docker build compiles the same crate for Linux ARM64 and installs it under systemd.
 
-The release gate runs on every supported OS/architecture and proves enumeration, mock open/read/write/close, real candidate listing, partial/combined reads, bounded IPC, sequence-gap failure, child-process failure, missing-helper failure, signature integrity, and operation from a path containing spaces/non-ASCII characters. Tan Studio does not implement a USB CDC driver, move protocol/domain logic into Rust, switch to Electron, or expose serial access to React.
+The release gate runs on every supported OS/architecture and proves enumeration, mock open/read/write/close, real candidate listing, partial/combined reads, CRC/outcome/sequence failure, sidecar startup failure, signature integrity, and operation from a path containing spaces/non-ASCII characters. Tan Studio does not expose serial access to React.
 
 ## 9. Native file plugin specification
 
@@ -1779,7 +1771,7 @@ The default QR payload is `tan:roast:<serial_number>`, for example `tan:roast:19
 - Every image decode sets `failOn: "warning"`, enforces source bytes, dimensions, total pixels, channels, decoded bytes, frame count, and worker deadline before allocation, and strips metadata on re-encode. QR/barcode payload bytes, symbol density, and copies are bounded before rendering.
 - PWG Raster output is written by the native print helper through the maintained libcups raster API from the renderer's validated target-DPI pixels; Tan Studio does not implement the PWG container protocol from scratch.
 - QR generation uses a maintained QR library with fixed error correction/quiet-zone rules; barcodes use `bwip-js`. Rendered symbols are decoded in tests.
-- Native rendering dependencies are subject to the same signed-resource and architecture packaging gate as the serial helper.
+- Native rendering dependencies are subject to the same signed-resource and architecture packaging gate as the Rust service.
 
 Text overflow, missing glyphs, content outside the media/safe box, insufficient QR module size, and unsupported images are validation errors before submission. Preview uses the exact rendered SVG or raster artifact, not a separately styled HTML approximation.
 
@@ -2034,7 +2026,7 @@ queryKeys.job(jobId)
 queryKeys.printer.capabilities(printerId, snapshotId)
 ```
 
-- The root `QueryClient` sets `networkMode: "always"` for queries and mutations and disables `refetchOnReconnect`, because `navigator.onLine` does not describe the loopback companion. Companion bootstrap health, WebSocket freshness, and request results are authoritative. Generated functions forward TanStack's `AbortSignal`; cancellation immediately closes fetch/streaming, removes queued read work, and discards late results. A synchronous `bun:sqlite` call already running may finish off the main loop before its read-only worker is recycled; cancellation never claims to interrupt synchronous SQLite or a writer transaction mid-commit.
+- The root `QueryClient` sets `networkMode: "always"` for queries and mutations and disables `refetchOnReconnect`, because `navigator.onLine` does not describe the loopback service. Service bootstrap health and request results are authoritative. Generated functions forward TanStack's `AbortSignal`; cancellation immediately closes fetch/streaming and discards late results. Cancellation never claims to interrupt a synchronous SQLite operation or writer transaction mid-commit.
 - Resource data defaults to a 30-second stale time. Immutable revisions and content hashes use infinite stale time. Device/job data is updated by events and uses a 5-second safety refetch while visible.
 - Read retries use capped 250/500 ms delays for two attempts only on unavailable/reset errors. Mutations do not automatically retry unless their generated operation is marked idempotent and already has an idempotency key.
 - WebSocket resource events invalidate the narrowest key; high-frequency live samples update the live store directly and do not invalidate roast detail per sample.
@@ -2172,10 +2164,11 @@ The design protects against hostile imported files/notes, web content, DNS rebin
 
 - Loopback random port, per-launch 256-bit token, exact Host/Origin, no wildcard CORS, strict content types, and one-use WebSocket tickets.
 - The packaged CSP is static and verified against the real Tauri/WebKit build: `default-src 'self'; script-src 'self'; style-src-elem 'self'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; worker-src 'self'; connect-src http://127.0.0.1:* ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`. The variable loopback port requires the port wildcard, while the companion independently enforces its exact assigned Host, exact platform Tauri Origin, client header, and bearer token. There is no `unsafe-inline` script, `eval`, remote script, or arbitrary navigation. Packaged CSP/network tests are a Stage 0 release gate.
+- Tauri's optional `freezePrototype` injection remains disabled. ECharts must initialize in the macOS WebKit runtime, and freezing `Object.prototype` is not a security boundary that the frontend's dependency set can safely satisfy. The restrictive CSP, bundled-only scripts, narrow Tauri capabilities, authenticated loopback API, and absence of remote content remain the relevant controls. A packaged roast-chart smoke test prevents this compatibility decision from regressing silently.
 - Tauri capabilities grant the main webview no generic filesystem, shell, process, updater, or keychain commands. React uses the companion API only.
 - Native paths are app-generated or come from bounded upload/download streams. Future mirror-folder access uses an OS-selected scoped token, not a string supplied by the webview.
 - Imported text renders as text. Markdown, if later enabled, uses a strict sanitizer with raw HTML/URLs disabled by default.
-- SQL is parameterized through Drizzle/adapter builders and allowlisted query fields. No user-defined SQL.
+- SQL uses bound `rusqlite` parameters and allowlisted query fields. No user-defined SQL.
 - Device writes require trusted identity, current capability hash, reviewed payload hash, expiry, and independent service capability. Maintenance/destructive operations are absent until implemented.
 - Printer commands are generated from typed documents and allowlisted encoders; user text is escaped or rasterized.
 - The v1 `DeviceIdentityKeyStore` uses the OS keychain and is mandatory for persistent device trust. Future IPP/AI/relay credentials use a separate OS-keychain/Stronghold-backed `SecretStore`; SQLite stores only opaque references. Neither key material nor credentials enter the webview, database, logs, backups, or diagnostics.
@@ -2196,7 +2189,7 @@ Feature flags cannot grant a capability for which the relevant service/adapter i
 
 ### 12.4 Dependency and supply-chain policy
 
-- Prefer standards/platform implementations: the Rust `serialport` crate for CDC, SQLite/Drizzle for persistence, OpenAPI/Zod for API contracts, Apache Arrow for derived series, OpenPrinting/libcups for queues/IPP, resvg/sharp/pdf-lib for rendering, and official printer-language specifications.
+- Prefer standards/platform implementations: the Rust `serialport` crate for CDC, SQLite/`rusqlite` for persistence, Axum/Utoipa/OpenAPI for API contracts, OpenPrinting/libcups for queues/IPP, established deterministic rendering libraries, and official printer-language specifications.
 - Exact direct/transitive versions and integrity are locked. Install scripts are disabled by default; only reviewed native packages are listed in Bun `trustedDependencies`.
 - CI runs license allowlisting, vulnerability audit, secret scan, generated-file diff, and SBOM generation.
 - Native binaries are built or obtained from authenticated upstream releases, included before signing, and verified on every architecture.
@@ -2209,8 +2202,7 @@ Feature flags cannot grant a capability for which the relevant service/adapter i
 The first release is a universal or paired arm64/x86_64 Tauri 2 application containing:
 
 - Vite frontend assets served by Tauri's custom protocol.
-- One Bun companion executable per target architecture.
-- One target-specific Rust serial-helper executable.
+- One target-specific Rust service executable containing the HTTP, SQLite, parser, and serial adapters.
 - Rust print helper linked against the supported system/OpenPrinting CUPS interface.
 - Bundled fonts and rendering native modules.
 - Migration files, OpenAPI schema, licenses, and build manifest.
@@ -2219,7 +2211,7 @@ All executable code and native modules are inside signed, read-only bundle resou
 
 ### 13.2 Raspberry Pi appliance release
 
-`bun run build:pi` uses `deploy/raspberry-pi/Dockerfile` to produce a reusable Linux ARM64 directory containing the compiled Bun headless server, compiled Rust serial helper, Vite assets, systemd unit, udev rule, installer, and version manifest. `bun run deploy:pi` transfers that artifact over SSH and invokes the installer with `sudo`; application build tools are not installed on the Pi.
+`bun run build:pi` uses `deploy/raspberry-pi/Dockerfile` to produce a reusable Linux ARM64 directory containing the compiled Rust service, Vite assets, systemd unit, udev rule, installer, and version manifest. `bun run deploy:pi` transfers that artifact over SSH and invokes the installer with `sudo`; application build tools and Bun are not installed on the Pi.
 
 The initial supported appliance is Raspberry Pi 3 B+ or later running a 64-bit Debian/Raspberry Pi OS derivative with systemd, Avahi, udev, and glibc. The release gate includes a clean installation, same-version redeployment, authenticated API/UI checks, SQLite ownership/integrity checks, USB hotplug discovery, and a full reboot check.
 
@@ -2314,11 +2306,11 @@ Critical local alerts are database recovery mode, device identity change, live c
 
 | Layer | Tools | Required coverage |
 | --- | --- | --- |
-| Domain/application unit | `bun:test`, fake clock/IDs/ports | Invariants, use-case outcomes, idempotency, capability separation |
-| Property/fuzz | `fast-check` under Bun | SASSI chunking/CRC, parser round trips, numeric/unit boundaries, query ASTs, label bounds |
-| Adapter contract | `bun:test`, Rust tests, testkit fakes | Repositories, artifact store, serial-helper IPC/transports, printers/transports, secret redaction |
+| Domain/application unit | `cargo test`, `bun:test`, fake clock/IDs/ports | Invariants, use-case outcomes, idempotency, capability separation |
+| Property/fuzz | Rust property tests and `fast-check` where applicable | SASSI chunking/CRC, parser round trips, numeric/unit boundaries, query ASTs, label bounds |
+| Adapter contract | Rust tests, `bun:test`, testkit fakes | Repositories, artifact store, serial actor/transports, printers/transports, secret redaction |
 | Database integration | Real temporary SQLite | Migrations, constraints, WAL/restart, projections, FTS, backup/restore, query plans |
-| API contract | Hono in-process + generated client | OpenAPI parity, Problem Details, ETags, idempotency, jobs, origin/auth, event recovery |
+| API contract | Axum in-process + generated TypeScript client | OpenAPI/Serde parity, Problem Details, ETags, idempotency, jobs, origin/auth, event recovery |
 | Frontend component | Vitest, Testing Library, axe | Forms, routes, loading/empty/error states, keyboard/accessibility |
 | End to end | Playwright against packaged-like runtime | Primary journeys, reconnects, visual baselines, 360/1024+ layouts |
 | Hardware/system | Opt-in signed HIL runner | Nano read/live/sync, CUPS/IPP, physical label geometry/status |
@@ -2328,7 +2320,7 @@ Tests use temporary directories created by the test framework and explicit fake 
 ### 16.2 Architecture and contract gates
 
 - Dependency-boundary graph passes with no inward violations or circular package dependencies.
-- OpenAPI, generated client, Drizzle schema snapshot, migration hashes, shadcn registry state, and Excalidraw review manifest have no unexplained diff.
+- OpenAPI, generated TypeScript client, migration hashes, shadcn registry state, and Excalidraw review manifest have no unexplained diff.
 - Every application port has a reusable contract suite run against fake and production adapters.
 - Every job handler has restart-at-each-checkpoint and duplicate-delivery tests.
 - Every domain event consumer proves idempotency and projection rebuild equivalence.
@@ -2389,7 +2381,7 @@ Each release candidate stores a signed test manifest with application/build IDs,
 
 ### Stage 0 — compatibility foundation
 
-Implement workspace boundaries, domain primitives, SQLite/migrations, content-addressed store, worker execution topology, native plugin harness, `.kpro`/`.klog` parsers, SASSI codec, label display list/renderers, normative API/query/event contracts, and testkit. Spike the packaged Tauri bootstrap/control channel, OS-keychain device identity, static CSP, Web Worker, Bun sidecar/native-module loading, and native print bridge before feature construction depends on them.
+Implement workspace boundaries, domain primitives, SQLite/migrations, content-addressed store, native plugin harness, `.kpro`/`.klog` parsers, SASSI codec/session actor, label display list/renderers, normative API/query/event contracts, and testkit. Prove the packaged Tauri Rust-sidecar bootstrap/control channel, static CSP, Web Worker, and native print bridge before feature construction depends on them.
 
 Exit: architecture tests pass; migrations/backup work; fixtures round-trip; synthetic type-2/CRC tests pass; exact SVG/PDF/raster goldens pass; the packaged security/native spikes pass on arm64 and x86_64 macOS; no hardware write exists.
 
@@ -2401,7 +2393,7 @@ Exit: all offline P0 PRD journeys pass; 10,000-roast dump/restore is identical; 
 
 ### Stage 2 — connected desktop
 
-Implement Tauri shell/bootstrap/security, signed Bun and Rust-helper packaging, the remaining captured status/filesystem behavior, safe sync planning/execution, live ingestion/reconciliation, profile deployment after its capture gate, CUPS/IPPS and ZPL adapters, and macOS signing/notarization. The read-only USB discovery, negotiation, and bounded system/operational information path are already executable.
+Implement Tauri shell/bootstrap/security, signed Rust-service packaging, the remaining captured status/filesystem behavior, safe sync planning/execution, live ingestion/reconciliation, profile deployment after its capture gate, CUPS/IPPS and ZPL adapters, and macOS signing/notarization. Read-only USB discovery, negotiation, directory listing, log download, validation, and transactional import are executable.
 
 Exit: 20 supervised roasts with no complete-sample/native-file loss; idle/live reconnect passes; conflicts preserve both versions; all device writes have capture/HIL evidence; Zebra geometry passes; packaged app works offline from `/Applications`.
 

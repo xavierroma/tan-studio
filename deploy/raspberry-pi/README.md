@@ -1,8 +1,9 @@
 # Raspberry Pi deployment
 
-Tan Studio runs directly under systemd; Docker is used only to build a pinned,
-Linux ARM64 release. This keeps the production USB path native and makes the
-same artifact reusable across Raspberry Pi OS or Debian ARM64 installations.
+Tan Studio's single Rust HTTP/SQLite/USB service runs directly under systemd;
+Docker is used only to build a pinned Linux ARM64 release. This keeps the
+production USB path native and makes the same artifact reusable across
+Raspberry Pi OS or Debian ARM64 installations.
 
 ## Fresh Pi
 

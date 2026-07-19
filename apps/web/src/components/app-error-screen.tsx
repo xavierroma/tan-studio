@@ -50,6 +50,16 @@ export function AppErrorScreen({
             Your roast database is unchanged. Retry the request, go back, or
             return to the roast notebook.
           </p>
+          {import.meta.env.DEV && error.stack ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Development stack trace
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto text-xs whitespace-pre-wrap">
+                {error.stack}
+              </pre>
+            </details>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className={buttonVariants()} onClick={retry}>
               <RefreshCwIcon data-icon="inline-start" />
@@ -65,7 +75,16 @@ export function AppErrorScreen({
             </button>
             <Link
               to="/roasts"
-              search={{ q: undefined, process: undefined, status: undefined }}
+              search={{
+                q: undefined,
+                group: undefined,
+                sort: undefined,
+                date: undefined,
+                provider: undefined,
+                process: undefined,
+                minScore: undefined,
+                status: undefined,
+              }}
               className={buttonVariants({ variant: "outline" })}
             >
               <HouseIcon data-icon="inline-start" />

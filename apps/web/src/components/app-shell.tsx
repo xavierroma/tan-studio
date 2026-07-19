@@ -72,7 +72,16 @@ export function AppShell() {
         <aside className="border-sidebar-border bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-[5.5rem] flex-col items-center border-r md:flex">
           <Link
             to="/roasts"
-            search={{ q: undefined, process: undefined, status: undefined }}
+            search={{
+              q: undefined,
+              group: undefined,
+              sort: undefined,
+              date: undefined,
+              provider: undefined,
+              process: undefined,
+              minScore: undefined,
+              status: undefined,
+            }}
             className="mt-4 flex flex-col items-center gap-2"
             aria-label="Tan Studio home"
           >

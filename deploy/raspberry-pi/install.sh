@@ -8,8 +8,7 @@ if [[ ! "$VERSION" =~ ^[A-Za-z0-9._-]{1,80}$ ]]; then
   echo "Invalid Tan Studio release version" >&2
   exit 2
 fi
-if [[ ! -x "$SOURCE_DIRECTORY/bin/tan-studio-server" ]] ||
-  [[ ! -x "$SOURCE_DIRECTORY/bin/tan-studio-serial-bridge" ]] ||
+if [[ ! -x "$SOURCE_DIRECTORY/bin/tan-studio-service" ]] ||
   [[ ! -f "$SOURCE_DIRECTORY/web/index.html" ]]; then
   echo "The Tan Studio release is incomplete" >&2
   exit 2
@@ -48,8 +47,7 @@ if [[ -L "$CURRENT_LINK" ]]; then
   PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK")"
 fi
 if [[ -e "$RELEASE_DIRECTORY" ]]; then
-  if [[ ! -x "$RELEASE_DIRECTORY/bin/tan-studio-server" ]] ||
-    [[ ! -x "$RELEASE_DIRECTORY/bin/tan-studio-serial-bridge" ]] ||
+  if [[ ! -x "$RELEASE_DIRECTORY/bin/tan-studio-service" ]] ||
     [[ ! -f "$RELEASE_DIRECTORY/web/index.html" ]] ||
     [[ "$(tr -d '\n' < "$RELEASE_DIRECTORY/VERSION")" != "$VERSION" ]]; then
     echo "Installed release $VERSION is incomplete or inconsistent" >&2
@@ -57,10 +55,8 @@ if [[ -e "$RELEASE_DIRECTORY" ]]; then
   fi
 else
   install -d -m 0755 "$STAGING_DIRECTORY/bin" "$STAGING_DIRECTORY/web"
-  install -m 0755 "$SOURCE_DIRECTORY/bin/tan-studio-server" \
-    "$STAGING_DIRECTORY/bin/tan-studio-server"
-  install -m 0755 "$SOURCE_DIRECTORY/bin/tan-studio-serial-bridge" \
-    "$STAGING_DIRECTORY/bin/tan-studio-serial-bridge"
+  install -m 0755 "$SOURCE_DIRECTORY/bin/tan-studio-service" \
+    "$STAGING_DIRECTORY/bin/tan-studio-service"
   cp -R "$SOURCE_DIRECTORY/web/." "$STAGING_DIRECTORY/web/"
   install -m 0644 "$SOURCE_DIRECTORY/VERSION" "$STAGING_DIRECTORY/VERSION"
   chown -R root:root "$STAGING_DIRECTORY"
@@ -81,6 +77,7 @@ if [[ -z "$PRIMARY_ADDRESS" ]]; then
 fi
 ENVIRONMENT_STAGING="$CONFIG_DIRECTORY/.environment-$$"
 {
+  printf 'TAN_STUDIO_HEADLESS=1\n'
   printf 'TAN_STUDIO_BIND_HOST=0.0.0.0\n'
   printf 'TAN_STUDIO_PORT=80\n'
   printf 'TAN_STUDIO_DATABASE_PATH=%s/tan-studio.sqlite\n' "$STATE_DIRECTORY"

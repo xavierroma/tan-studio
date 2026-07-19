@@ -10,6 +10,56 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/acquisitions": {
+      "post": {
+        "tags": [
+          "catalog"
+        ],
+        "operationId": "acquisitions_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcquisitionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcquisitionResource"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/brews": {
       "get": {
         "tags": [
@@ -1229,6 +1279,77 @@
   },
   "components": {
     "schemas": {
+      "AcquisitionCreate": {
+        "type": "object",
+        "required": [
+          "providerName",
+          "coffeeName",
+          "receivedMassMg",
+          "receivedAt",
+          "sourceTimezone"
+        ],
+        "properties": {
+          "coffeeName": {
+            "type": "string"
+          },
+          "costPerKgMinor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "currencyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerName": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "receivedMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceTimezone": {
+            "type": "string"
+          },
+          "supplierReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AcquisitionResource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "providerCreated",
+          "coffeeCreated",
+          "lot"
+        ],
+        "properties": {
+          "coffeeCreated": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "lot": {
+            "$ref": "#/components/schemas/LotResource"
+          },
+          "providerCreated": {
+            "type": "boolean"
+          }
+        }
+      },
       "AdapterSet": {
         "type": "object",
         "required": [
@@ -2035,19 +2156,19 @@
           {
             "type": "object",
             "required": [
-              "start_inclusive",
-              "end_exclusive",
+              "startInclusive",
+              "endExclusive",
               "kind"
             ],
             "properties": {
-              "end_exclusive": {},
+              "endExclusive": {},
               "kind": {
                 "type": "string",
                 "enum": [
                   "range"
                 ]
               },
-              "start_inclusive": {}
+              "startInclusive": {}
             }
           }
         ]
@@ -3275,7 +3396,7 @@
               "scope",
               "rows",
               "aggregates",
-              "page_info",
+              "pageInfo",
               "kind"
             ],
             "properties": {
@@ -3292,7 +3413,7 @@
                   "rows"
                 ]
               },
-              "page_info": {
+              "pageInfo": {
                 "$ref": "#/components/schemas/PageInfo"
               },
               "rows": {
@@ -3314,7 +3435,7 @@
             "required": [
               "scope",
               "groups",
-              "page_info",
+              "pageInfo",
               "kind"
             ],
             "properties": {
@@ -3330,7 +3451,7 @@
                   "groups"
                 ]
               },
-              "page_info": {
+              "pageInfo": {
                 "$ref": "#/components/schemas/PageInfo"
               },
               "scope": {

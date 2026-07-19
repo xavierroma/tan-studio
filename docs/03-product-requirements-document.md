@@ -3,8 +3,8 @@
 Product name: **Tan Studio**
 Status: **approved product baseline**
 Date: 19 July 2026
-Primary platforms: macOS Tauri 2 desktop application and always-on Raspberry Pi LAN appliance sharing one transport-neutral React/Vite UI and Bun companion
-Target stack: Bun, strict TypeScript, React 19, Vite 8, Tailwind CSS 4, shadcn `base-nova`/Base UI, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6, Hono, Zod/OpenAPI, Drizzle, and `bun:sqlite`
+Primary platforms: macOS Tauri 2 desktop application and always-on Raspberry Pi LAN appliance sharing one transport-neutral React/Vite UI and Rust service
+Target stack: Bun frontend tooling, strict TypeScript, React 19, Vite 8, Tailwind CSS 4, shadcn `base-nova`/Base UI, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6, Rust, Axum, Utoipa/OpenAPI, `rusqlite`, and `serialport`
 Normative engineering design: [Tan Studio technical specification](04-technical-specification.md)
 
 ## 1. Product statement
@@ -561,12 +561,11 @@ flowchart TB
         UI["shadcn base-nova + Base UI + Tailwind v4"]
         CH["ECharts 6 telemetry + separate Bezier editor"]
       end
-      subgraph Local["Signed Bun companion sidecar"]
-        HTTP["Hono /api/v1 + /api/v1/events"]
+      subgraph Local["Signed Rust service sidecar"]
+        HTTP["Axum /api/v1 + generated OpenAPI 3.1"]
         APP["Application use cases and ports"]
         ADAPTERS["SQLite/raw files, SASSI, parsers, print adapters"]
       end
-      SERIAL["Rust serial byte-transport helper"]
     end
 
     subgraph Optional["Future optional services"]
@@ -579,8 +578,7 @@ flowchart TB
     RQ <--> HTTP
     ZS --> CH
     HTTP --> APP --> ADAPTERS
-    ADAPTERS <--> SERIAL
-    SERIAL <--> NANO["Nano USB CDC"]
+    ADAPTERS <--> NANO["Nano USB CDC"]
     APP -. explicit consent .-> AI
     HTTP -. read-only outbound TLS .-> RELAY
 ```
@@ -596,7 +594,7 @@ Application use cases and ports
   ↑
 Infrastructure adapters
   ↑
-Companion, desktop, and web composition roots
+Rust service, desktop, and web composition roots
 ```
 
 Domain code has no framework or infrastructure dependency. Application services define ports; adapters depend inward; explicit composition roots wire implementations without a reflective container. CI enforces dependency boundaries.
@@ -629,9 +627,9 @@ Independently testable bounded modules are catalog/inventory; roasts/telemetry; 
 
 ### 11.5 Deployment and local security
 
-Tauri serves the built frontend through its custom protocol, generates a per-launch 256-bit in-memory token, and launches the compatible signed Bun sidecar with that token over a private inherited control channel. The sidecar binds a random loopback-only port and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
+Tauri serves the built frontend through its custom protocol, generates a per-launch 256-bit in-memory token, and launches the compatible signed Rust sidecar with that token over protected standard input. The sidecar binds a random loopback-only port and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
 
-The Raspberry Pi deployment is a separate supported composition root for the same frontend, API, domain services, database migrations, SASSI protocol, and serial helper. It runs the native ARM64 companion under systemd, serves the UI and API from one exact trusted-LAN origin at `http://tan-studio.local`, and remains active with no browser open. Its persistent 256-bit bearer token is root-readable only, injected into browser memory, and excluded from URLs, logs, SQLite, backups, and diagnostics. It must not be forwarded from the router or treated as internet remote access.
+The Raspberry Pi deployment is a separate supported composition root for the same frontend, generated API contract, Rust domain services, database migrations, SASSI protocol, and serial transport. It runs the native ARM64 Rust service under systemd, serves the UI and API from one exact trusted-LAN origin at `http://tan-studio.local`, and remains active with no browser open. Its persistent 256-bit bearer token is root-readable only, injected into browser memory, and excluded from URLs, logs, SQLite, backups, and diagnostics. It must not be forwarded from the router or treated as internet remote access.
 
 USB byte transport runs in a small target-specific Rust helper using the maintained `serialport` crate because Bun's Node native serial binding cannot open the reference CDC device reliably. SASSI framing, command allowlisting, session behavior, use cases, and the API remain TypeScript. The helper receives only bounded byte-transport requests over inherited pipes; it is not a custom USB driver or a second protocol implementation. A separate Web Serial demo may be researched later but is not part of the production frontend.
 
@@ -861,7 +859,7 @@ Exit: useful daily post-roast workflow without controlling a device.
 
 ### Phase 2 - connected signed desktop
 
-- Signed/notarized Tauri 2 application with authenticated Bun sidecar and compatible frontend/native resources.
+- Signed/notarized Tauri 2 application with authenticated Rust sidecar and compatible frontend/native resources.
 - Cross-platform Rust `serialport` helper packaging, signing, and adapter-contract gate.
 - USB connection, status, safe sync, conflicts, and device browser.
 - Live incremental log and event marking.

@@ -52,6 +52,91 @@ describe("production-safe companion reads", () => {
     })
   })
 
+  test("sends URL-backed roast filters and sorting to the companion", async () => {
+    const fetchMock = mockFetch().mockResolvedValue(jsonResponse({ rows: [] }))
+
+    await listRoasts({
+      q: "ethiopia",
+      group: "provider",
+      sort: "score",
+      provider: "Sey",
+      process: "washed",
+      minScore: 85,
+      status: "tasted",
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    const body = await (request as Request).clone().json()
+    expect(body.filters.clauses).toEqual([
+      { op: "search", query: "ethiopia" },
+      {
+        op: "field",
+        field: "providerName",
+        operator: "contains",
+        value: "Sey",
+      },
+      {
+        op: "field",
+        field: "process",
+        operator: "contains",
+        value: "washed",
+      },
+      {
+        op: "field",
+        field: "needsTasting",
+        operator: "eq",
+        value: false,
+      },
+      {
+        op: "field",
+        field: "tastingScoreBasisPoints",
+        operator: "gte",
+        value: 8500,
+      },
+    ])
+    expect(body.sorts).toEqual([
+      { field: "providerName", direction: "asc", nulls: "last" },
+      {
+        field: "tastingScoreBasisPoints",
+        direction: "desc",
+        nulls: "last",
+      },
+    ])
+  })
+
+  test("maps interrupted roasts and filters them by device process state", async () => {
+    const fetchMock = mockFetch().mockResolvedValue(
+      jsonResponse({
+        kind: "rows",
+        rows: [
+          {
+            roastId: "interrupted-roast",
+            values: {
+              roastNumber: 7,
+              status: "interrupted",
+              result: "aborted",
+            },
+          },
+        ],
+      })
+    )
+
+    const result = await listRoasts({ status: "interrupted" })
+
+    expect(result.data[0]?.status).toBe("interrupted")
+    const request = fetchMock.mock.calls[0]?.[0]
+    const body = await (request as Request).clone().json()
+    expect(body.filters.clauses).toEqual([
+      {
+        op: "field",
+        field: "status",
+        operator: "eq",
+        value: "interrupted",
+      },
+    ])
+  })
+
   test("propagates companion failures instead of returning sample roasts", async () => {
     mockFetch().mockRejectedValue(new Error("companion offline"))
 

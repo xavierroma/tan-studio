@@ -37,6 +37,8 @@ pub enum DatabaseError {
     MigrationDrift(i64),
     #[error("database was created by a newer Tan Studio version")]
     FutureMigration,
+    #[error("database uses an unsupported migration ledger")]
+    UnsupportedMigrationLedger,
 }
 
 impl Database {
@@ -80,6 +82,8 @@ fn migrate(connection: &mut Connection, path: &Path) -> Result<(), DatabaseError
            applied_at_ms INTEGER NOT NULL
          ) STRICT;",
     )?;
+
+    let hash_column = migration_hash_column(connection)?;
     let maximum: Option<i64> = connection
         .query_row("SELECT max(version) FROM schema_migrations", [], |row| {
             row.get(0)
@@ -91,8 +95,9 @@ fn migrate(connection: &mut Connection, path: &Path) -> Result<(), DatabaseError
     }
 
     let applied: Vec<(i64, String)> = {
-        let mut statement =
-            connection.prepare("SELECT version, sha256 FROM schema_migrations ORDER BY version")?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT version, {hash_column} FROM schema_migrations ORDER BY version"
+        ))?;
         let rows = statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
@@ -109,13 +114,17 @@ fn migrate(connection: &mut Connection, path: &Path) -> Result<(), DatabaseError
         }
     }
 
+    if hash_column == "sql_sha256" {
+        backup_before_migration(connection, path, "ledger")?;
+        normalize_legacy_migration_ledger(connection)?;
+    }
+
     let next = maximum.unwrap_or(0) + 1;
     if next <= MIGRATIONS.last().map(|entry| entry.0).unwrap_or(0)
         && path.exists()
         && path.metadata().map(|m| m.len() > 0).unwrap_or(false)
     {
-        let backup = path.with_extension(format!("sqlite.pre-migration-{next}.backup"));
-        fs::copy(path, backup).map_err(DatabaseError::Backup)?;
+        backup_before_migration(connection, path, &next.to_string())?;
     }
 
     for (version, sql) in MIGRATIONS.iter().filter(|entry| entry.0 >= next) {
@@ -127,6 +136,48 @@ fn migrate(connection: &mut Connection, path: &Path) -> Result<(), DatabaseError
         )?;
         transaction.commit()?;
     }
+    Ok(())
+}
+
+fn migration_hash_column(connection: &Connection) -> Result<&'static str, DatabaseError> {
+    let mut statement = connection.prepare("PRAGMA table_info(schema_migrations)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if columns.iter().any(|column| column == "sha256") {
+        Ok("sha256")
+    } else if columns.iter().any(|column| column == "sql_sha256") {
+        Ok("sql_sha256")
+    } else {
+        Err(DatabaseError::UnsupportedMigrationLedger)
+    }
+}
+
+fn normalize_legacy_migration_ledger(connection: &mut Connection) -> Result<(), DatabaseError> {
+    let transaction = connection.transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE schema_migrations_canonical (
+           version INTEGER PRIMARY KEY,
+           sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+           applied_at_ms INTEGER NOT NULL
+         ) STRICT;
+         INSERT INTO schema_migrations_canonical(version, sha256, applied_at_ms)
+           SELECT version, sql_sha256, applied_at_ms FROM schema_migrations;
+         DROP TABLE schema_migrations;
+         ALTER TABLE schema_migrations_canonical RENAME TO schema_migrations;",
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn backup_before_migration(
+    connection: &Connection,
+    path: &Path,
+    suffix: &str,
+) -> Result<(), DatabaseError> {
+    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+    let backup = path.with_extension(format!("sqlite.pre-migration-{suffix}.backup"));
+    fs::copy(path, backup).map_err(DatabaseError::Backup)?;
     Ok(())
 }
 
@@ -144,5 +195,49 @@ mod tests {
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
         assert_eq!(database.schema_versions().unwrap(), (3, 2));
         assert!(database.quick_check().unwrap());
+    }
+
+    #[test]
+    fn upgrades_the_typescript_companion_migration_ledger() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tan-studio.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (
+                   version INTEGER PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   sql_sha256 TEXT NOT NULL,
+                   applied_at_ms INTEGER NOT NULL,
+                   application_version TEXT NOT NULL
+                 ) STRICT;",
+            )
+            .unwrap();
+        for (version, sql) in MIGRATIONS {
+            connection.execute_batch(sql).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO schema_migrations(version, name, sql_sha256, applied_at_ms, application_version)
+                     VALUES (?, ?, ?, 1, '0.1.0')",
+                    rusqlite::params![version, format!("migration-{version}"), sha256(sql.as_bytes())],
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let database = Database::open(&path).unwrap();
+
+        assert_eq!(database.schema_versions().unwrap(), (3, 2));
+        let connection = database.connection();
+        assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
+        let applied: i64 = connection
+            .query_row("SELECT count(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(applied, 3);
+        assert!(path
+            .with_extension("sqlite.pre-migration-ledger.backup")
+            .is_file());
     }
 }

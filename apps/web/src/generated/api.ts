@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/v1/acquisitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["acquisitions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/brews": {
         parameters: {
             query?: never;
@@ -344,6 +360,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcquisitionCreate: {
+            coffeeName: string;
+            /** Format: int64 */
+            costPerKgMinor?: number | null;
+            currencyCode?: string | null;
+            providerName: string;
+            receivedAt: string;
+            /** Format: int64 */
+            receivedMassMg: number;
+            sourceTimezone: string;
+            supplierReference?: string | null;
+        };
+        AcquisitionResource: {
+            coffeeCreated: boolean;
+            kind: string;
+            lot: components["schemas"]["LotResource"];
+            providerCreated: boolean;
+        };
         AdapterSet: {
             database: components["schemas"]["SimpleAdapter"];
             printing: components["schemas"]["SimpleAdapter"];
@@ -538,10 +572,10 @@ export interface components {
             kind: "value";
             value?: unknown;
         } | {
-            end_exclusive: unknown;
+            endExclusive: unknown;
             /** @enum {string} */
             kind: "range";
-            start_inclusive: unknown;
+            startInclusive: unknown;
         };
         GroupPathEntry: {
             field: string;
@@ -849,14 +883,14 @@ export interface components {
             };
             /** @enum {string} */
             kind: "rows";
-            page_info: components["schemas"]["PageInfo"];
+            pageInfo: components["schemas"]["PageInfo"];
             rows: components["schemas"]["RoastLibraryRow"][];
             scope: components["schemas"]["GroupPathEntry"][];
         } | {
             groups: components["schemas"]["RoastLibraryGroup"][];
             /** @enum {string} */
             kind: "groups";
-            page_info: components["schemas"]["PageInfo"];
+            pageInfo: components["schemas"]["PageInfo"];
             scope: components["schemas"]["GroupPathEntry"][];
         };
         RoastLibraryRow: {
@@ -991,6 +1025,45 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    acquisitions_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcquisitionCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionResource"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     brews_list: {
         parameters: {
             query?: {

@@ -38,7 +38,16 @@ const rootRoute = createRootRoute({
         </button>
         <Link
           to="/roasts"
-          search={{ q: undefined, process: undefined, status: undefined }}
+          search={{
+            q: undefined,
+            group: undefined,
+            sort: undefined,
+            date: undefined,
+            provider: undefined,
+            process: undefined,
+            minScore: undefined,
+            status: undefined,
+          }}
           className={buttonVariants()}
         >
           Roast notebook
@@ -54,7 +63,16 @@ const indexRoute = createRoute({
   beforeLoad: () => {
     throw redirect({
       to: "/roasts",
-      search: { q: undefined, process: undefined, status: undefined },
+      search: {
+        q: undefined,
+        group: undefined,
+        sort: undefined,
+        date: undefined,
+        provider: undefined,
+        process: undefined,
+        minScore: undefined,
+        status: undefined,
+      },
     })
   },
 })
@@ -72,8 +90,41 @@ const roastLibraryRoute = createRoute({
   path: "/roasts",
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" ? search.q : undefined,
+    group:
+      search.group === "lot" ||
+      search.group === "coffee" ||
+      search.group === "provider" ||
+      search.group === "none"
+        ? search.group
+        : undefined,
+    sort:
+      search.sort === "newest" ||
+      search.sort === "score" ||
+      search.sort === "coffee"
+        ? search.sort
+        : undefined,
+    date:
+      search.date === "90-days" ||
+      search.date === "year" ||
+      search.date === "all"
+        ? search.date
+        : undefined,
+    provider: typeof search.provider === "string" ? search.provider : undefined,
     process: typeof search.process === "string" ? search.process : undefined,
-    status: typeof search.status === "string" ? search.status : undefined,
+    minScore:
+      search.minScore === 80 ||
+      search.minScore === 85 ||
+      search.minScore === "80" ||
+      search.minScore === "85"
+        ? Number(search.minScore)
+        : undefined,
+    status:
+      search.status === "tasted" ||
+      search.status === "needs-tasting" ||
+      search.status === "ready" ||
+      search.status === "interrupted"
+        ? search.status
+        : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/roast-library-screen"),
@@ -103,6 +154,10 @@ const profilesRoute = createRoute({
 const coffeesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/coffees",
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+    lotId: typeof search.lotId === "string" ? search.lotId : undefined,
+  }),
   component: lazyRouteComponent(
     () => import("@/screens/coffee-catalog-screen"),
     "CoffeeCatalogScreen"
@@ -136,6 +191,10 @@ const brewsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/brews",
   validateSearch: (search: Record<string, unknown>) => ({
+    tab:
+      search.tab === "brew" || search.tab === "defaults"
+        ? search.tab
+        : undefined,
     roastNumber:
       typeof search.roastNumber === "number" &&
       Number.isSafeInteger(search.roastNumber)

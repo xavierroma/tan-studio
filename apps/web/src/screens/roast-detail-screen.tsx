@@ -113,7 +113,12 @@ export function RoastDetailScreen() {
               to="/roasts"
               search={{
                 q: undefined,
+                group: undefined,
+                sort: undefined,
+                date: undefined,
+                provider: undefined,
                 process: undefined,
+                minScore: undefined,
                 status: undefined,
               }}
               className={buttonVariants({ variant: "ghost" })}
@@ -127,7 +132,7 @@ export function RoastDetailScreen() {
             </Button>
             <Link
               to="/brews"
-              search={{ roastNumber: roast.number }}
+              search={{ tab: undefined, roastNumber: roast.number }}
               className={buttonVariants({ variant: "outline" })}
             >
               <CoffeeIcon data-icon="inline-start" />

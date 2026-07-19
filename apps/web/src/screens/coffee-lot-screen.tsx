@@ -58,7 +58,12 @@ function DemoCoffeeLotScreen() {
             <Button
               nativeButton={false}
               variant="ghost"
-              render={<Link to="/coffees" />}
+              render={
+                <Link
+                  to="/coffees"
+                  search={{ q: undefined, lotId: undefined }}
+                />
+              }
             >
               <ArrowLeftIcon data-icon="inline-start" />
               Catalog
