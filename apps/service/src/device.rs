@@ -19,7 +19,8 @@ use tokio::sync::oneshot;
 use crate::{
     contract::DeviceSnapshot,
     db::Database,
-    klog::{ImportInput, KlogError, KlogImporter},
+    klog::{ImportInput as KlogImportInput, KlogError, KlogImporter},
+    kpro::{ImportInput as KproImportInput, KproError, KproImporter},
     sassi::{
         self, acknowledgement_frame, directory_frame, file_frame, info_frame, time_sync_frame,
         Decoder, Message, TransferChunk,
@@ -119,7 +120,8 @@ fn device_loop(
     commands: Receiver<Command>,
     stopped: Arc<AtomicBool>,
 ) {
-    let importer = KlogImporter::new(database);
+    let log_importer = KlogImporter::new(database.clone());
+    let profile_importer = KproImporter::new(database);
     let mut session: Option<Session> = None;
     let mut next_scan = Instant::now();
     while !stopped.load(Ordering::Acquire) {
@@ -132,7 +134,7 @@ fn device_loop(
                 }
                 Ok(Command::Synchronize(reply)) => {
                     let result = if let Some(active) = session.as_mut() {
-                        synchronize(active, &snapshot, &importer)
+                        synchronize(active, &snapshot, &log_importer, &profile_importer)
                     } else {
                         Err("device_not_connected".into())
                     };
@@ -164,7 +166,9 @@ fn device_loop(
                 Ok(()) => {
                     if active.phase == Phase::Ready && !active.sync_attempted {
                         active.sync_attempted = true;
-                        if let Err(reason) = synchronize(active, &snapshot, &importer) {
+                        if let Err(reason) =
+                            synchronize(active, &snapshot, &log_importer, &profile_importer)
+                        {
                             let waiting =
                                 matches!(reason.as_str(), "device_busy" | "sassi_outcome_103");
                             if waiting {
@@ -393,7 +397,8 @@ struct DirectoryEntry {
 fn synchronize(
     session: &mut Session,
     snapshot: &RwLock<DeviceSnapshot>,
-    importer: &KlogImporter,
+    log_importer: &KlogImporter,
+    profile_importer: &KproImporter,
 ) -> Result<(), String> {
     if session.phase != Phase::Ready {
         return Err("device_session_negotiating".into());
@@ -421,26 +426,53 @@ fn synchronize(
         .filter(|entry| !entry.directory && is_log_filename(&entry.name))
         .collect::<Vec<_>>();
     logs.sort_by(|left, right| left.name.cmp(&right.name));
-    let profiles = parse_directory(PROFILE_DIRECTORY, &profile_bytes)?
+    let mut profiles = parse_directory(PROFILE_DIRECTORY, &profile_bytes)?
         .into_iter()
         .filter(|entry| !entry.directory && entry.name.to_ascii_lowercase().ends_with(".kpro"))
-        .count();
+        .collect::<Vec<_>>();
+    profiles.sort_by(|left, right| left.name.cmp(&right.name));
     {
         let mut current = snapshot.write();
         current.log_count = Some(logs.len() as u32);
-        current.profile_count = Some(profiles as u32);
+        current.profile_count = Some(profiles.len() as u32);
     }
     let mut imported = 0;
     let mut updated = 0;
     let mut warnings = 0;
     let mut quarantined = 0;
+    let mut imported_profiles = 0;
+    let mut profile_warnings = 0;
+    let mut quarantined_profiles = 0;
+    for entry in profiles {
+        let result = request_transfer(
+            session,
+            |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
+            TransferKind::File,
+        )?;
+        match profile_importer.import(KproImportInput {
+            bytes: result,
+            device_path: entry.path,
+            filename: entry.name,
+            source_modified_at: entry.modified_at,
+        }) {
+            Ok(result) => {
+                imported_profiles += u32::from(result.imported);
+                profile_warnings += result.warning_count as u32;
+            }
+            Err(KproError::Database(_)) => return Err("profile_database_failed".into()),
+            Err(_) => {
+                profile_warnings += 1;
+                quarantined_profiles += 1;
+            }
+        }
+    }
     for entry in logs {
         let result = request_transfer(
             session,
             |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
             TransferKind::File,
         )?;
-        match importer.import(ImportInput {
+        match log_importer.import(KlogImportInput {
             bytes: result,
             device_path: entry.path,
             filename: entry.name,
@@ -466,6 +498,9 @@ fn synchronize(
     current.updated_log_count = updated;
     current.import_warning_count = warnings;
     current.quarantined_log_count = quarantined;
+    current.imported_profile_count = imported_profiles;
+    current.profile_warning_count = profile_warnings;
+    current.quarantined_profile_count = quarantined_profiles;
     current.last_synced_at =
         Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
     Ok(())
@@ -644,6 +679,9 @@ fn disconnected(reason: &str) -> DeviceSnapshot {
         updated_log_count: 0,
         import_warning_count: 0,
         quarantined_log_count: 0,
+        imported_profile_count: 0,
+        profile_warning_count: 0,
+        quarantined_profile_count: 0,
         last_synced_at: None,
         read_only: true,
     }

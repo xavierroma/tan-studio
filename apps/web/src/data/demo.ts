@@ -412,6 +412,9 @@ export const deviceState: DeviceState = {
   updatedLogCount: 0,
   importWarningCount: 0,
   quarantinedLogCount: 0,
+  importedProfileCount: 0,
+  profileWarningCount: 0,
+  quarantinedProfileCount: 0,
   lastSyncedAt: "2026-07-18T18:46:17.000Z",
   readOnly: true,
 }

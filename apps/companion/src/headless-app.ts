@@ -20,7 +20,7 @@ export function createHeadlessHandler(options: HeadlessHandlerOptions) {
   const allowedHosts = new Set(
     options.allowedHosts.map((authority) => authority.toLowerCase())
   )
-  const indexHtml = loadIndexHtml(webRoot, options.token)
+  let indexHtml: Promise<string> | undefined
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
@@ -86,6 +86,7 @@ export function createHeadlessHandler(options: HeadlessHandlerOptions) {
       }
     }
 
+    indexHtml ??= loadIndexHtml(webRoot, options.token)
     const html = await indexHtml
     const headers = new Headers(baseSecurityHeaders())
     headers.set("Content-Type", "text/html; charset=utf-8")

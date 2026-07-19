@@ -258,7 +258,7 @@ export function DeviceScreen() {
                       : state?.syncState === "syncing"
                         ? "Importing logs"
                         : state?.syncState === "ready"
-                          ? `${state.logCount ?? 0} logs indexed`
+                          ? `${state.importedLogCount} logs · ${state.importedProfileCount} profiles indexed`
                           : "Inventory pending"}
                 </Badge>
               </div>
@@ -309,7 +309,7 @@ export function DeviceScreen() {
               ) : (
                 <div className="text-muted-foreground p-8 text-center text-sm">
                   {state?.syncState === "ready"
-                    ? `${state.logCount ?? 0} roast logs and ${state.profileCount ?? 0} profiles are present on the Nano. ${state.quarantinedLogCount > 0 ? `${state.quarantinedLogCount} log${state.quarantinedLogCount === 1 ? " was" : "s were"} quarantined without creating roast rows.` : state.importWarningCount === 0 ? "Every imported log passed native row parsing." : `${state.importWarningCount} parser warnings need review.`}`
+                    ? `${state.logCount ?? 0} roast logs and ${state.profileCount ?? 0} profiles are present on the Nano. ${state.importedLogCount} logs and ${state.importedProfileCount} profiles were imported by this sync. ${state.quarantinedLogCount + state.quarantinedProfileCount > 0 ? `${state.quarantinedLogCount + state.quarantinedProfileCount} native file${state.quarantinedLogCount + state.quarantinedProfileCount === 1 ? " was" : "s were"} quarantined without creating partial records.` : state.importWarningCount + state.profileWarningCount === 0 ? "Every imported native file passed parsing without warnings." : `${state.importWarningCount + state.profileWarningCount} parser warnings need review.`}`
                     : state?.busy
                       ? "The Nano is connected, but its filesystem is locked. This normally clears when the roaster returns to its fully idle state."
                       : "Device files are shown after the verified read-only inventory completes."}
@@ -318,7 +318,7 @@ export function DeviceScreen() {
               <div className="bg-secondary/40 flex flex-col gap-3 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-muted-foreground flex items-center gap-2 text-sm">
                   <LockKeyholeIcon className="size-4" />
-                  Device writes disabled; log import is read-only.
+                  Device writes disabled; log and profile import is read-only.
                 </div>
                 <Button
                   disabled={
@@ -347,7 +347,7 @@ export function DeviceScreen() {
                     ? "Importing…"
                     : state?.busy
                       ? "Waiting for Nano"
-                      : "Synchronize logs"}
+                      : "Synchronize files"}
                 </Button>
               </div>
             </section>

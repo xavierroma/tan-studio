@@ -7,6 +7,7 @@ import {
   getDeviceState,
   getRoast,
   isDemoResult,
+  listProfiles,
   listRoasts,
   submitPrintJob,
 } from "@/lib/api"
@@ -49,6 +50,51 @@ describe("production-safe companion reads", () => {
     await expect(listRoasts()).resolves.toEqual({
       data: [],
       source: "companion",
+    })
+  })
+
+  test("maps native profiles from the generated contract", async () => {
+    mockFetch().mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            kind: "profile",
+            id: "revision-1",
+            profileId: "profile-1",
+            revisionNumber: 1,
+            fileName: "Washed.kpro",
+            displayName: "Washed",
+            designer: "Kaffelogic Ltd",
+            description: "Balanced",
+            schemaVersion: "1.6",
+            sourceModifiedAt: null,
+            profileModifiedAt: null,
+            recommendedLevelThousandths: 800,
+            referenceLoadMg: 100_000,
+            roastLevelsMilliC: [205_000, 210_000],
+            roastCurve: [{ elapsedMs: 0, temperatureMilliC: 20_000 }],
+            fanCurve: [{ elapsedMs: 0, fanRpm: 14_700 }],
+            sourceHash: "a".repeat(64),
+            warnings: [],
+          },
+        ],
+      })
+    )
+
+    await expect(listProfiles()).resolves.toEqual({
+      source: "companion",
+      data: [
+        expect.objectContaining({
+          id: "revision-1",
+          displayName: "Washed",
+          recommendedLevel: 0.8,
+          referenceLoadGrams: 100,
+          roastLevelsC: [205, 210],
+          roastCurve: [{ elapsedMs: 0, temperatureC: 20 }],
+          fanCurve: [{ elapsedMs: 0, fanRpm: 14_700 }],
+          warnings: [],
+        }),
+      ],
     })
   })
 
@@ -225,6 +271,9 @@ describe("capability-gated device and printing adapters", () => {
         updatedLogCount: 0,
         importWarningCount: 0,
         quarantinedLogCount: 0,
+        importedProfileCount: 0,
+        profileWarningCount: 0,
+        quarantinedProfileCount: 0,
         lastSyncedAt: null,
         readOnly: true,
       },

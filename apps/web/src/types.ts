@@ -126,8 +126,31 @@ export type DeviceState = {
   updatedLogCount: number
   importWarningCount: number
   quarantinedLogCount: number
+  importedProfileCount: number
+  profileWarningCount: number
+  quarantinedProfileCount: number
   lastSyncedAt: string | null
   readOnly: boolean
+}
+
+export type RoastProfile = {
+  id: string
+  profileId: string
+  revisionNumber: number
+  fileName: string
+  displayName: string
+  designer: string
+  description: string
+  schemaVersion: string
+  sourceModifiedAt: string | null
+  profileModifiedAt: string | null
+  recommendedLevel: number | null
+  referenceLoadGrams: number | null
+  roastLevelsC: number[]
+  roastCurve: Array<{ elapsedMs: number; temperatureC: number }>
+  fanCurve: Array<{ elapsedMs: number; fanRpm: number }>
+  sourceHash: string
+  warnings: string[]
 }
 
 export type UserPreferences = {

@@ -354,7 +354,10 @@ export function RoastDetailScreen() {
                 variant="outline"
                 className="mt-4 w-full"
                 render={
-                  <Link to="/profiles" search={{ proposalFrom: undefined }} />
+                  <Link
+                    to="/profiles"
+                    search={{ profile: undefined, proposalFrom: undefined }}
+                  />
                 }
               >
                 Open profile revision
@@ -432,7 +435,10 @@ export function RoastDetailScreen() {
               variant="outline"
               className="bg-card mt-4 w-full"
               render={
-                <Link to="/profiles" search={{ proposalFrom: roast.id }} />
+                <Link
+                  to="/profiles"
+                  search={{ profile: undefined, proposalFrom: roast.id }}
+                />
               }
             >
               <SparklesIcon data-icon="inline-start" />

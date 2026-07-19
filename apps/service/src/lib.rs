@@ -5,6 +5,7 @@ pub mod db;
 pub mod device;
 pub mod error;
 pub mod klog;
+pub mod kpro;
 pub mod sassi;
 pub mod static_ui;
 

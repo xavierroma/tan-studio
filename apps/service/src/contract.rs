@@ -18,6 +18,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_get,
         crate::api::device_refresh,
         crate::api::device_synchronize,
+        crate::api::profiles_list,
         crate::api::providers_list,
         crate::api::providers_create,
         crate::api::providers_get,
@@ -56,6 +57,10 @@ use crate::error::{FieldError, ProblemDetails};
         AdapterSet,
         SimpleAdapter,
         DeviceSnapshot,
+        ProfilePage,
+        ProfileResource,
+        RoastProfileCurvePoint,
+        FanProfileCurvePoint,
         PageInfo,
         ProviderContact,
         ProviderResource,
@@ -112,6 +117,7 @@ use crate::error::{FieldError, ProblemDetails};
     tags(
         (name = "system"),
         (name = "device"),
+        (name = "profiles"),
         (name = "catalog"),
         (name = "brews"),
         (name = "labels"),
@@ -181,8 +187,54 @@ pub struct DeviceSnapshot {
     pub updated_log_count: u32,
     pub import_warning_count: u32,
     pub quarantined_log_count: u32,
+    pub imported_profile_count: u32,
+    pub profile_warning_count: u32,
+    pub quarantined_profile_count: u32,
     pub last_synced_at: Option<String>,
     pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RoastProfileCurvePoint {
+    pub elapsed_ms: i64,
+    pub temperature_milli_c: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FanProfileCurvePoint {
+    pub elapsed_ms: i64,
+    pub fan_rpm: i64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileResource {
+    pub kind: String,
+    pub id: String,
+    pub profile_id: String,
+    pub revision_number: i64,
+    pub file_name: String,
+    pub display_name: String,
+    pub designer: String,
+    pub description: String,
+    pub schema_version: String,
+    pub source_modified_at: Option<String>,
+    pub profile_modified_at: Option<String>,
+    pub recommended_level_thousandths: Option<i64>,
+    pub reference_load_mg: Option<i64>,
+    pub roast_levels_milli_c: Vec<i64>,
+    pub roast_curve: Vec<RoastProfileCurvePoint>,
+    pub fan_curve: Vec<FanProfileCurvePoint>,
+    pub source_hash: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePage {
+    pub items: Vec<ProfileResource>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

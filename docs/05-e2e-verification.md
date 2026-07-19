@@ -2,13 +2,15 @@
 
 - **Verification date:** 2026-07-19
 - **Host:** Apple Silicon Mac, macOS, local Rust service, Vite/React client
-**Data source:** 13 native roast logs from Kaffeelogic Studio's application-support directory
+- **Data source:** 13 native roast logs and the 16-profile Nano sync corpus from Kaffeelogic Studio's application-support directory
 
 This report records what has been exercised against real user data. It is an evidence boundary, not a claim that every Kaffeelogic firmware or historical `.klog` variant has been observed.
 
 ## Result
 
 Tan Studio imported all 13 available native logs transactionally with no warnings or quarantined files. SQLite contains 13 roast records, 13 sample-stream manifests, and 6,167 telemetry rows. `PRAGMA quick_check` returns `ok`.
+
+Tan Studio also imported all 16 profiles displayed by Kaffeelogic Studio's Nano sync-folder view with zero compatibility warnings. Each original `.kpro` byte stream is retained by SHA-256, and every profile produced both a sampled temperature curve and a sampled fan curve through the typed `/api/v1/profiles` contract.
 
 Every imported stream's declared row count matches both the native file's parsed numeric-row count and the number of rows persisted in SQLite:
 
@@ -45,6 +47,31 @@ Native log 13 was opened in Kaffeelogic Studio and in Tan Studio. The following 
 
 The end annotation uses the mean-temperature channel, matching Studio, while preserving the independently offset spot-temperature channel for charting. Tan Studio retains and visualizes the native temperature, mean temperature, profile, profile ROR, actual ROR, desired ROR, power, fan, PID, and incidental channel values present in the file.
 
+### Profile corpus parity
+
+Studio and Tan Studio agree on the 16 profile filenames, displayed names, designer metadata, schema versions, recommended levels, and ordered curve controls in the cached Nano sync corpus:
+
+| File | Display name | Schema | Recommended level |
+| --- | --- | ---: | ---: |
+| `(KL) Natural light v1.1.kpro` | KL Natural | 1.4 | 1.1 |
+| `(KL) Natural v1.1.kpro` | Natural Light | 1.4 | 1.1 |
+| `(KL) Washed v1.1.kpro` | KL Washed | 1.4 | 0.8 |
+| `0-1200m Rest v1.0.kpro` | 0-1200m Rest | 1.4 | 3.0 |
+| `0-1200m RTD v1.0.kpro` | 0-1200m RTD | 1.6 | 3.0 |
+| `1200-1500m Rest v1.0.kpro` | 1200-1500m Rest | 1.4 | 3.0 |
+| `1200-1500m RTD v1.0.kpro` | 1200-1500m RTD | 1.4 | 3.0 |
+| `1500-2000m Rest v1.0.kpro` | 1500-2000m Rest | 1.4 | 3.2 |
+| `1500-2000m RTD v1.0.kpro` | 1500-2000m RTD | 1.6 | 3.1 |
+| `2000-2700m Rest v1.0.kpro` | 2000-2700m Rest | 1.4 | 3.2 |
+| `2000-2700m RTD v1.0.kpro` | 2000-2700m RTD | 1.6 | 3.2 |
+| `[KL] Classic.kpro` | K-logic classic | 1.4 | 3.3 |
+| `Cupping v1.0.kpro` | Cupping | 1.4 | 2.0 |
+| `Decaf v1.0.kpro` | Decaf | 1.4 | 3.0 |
+| `Robusta v1.0.kpro` | Robusta | 1.6 | 3.0 |
+| `Super dark v1.0.kpro` | Super dark | 1.4 | 5.6 |
+
+The curve renderer uses the same cubic Bézier grouping as Studio: each node is followed by its left and right absolute control coordinates, and a segment uses the current node, its right handle, the next node's left handle, and the next node. Two official profiles contain crossing handle x-coordinates, so imports require strictly increasing node times but do not incorrectly reject those valid handles. The source control coordinates remain unchanged; sampling exists only for display.
+
 ## UI and API workflow checks
 
 The following flows were exercised against the Rust API and the real local database:
@@ -57,6 +84,7 @@ The following flows were exercised against the Rust API and the real local datab
 - Brew defaults persist through the API and survive reload.
 - An invalid brew roast reference produces a visible recoverable error and does not create a record.
 - The React client consumes the OpenAPI-generated client; it does not hand-maintain endpoint response types.
+- The Profiles route loads the real typed API, exposes all 16 native files, keeps the selected profile in the URL, renders temperature and fan curves, and displays native metadata instead of prototype data.
 
 Temporary catalog and preference values created solely for E2E testing were removed or restored after verification. The retained development database contains the 13 real roast logs.
 
@@ -67,6 +95,7 @@ The existing desktop database was also upgraded from the former TypeScript compa
 Zero warnings for this corpus does not prove universal compatibility. Safety comes from the import behavior:
 
 - Original bytes are retained by content hash before projection.
+- Profile projections additionally require a source file whose native kind is `kpro`, valid bounded JSON, and a transactional profile revision; SQLite triggers reject a mismatched or malformed projection.
 - Known metadata and every numeric channel are parsed; unknown metadata remains in the native projection.
 - Numeric, timestamp, channel-count, row-count, and SQLite `STRICT`/trigger constraints are checked before commit.
 - A file import is atomic. A malformed or incompatible file is quarantined with diagnostics rather than partially inserted.
@@ -77,7 +106,7 @@ The automated test suite includes fragmented SASSI frame parsing, CRC mutation r
 
 ## Hardware status and remaining gate
 
-At the end of this verification macOS exposed no `/dev/cu.usbmodem*` or `/dev/tty.usbmodem*` node, and the Nano was absent from the USB system report. Consequently, live USB discovery and an on-device sync cannot truthfully be marked E2E-passing in this run. The service fails closed as disconnected/read-only; it does not issue speculative writes.
+At the end of this verification macOS exposed no `/dev/cu.usbmodem*` or `/dev/tty.usbmodem*` node, and the Nano was absent from the USB system report. Kaffelogic Studio also showed only its cached Nano sync folder rather than a live roaster connection. Consequently, live USB discovery and an on-device sync cannot truthfully be marked E2E-passing in this run. The service fails closed as disconnected/read-only; it does not issue speculative writes. The 16-profile result above is a parity check against Studio's exact cached device corpus, not a claim that the currently connected cable enumerated successfully.
 
 Once the Nano enumerates, the remaining acceptance run is:
 

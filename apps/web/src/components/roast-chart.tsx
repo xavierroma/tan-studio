@@ -33,6 +33,7 @@ type RoastChartProps = {
   cooldownEndMs?: number
   live?: boolean
   height?: number
+  showFanAxis?: boolean
 }
 
 type SeriesKey =
@@ -154,6 +155,7 @@ export function RoastChart({
   cooldownEndMs,
   live = false,
   height = 390,
+  showFanAxis = false,
 }: RoastChartProps) {
   const chartNode = useRef<HTMLDivElement>(null)
   const channelByName = useMemo(
@@ -182,6 +184,13 @@ export function RoastChart({
       cssToken("--warning", "#a97836"),
       muted,
     ]
+    const hasVisibleRate = seriesDefinitions
+      .filter((series) => series.axis === 1 && visible.has(series.key))
+      .some((series) => points.some((point) => series.value(point) != null))
+    const hasVisibleFan =
+      showFanAxis &&
+      visible.has("actual_fan_RPM") &&
+      points.some((point) => point.actualFanRpm != null)
     const xValues = points.flatMap((point) =>
       seriesDefinitions
         .filter((series) => visible.has(series.key))
@@ -209,7 +218,12 @@ export function RoastChart({
         color: foreground,
         fontFamily: "Geist Variable, sans-serif",
       },
-      grid: { top: 26, right: 62, bottom: 52, left: 52 },
+      grid: {
+        top: 26,
+        right: hasVisibleRate && hasVisibleFan ? 112 : 62,
+        bottom: 52,
+        left: 52,
+      },
       tooltip: {
         trigger: "axis",
         backgroundColor: card,
@@ -236,6 +250,7 @@ export function RoastChart({
         axisLabel: {
           color: muted,
           formatter: (value: number) => minutesLabel(value),
+          hideOverlap: true,
         },
         axisLine: { lineStyle: { color: border } },
         axisTick: { show: false },
@@ -262,6 +277,7 @@ export function RoastChart({
           min: -10,
           max: 40,
           name: "°C/min",
+          show: hasVisibleRate,
           nameTextStyle: { color: muted },
           axisLabel: { color: muted },
           axisLine: { show: false },
@@ -269,7 +285,20 @@ export function RoastChart({
           splitLine: { show: false },
         },
         { type: "value", min: 0, max: 1.5, show: false },
-        { type: "value", min: 0, max: 18_000, show: false },
+        {
+          type: "value",
+          min: 0,
+          max: 18_000,
+          name: "RPM",
+          show: hasVisibleFan,
+          position: "right",
+          offset: hasVisibleRate ? 52 : 0,
+          nameTextStyle: { color: muted },
+          axisLabel: { color: muted },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          splitLine: { show: false },
+        },
       ],
       series: seriesDefinitions
         .filter((series) => visible.has(series.key))
@@ -338,7 +367,15 @@ export function RoastChart({
       resizeObserver.disconnect()
       chart.dispose()
     }
-  }, [channelByName, cooldownEndMs, durationMs, events, points, visible])
+  }, [
+    channelByName,
+    cooldownEndMs,
+    durationMs,
+    events,
+    points,
+    showFanAxis,
+    visible,
+  ])
 
   const availableSeries = seriesDefinitions.filter((series) =>
     points.some((point) => series.value(point) != null)

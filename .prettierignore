@@ -8,4 +8,6 @@ mockups
 apps/desktop/src-tauri/gen
 apps/desktop/src-tauri/target
 apps/serial-bridge/target
+apps/service/target
+apps/web/src/generated
 bun.lock

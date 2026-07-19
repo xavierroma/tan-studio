@@ -244,6 +244,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["profiles_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/providers": {
         parameters: {
             query?: never;
@@ -533,6 +549,8 @@ export interface components {
             importWarningCount: number;
             /** Format: int32 */
             importedLogCount: number;
+            /** Format: int32 */
+            importedProfileCount: number;
             lastSyncedAt?: string | null;
             /** Format: int32 */
             logCount?: number | null;
@@ -541,15 +559,25 @@ export interface components {
             packetLimitBytes?: number | null;
             /** Format: int32 */
             profileCount?: number | null;
+            /** Format: int32 */
+            profileWarningCount: number;
             protocol?: string | null;
             /** Format: int32 */
             quarantinedLogCount: number;
+            /** Format: int32 */
+            quarantinedProfileCount: number;
             readOnly: boolean;
             reason?: string | null;
             state: string;
             syncState: string;
             /** Format: int32 */
             updatedLogCount: number;
+        };
+        FanProfileCurvePoint: {
+            /** Format: int64 */
+            elapsedMs: number;
+            /** Format: int64 */
+            fanRpm: number;
         };
         FeatureSet: {
             aiProposals: boolean;
@@ -730,6 +758,32 @@ export interface components {
             status: number;
             title: string;
             type: string;
+        };
+        ProfilePage: {
+            items: components["schemas"]["ProfileResource"][];
+        };
+        ProfileResource: {
+            description: string;
+            designer: string;
+            displayName: string;
+            fanCurve: components["schemas"]["FanProfileCurvePoint"][];
+            fileName: string;
+            id: string;
+            kind: string;
+            profileId: string;
+            profileModifiedAt?: string | null;
+            /** Format: int64 */
+            recommendedLevelThousandths?: number | null;
+            /** Format: int64 */
+            referenceLoadMg?: number | null;
+            /** Format: int64 */
+            revisionNumber: number;
+            roastCurve: components["schemas"]["RoastProfileCurvePoint"][];
+            roastLevelsMilliC: number[];
+            schemaVersion: string;
+            sourceHash: string;
+            sourceModifiedAt?: string | null;
+            warnings: string[];
         };
         ProviderContact: {
             email?: string | null;
@@ -925,6 +979,12 @@ export interface components {
             after?: string | null;
             /** Format: int64 */
             first: number;
+        };
+        RoastProfileCurvePoint: {
+            /** Format: int64 */
+            elapsedMs: number;
+            /** Format: int64 */
+            temperatureMilliC: number;
         };
         RoastProfileReference: {
             displayName?: string | null;
@@ -1566,6 +1626,33 @@ export interface operations {
                 };
             };
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    profiles_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfilePage"];
+                };
+            };
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

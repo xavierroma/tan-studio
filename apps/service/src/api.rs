@@ -27,6 +27,7 @@ use crate::{
     db::Database,
     device::NanoDeviceManager,
     error::{ApiError, ApiResult, ProblemDetails},
+    kpro::{self, Document as KproDocument},
     static_ui::{self, StaticUi},
 };
 
@@ -64,6 +65,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device", get(device_get))
         .route("/device/refresh", post(device_refresh))
         .route("/device/synchronize", post(device_synchronize))
+        .route("/profiles", get(profiles_list))
         .route("/providers", get(providers_list).post(providers_create))
         .route(
             "/providers/{id}",
@@ -385,6 +387,117 @@ pub async fn device_synchronize(State(state): State<ApiState>) -> ApiResult<Json
         ApiError::new(status, code, title, "The Nano cannot synchronize yet.")
     })?;
     Ok(Json(state.device.snapshot()))
+}
+
+#[utoipa::path(get, path = "/api/v1/profiles", tag = "profiles", responses((status = 200, body = ProfilePage), (status = 500, body = ProblemDetails)))]
+pub async fn profiles_list(State(state): State<ApiState>) -> ApiResult<Json<ProfilePage>> {
+    let records = {
+        let connection = state.database.connection();
+        let mut statement = connection.prepare(
+            "WITH ranked AS (
+               SELECT pr.id, pr.profile_id, pr.revision_number, nf.filename,
+                      nf.source_modified_at, nf.sha256, nf.warnings_json,
+                      pr.document_json,
+                      row_number() OVER (
+                        PARTITION BY coalesce(nf.device_path, nf.id)
+                        ORDER BY nf.imported_at_ms DESC, pr.revision_number DESC
+                      ) AS rank
+                 FROM profile_revisions pr
+                 JOIN native_files nf ON nf.id=pr.source_file_id
+                WHERE nf.kind='kpro'
+             )
+             SELECT id, profile_id, revision_number, filename, source_modified_at,
+                    sha256, warnings_json, document_json
+               FROM ranked WHERE rank=1
+               ORDER BY filename COLLATE NOCASE, id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    let mut items = Vec::with_capacity(records.len());
+    for (
+        id,
+        profile_id,
+        revision_number,
+        file_name,
+        source_modified_at,
+        source_hash,
+        warnings_json,
+        document_json,
+    ) in records
+    {
+        let document: KproDocument = serde_json::from_str(&document_json).map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "profile_projection_invalid",
+                "Profile projection is invalid",
+                "A retained profile cannot be represented safely. Re-import the source file.",
+            )
+        })?;
+        let warnings: Vec<String> = serde_json::from_str(&warnings_json).map_err(|_| {
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "profile_projection_invalid",
+                "Profile projection is invalid",
+                "A retained profile warning list is invalid. Re-import the source file.",
+            )
+        })?;
+        let roast_curve = kpro::sample_curve(&document.roast_curve, 24)
+            .into_iter()
+            .map(|point| RoastProfileCurvePoint {
+                elapsed_ms: (point.time_seconds * 1_000.0).round() as i64,
+                temperature_milli_c: (point.value * 1_000.0).round() as i64,
+            })
+            .collect();
+        let fan_curve = kpro::sample_curve(&document.fan_curve, 24)
+            .into_iter()
+            .map(|point| FanProfileCurvePoint {
+                elapsed_ms: (point.time_seconds * 1_000.0).round() as i64,
+                fan_rpm: point.value.round() as i64,
+            })
+            .collect();
+        items.push(ProfileResource {
+            kind: "profile".into(),
+            id,
+            profile_id,
+            revision_number,
+            file_name,
+            display_name: document.short_name,
+            designer: document.designer,
+            description: document.description,
+            schema_version: document.schema_version,
+            source_modified_at,
+            profile_modified_at: document.profile_modified,
+            recommended_level_thousandths: document
+                .recommended_level
+                .map(|value| (value * 1_000.0).round() as i64),
+            reference_load_mg: document
+                .reference_load_grams
+                .map(|value| (value * 1_000.0).round() as i64),
+            roast_levels_milli_c: document
+                .roast_levels
+                .into_iter()
+                .map(|value| (value * 1_000.0).round() as i64)
+                .collect(),
+            roast_curve,
+            fan_curve,
+            source_hash,
+            warnings,
+        });
+    }
+    Ok(Json(ProfilePage { items }))
 }
 
 #[derive(Debug, Deserialize, IntoParams)]

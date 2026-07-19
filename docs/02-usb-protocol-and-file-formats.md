@@ -19,6 +19,8 @@ The roaster was unavailable during the initial pass. A later IORegistry inspecti
 
 The same session sent the read-only type-5 inventory request for `kaffelogic/roast-logs`. The attached Nano returned a final type-6 response with lower outcome `103` (`busy`) and sequence `0`. Its operational status concurrently reported `sassi_file_lock=7`. Static inspection of Studio confirms that Studio also defers filesystem synchronization until this field becomes `0`. Tan Studio therefore remains connected, reports the busy state, and automatically retries synchronization after a later not-busy type-30 status notification. This verifies the request/error path without inventing a command or bypassing the device lock. A successful directory payload and complete type-8 file transfer still require a capture while the Nano reports an unlocked filesystem. Live-roast traffic and every mutating command remain disabled and uncaptured.
 
+On 19 July 2026 the user reconnected the cable for a parity run, but macOS exposed neither USB modem node and listed no Nano in its USB system report. Kaffeelogic Studio likewise reached only its cached sync folder. That observation does not invalidate the earlier live capture; it establishes that the current physical connection was not enumerating and therefore could not be used to claim a new live filesystem transfer.
+
 ## 2. USB serial transport
 
 | Property | Value | Confidence |
@@ -396,7 +398,7 @@ Units and parser behavior:
 - Fan node and handle `y`: RPM.
 - `(0,0)` is a sentinel for an absent/automatic handle. The parser forces the first node's left handle and final node's right handle to this sentinel; calculated display handles must not overwrite the stored sentinel.
 - Nodes stay in file order; Studio does not sort them. Evaluation consumes adjacent nodes in that order.
-- UI validation requires x never to turn backward and adjacent nodes to be at least one second apart.
+- Imported node times must be strictly increasing. Two official Nano profiles contain crossing left/right handle x-coordinates, so a compatibility reader must not impose monotonic handle ordering. A future editor may apply stronger constraints only when creating a new revision and must not rewrite retained native controls silently.
 
 Studio internally scales RPM for graphing; the file stores full RPM.
 
@@ -442,6 +444,12 @@ fan_profile:0,14700,0,0,18,14700,60,14500,42,14700,90,14000,120,13500,100,13800,
 ```
 
 Each curve has three nodes. The first-left and final-right `(0,0)` pairs are sentinels; the other handle pairs are absolute coordinates.
+
+### 5.6 Implemented compatibility boundary
+
+The Rust importer accepts Studio's observed CR, LF, CRLF, and LFCR line endings; ignores non-property lines; maps spaces in semantic keys to underscores; converts tabs to commas for semantic parsing; and splits values at the first colon. Raw original bytes and ordered raw key/value entries remain retained even when semantic normalization is needed. Unknown properties and duplicate entries therefore remain recoverable.
+
+The current Nano sync corpus contains 16 profiles spanning schemas 1.4 and 1.6, 12-21 curve control points, differing designer spellings, a factory-default profile without `profile_modified`, and official crossed Bézier handles. All 16 parse and project with zero warnings. This is a strong real-corpus result, not proof that no historical or future variant exists: unrecognized or malformed input must fail atomically without creating a partial profile revision, and original source evidence must remain available for a future parser version.
 
 ## 6. `.klog` roast-log format
 

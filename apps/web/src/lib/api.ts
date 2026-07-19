@@ -16,6 +16,7 @@ import type {
   UserPreferences,
   LabelRecord,
   CoffeeIdentity,
+  RoastProfile,
 } from "@/types"
 import {
   companionClient,
@@ -57,6 +58,9 @@ type AdapterCapability = {
   updatedLogCount?: number
   importWarningCount?: number
   quarantinedLogCount?: number
+  importedProfileCount?: number
+  profileWarningCount?: number
+  quarantinedProfileCount?: number
   lastSyncedAt?: string | null
   readOnly?: boolean
 }
@@ -182,6 +186,15 @@ function normalizeAdapter(value: unknown): AdapterCapability {
     ...(optionalNumber(candidate.quarantinedLogCount) === undefined
       ? {}
       : { quarantinedLogCount: number(candidate.quarantinedLogCount) }),
+    ...(optionalNumber(candidate.importedProfileCount) === undefined
+      ? {}
+      : { importedProfileCount: number(candidate.importedProfileCount) }),
+    ...(optionalNumber(candidate.profileWarningCount) === undefined
+      ? {}
+      : { profileWarningCount: number(candidate.profileWarningCount) }),
+    ...(optionalNumber(candidate.quarantinedProfileCount) === undefined
+      ? {}
+      : { quarantinedProfileCount: number(candidate.quarantinedProfileCount) }),
     ...(candidate.lastSyncedAt === null
       ? { lastSyncedAt: null }
       : optionalText(candidate.lastSyncedAt)
@@ -835,6 +848,9 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
         updatedLogCount: usb.updatedLogCount ?? 0,
         importWarningCount: usb.importWarningCount ?? 0,
         quarantinedLogCount: usb.quarantinedLogCount ?? 0,
+        importedProfileCount: usb.importedProfileCount ?? 0,
+        profileWarningCount: usb.profileWarningCount ?? 0,
+        quarantinedProfileCount: usb.quarantinedProfileCount ?? 0,
         lastSyncedAt: usb.lastSyncedAt ?? null,
         readOnly: usb.readOnly !== false,
       },
@@ -842,6 +858,49 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
   } catch (error) {
     if (demoDataEnabled) return { data: demoDeviceState, source: "demo" }
     throw error
+  }
+}
+
+export async function listProfiles(
+  signal?: AbortSignal
+): Promise<CompanionResult<RoastProfile[]>> {
+  requireCompanion()
+  const response = unwrapResponse(
+    await companionClient.GET("/api/v1/profiles", {
+      ...(signal ? { signal } : {}),
+    })
+  )
+  return {
+    source: "companion",
+    data: response.items.map((value) => ({
+      id: value.id,
+      profileId: value.profileId,
+      revisionNumber: value.revisionNumber,
+      fileName: value.fileName,
+      displayName: value.displayName,
+      designer: value.designer,
+      description: value.description,
+      schemaVersion: value.schemaVersion,
+      sourceModifiedAt: value.sourceModifiedAt ?? null,
+      profileModifiedAt: value.profileModifiedAt ?? null,
+      recommendedLevel:
+        value.recommendedLevelThousandths == null
+          ? null
+          : value.recommendedLevelThousandths / 1_000,
+      referenceLoadGrams:
+        value.referenceLoadMg == null ? null : value.referenceLoadMg / 1_000,
+      roastLevelsC: value.roastLevelsMilliC.map((item) => item / 1_000),
+      roastCurve: value.roastCurve.map((point) => ({
+        elapsedMs: point.elapsedMs,
+        temperatureC: point.temperatureMilliC / 1_000,
+      })),
+      fanCurve: value.fanCurve.map((point) => ({
+        elapsedMs: point.elapsedMs,
+        fanRpm: point.fanRpm,
+      })),
+      sourceHash: value.sourceHash,
+      warnings: value.warnings,
+    })),
   }
 }
 
@@ -1034,6 +1093,7 @@ export const queryKeys = {
   coffeeIdentities: () => ["coffee-identities"] as const,
   capabilities: () => ["system-capabilities"] as const,
   device: () => ["device"] as const,
+  profiles: () => ["profiles"] as const,
   preferences: () => ["preferences"] as const,
   brews: (roastNumber?: number) => ["brews", roastNumber ?? "all"] as const,
 }

@@ -792,6 +792,36 @@
         }
       }
     },
+    "/api/v1/profiles": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "profiles_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilePage"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers": {
       "get": {
         "tags": [
@@ -1977,6 +2007,9 @@
           "updatedLogCount",
           "importWarningCount",
           "quarantinedLogCount",
+          "importedProfileCount",
+          "profileWarningCount",
+          "quarantinedProfileCount",
           "readOnly"
         ],
         "properties": {
@@ -2001,6 +2034,11 @@
             "minimum": 0
           },
           "importedLogCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "importedProfileCount": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -2041,6 +2079,11 @@
             "format": "int32",
             "minimum": 0
           },
+          "profileWarningCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "protocol": {
             "type": [
               "string",
@@ -2048,6 +2091,11 @@
             ]
           },
           "quarantinedLogCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "quarantinedProfileCount": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -2071,6 +2119,23 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "FanProfileCurvePoint": {
+        "type": "object",
+        "required": [
+          "elapsedMs",
+          "fanRpm"
+        ],
+        "properties": {
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "fanRpm": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -2762,6 +2827,123 @@
           },
           "type": {
             "type": "string"
+          }
+        }
+      },
+      "ProfilePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileResource"
+            }
+          }
+        }
+      },
+      "ProfileResource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "profileId",
+          "revisionNumber",
+          "fileName",
+          "displayName",
+          "designer",
+          "description",
+          "schemaVersion",
+          "roastLevelsMilliC",
+          "roastCurve",
+          "fanCurve",
+          "sourceHash",
+          "warnings"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "designer": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "fanCurve": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FanProfileCurvePoint"
+            }
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "profileModifiedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revisionNumber": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastCurve": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoastProfileCurvePoint"
+            }
+          },
+          "roastLevelsMilliC": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "sourceHash": {
+            "type": "string"
+          },
+          "sourceModifiedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -3572,6 +3754,23 @@
           }
         }
       },
+      "RoastProfileCurvePoint": {
+        "type": "object",
+        "required": [
+          "elapsedMs",
+          "temperatureMilliC"
+        ],
+        "properties": {
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "temperatureMilliC": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "RoastProfileReference": {
         "type": "object",
         "required": [
@@ -3919,6 +4118,9 @@
     },
     {
       "name": "device"
+    },
+    {
+      "name": "profiles"
     },
     {
       "name": "catalog"

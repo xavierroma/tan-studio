@@ -143,6 +143,7 @@ const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiles",
   validateSearch: (search: Record<string, unknown>) => ({
+    profile: typeof search.profile === "string" ? search.profile : undefined,
     proposalFrom:
       typeof search.proposalFrom === "string" ? search.proposalFrom : undefined,
   }),
