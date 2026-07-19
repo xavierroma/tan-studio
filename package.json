@@ -14,6 +14,8 @@
     "dev:companion": "bun run --filter @tan-studio/companion dev",
     "dev:desktop": "bun run --filter @tan-studio/desktop dev",
     "build": "bun run --filter @tan-studio/companion build && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
+    "build:pi": "./script/build_pi_release.sh",
+    "deploy:pi": "./script/deploy_pi.sh",
     "test": "bun run --filter '@tan-studio/*' test",
     "typecheck": "bun run --filter '@tan-studio/*' typecheck",
     "boundaries": "bun scripts/check-boundaries.ts",

@@ -131,6 +131,28 @@ describe("security and bootstrap", () => {
       "Idempotency-Key"
     )
   })
+
+  test("allows authenticated originless API clients only when configured", async () => {
+    const originless = createCompanionApp({
+      database,
+      security: {
+        launchToken,
+        allowedHosts: [authority],
+        allowedOrigins: [origin],
+        allowedClientIds: ["tan-studio-api-v1"],
+        allowOriginlessRequests: true,
+      },
+    })
+    const response = await originless.request("/api/v1/system/bootstrap", {
+      headers: {
+        Host: authority,
+        Authorization: `Bearer ${launchToken}`,
+        "X-Tan-Studio-Client": "tan-studio-api-v1",
+      },
+    })
+
+    expect(response.status).toBe(200)
+  })
 })
 
 describe("brew workflow and personal defaults", () => {

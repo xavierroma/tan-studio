@@ -1,0 +1,42 @@
+[Unit]
+Description=Tan Studio headless Kaffeelogic service
+Documentation=https://github.com/xavierroma/tan-studio
+After=network-online.target avahi-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tan-studio
+Group=tan-studio
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/tan-studio/current
+EnvironmentFile=/etc/tan-studio/environment
+ExecStart=/opt/tan-studio/current/bin/tan-studio-server
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=30s
+TimeoutStopSec=20s
+StateDirectory=tan-studio
+StateDirectoryMode=0750
+UMask=0027
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

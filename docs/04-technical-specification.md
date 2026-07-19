@@ -1,10 +1,10 @@
 # Tan Studio technical specification
 
 Status: **normative engineering specification**
-Version: 1.0
-Date: 18 July 2026
+Version: 1.1
+Date: 19 July 2026
 Product: **Tan Studio**
-Primary release target: macOS, local-first, single user
+Primary release targets: macOS desktop and Raspberry Pi LAN appliance, local-first, single user
 Product baseline: [PRD](03-product-requirements-document.md)
 Protocol baseline: [USB protocol and native formats](02-usb-protocol-and-file-formats.md)
 Visual baseline: [editable Excalidraw board](../mockups/kaffelogic-modern-studio.excalidraw)
@@ -30,6 +30,7 @@ The first dependable release comprises PRD Phases 0 through 2:
 - Lossless `.kpro`/`.klog` import and export foundations.
 - Catalog, inventory, roast history, tasting, planning, label, backup, and restore workflows.
 - Signed Tauri desktop packaging, USB discovery, read-only status, safe synchronization, live monitoring, final-log reconciliation, and explicitly validated profile deployment.
+- Reproducible ARM64 Raspberry Pi appliance packaging with an always-on USB owner, same-origin LAN UI/API, systemd supervision, mDNS discovery, and power-cycle recovery.
 
 AI proposals, internet remote monitoring, the official LAN bridge, broad printer-language support, firmware maintenance, and the future Wi-Fi USB bridge use ports defined here but are not production-v1 dependencies.
 
@@ -38,9 +39,9 @@ AI proposals, internet remote monitoring, the official LAN bridge, broad printer
 | Area | Decision |
 | --- | --- |
 | Product name | Tan Studio |
-| Application shape | Tauri 2 shell + React/Vite frontend + Bun companion sidecar |
-| First platform | Signed and notarized macOS app; Windows/Linux follow through the same ports |
-| Local ownership | One user and one database per OS account; one companion process owns a database and roaster port |
+| Application shape | Shared React/Vite frontend and Bun companion, composed either by a Tauri 2 desktop shell or a headless Raspberry Pi systemd service |
+| First platforms | Signed/notarized macOS app and native ARM64 Raspberry Pi appliance; Windows/Linux desktop follow through the same ports |
+| Local ownership | One authoritative database per installation; exactly one companion process owns that database and roaster port |
 | API | Hono REST `/api/v1` + one ordered WebSocket `/api/v1/events`; OpenAPI 3.1 is the contract source |
 | Persistence | SQLite through `bun:sqlite` and Drizzle; immutable content-addressed raw store |
 | Frontend | React 19, Vite 8, strict TypeScript, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6 |
@@ -58,8 +59,11 @@ AI proposals, internet remote monitoring, the official LAN bridge, broad printer
 ```mermaid
 flowchart LR
     Operator["Roaster operator"] --> Desktop["Tan Studio desktop app"]
+    Operator --> Browser["Browser on trusted home LAN"]
+    Browser <--> Appliance["Tan Studio Raspberry Pi appliance"]
     Observer["Future remote observer"] -. "read-only, expiring session" .-> Relay["Future telemetry relay"]
     Desktop <--> Nano["Kaffelogic Nano 7\nUSB CDC / SASSI"]
+    Appliance <--> Nano
     Desktop --> Printers["OS queues, IPP printers, label printers"]
     Desktop --> LocalFiles["Native files, backups, attachments"]
     Desktop -. "explicit selected context" .-> AI["Future user-selected AI provider"]
@@ -68,7 +72,7 @@ flowchart LR
     Bridge -. "same remote event contract" .-> Relay
 ```
 
-The roaster remains authoritative for autonomous roast control. Tan Studio observes, records, synchronizes, and performs only capability-gated writes. The application never offers remote roast start.
+The roaster remains authoritative for autonomous roast control. Tan Studio observes, records, synchronizes, and performs only capability-gated writes. The application never offers remote roast start. The desktop and appliance are alternative owners of a physical Nano; they must not connect to the same serial device simultaneously.
 
 ### 2.2 Containers and processes
 
@@ -124,15 +128,17 @@ The companion must be the sole logical owner of:
 - Raw, derived, attachment, backup, inbox, and diagnostic files.
 - The serial-helper lifecycle/session and all printer transports. The helper alone holds the OS serial handle but has no independent lifecycle, protocol policy, or API.
 - Domain/application services and durable jobs.
-- The authenticated loopback HTTP and WebSocket server.
+- The authenticated HTTP and WebSocket server, bound according to the selected composition root.
 
-There is no separately installed daemon. Closing the desktop app gracefully stops the companion after active writes are flushed. During an active roast, closing requires an explicit warning; if termination still occurs, the durable live inbox allows reconciliation after restart.
+In the desktop composition root there is no separately installed daemon. Closing the desktop app gracefully stops the companion after active writes are flushed. During an active roast, closing requires an explicit warning; if termination still occurs, the durable live inbox allows reconciliation after restart.
+
+In the Raspberry Pi composition root the companion is an explicitly installed, always-on systemd service. It serves the built frontend and `/api/v1` from one origin, owns the Pi-attached USB port, persists under `/var/lib/tan-studio`, and continues collecting when no browser is open. Docker is a build tool only and is not required on the Pi.
 
 #### React frontend
 
 The frontend may know API contracts, view models, routes, and presentation state. It must not import Tauri APIs, Node/Bun modules, SQLite libraries, file parsers, printer encoders, SerialPort, or SASSI code. Production and development use the same HTTP/WebSocket interface.
 
-### 2.3 Startup and shutdown
+### 2.3 Desktop startup and shutdown
 
 ```mermaid
 sequenceDiagram
@@ -199,6 +205,28 @@ flowchart LR
 - Worker messages are versioned structured data or transferable byte buffers. SQLite connections, serial handles, native renderer objects, and mutable domain aggregates are never shared between workers.
 
 Default production limits are one writer, two read workers, and `max(1,min(2,logicalCpuCount-2))` CPU workers on the reference Mac. These limits are configurable by platform profile, not user-facing arbitrary tuning. Worker crashes fail only their task, preserve durable inputs, and trigger bounded replacement.
+
+### 2.5 Raspberry Pi appliance topology
+
+The appliance is a second composition root over the same domain, application services, Hono routes, React assets, database migrations, TypeScript SASSI implementation, and Rust serial helper. It must not fork product behavior.
+
+```mermaid
+flowchart LR
+    Browser["Trusted-LAN browser"] <-->|"same-origin HTTP / WebSocket"| Service["Bun headless companion"]
+    Service --> DB["SQLite under /var/lib/tan-studio"]
+    Service <--> Helper["Rust serial helper"] <--> Nano["Nano USB CDC"]
+    Systemd["systemd"] --> Service
+    Avahi["Avahi mDNS"] --> Name["tan-studio.local"]
+```
+
+- `tan-studio.service` runs as a non-login `tan-studio` user with only the `dialout` supplementary group and `CAP_NET_BIND_SERVICE`; it has no root runtime process.
+- The release contains two ARM64 executables and immutable Vite assets under `/opt/tan-studio/releases/<version>`. `/opt/tan-studio/current` is an atomic symlink.
+- A pinned Docker multi-stage build produces the release. The Pi runs the native executables directly to avoid container USB indirection and memory overhead on 1 GB hardware.
+- The installer is idempotent for an already verified version, preserves the database and 256-bit LAN token, creates a pre-deployment database backup, performs a local health check, and restores the prior release symlink if the new service does not become healthy.
+- The service binds port 80 on all interfaces but accepts only configured exact Host authorities. The initial set is `tan-studio.local`, the installation-time LAN address, and the temporary conflict alias `tan-studio-2.local`; Avahi restart normally reclaims the canonical name.
+- The web UI and API are same-origin. The server injects a non-enumerable runtime bootstrap before React starts; the token is never placed in a URL, log, SQLite database, backup, or diagnostic bundle.
+- This is trusted-home-LAN access, not internet remote monitoring. The installer opens no router port and configures no public relay, cloud tunnel, or inbound WAN rule.
+- On boot, migrations and database integrity checks complete before health reports ready. USB discovery then retries continuously, so installing and booting without a Nano is a supported healthy state.
 
 ## 3. Clean Architecture and repository structure
 
@@ -716,13 +744,13 @@ Requests and responses use JSON except artifact/series streaming and the explici
 
 ### 7.2 Authentication and origin enforcement
 
-- The companion binds only `127.0.0.1` on an OS-assigned port. It does not bind `0.0.0.0`, `::`, a LAN address, or a stable port.
-- HTTP requires `Authorization: Bearer <launchToken>` and `X-Tan-Studio-Client: desktop-v1`.
-- The server checks the exact `Host` value against its assigned loopback authority and checks `Origin` against the platform Tauri origin. Development origins are enabled only by an explicit development build flag.
+- The desktop companion binds only `127.0.0.1` on an OS-assigned port. The Pi appliance binds its configured LAN port and is the only production composition root permitted to bind `0.0.0.0`.
+- HTTP requires `Authorization: Bearer <launchToken>` and an allowlisted `X-Tan-Studio-Client`. Desktop uses `desktop-v1`; the appliance uses `tan-studio-lan-v1` for its browser and `tan-studio-api-v1` for non-browser clients.
+- The server checks the exact `Host` against the authorities assigned to its composition root. Browser requests with an `Origin` must match its exact allowlist. Same-origin navigation/GET requests and authenticated non-browser clients may omit `Origin` only in the appliance composition root; a supplied hostile Origin is never ignored, and CORS preflight always requires an authorized Origin.
 - CORS reflects only the exact accepted origin and never returns `*`.
 - State-changing requests require `application/json`, except `POST /native-file-imports`, `POST /attachment-uploads`, and `POST /backup-uploads`, which accept only their documented `multipart/form-data` or `application/octet-stream` bodies. Uploads still require bearer authentication, exact Host/Origin, the custom client header, declared-size limits, streamed byte limits, and content hashing. All routes reject `application/x-www-form-urlencoded` and `text/plain` mutation bodies.
 - Responses set `Cache-Control: no-store`; sensitive response data is never placed in a URL.
-- The launch token remains only in the shell, webview memory, and companion memory. It is redacted from errors and logs.
+- The desktop launch token remains only in the shell, webview memory, and companion memory. The appliance token is generated once, stored in a root-owned `0600` systemd environment file, injected into browser memory at HTML response time, and excluded from URLs, SQLite, backups, diagnostics, and logs.
 
 Browser WebSocket constructors cannot set `Authorization`. The client therefore requests a random, one-use, 30-second event ticket through authenticated `POST /api/v1/event-tickets`, then supplies `tan-studio.v1` and `ticket.<base64url>` as WebSocket subprotocols. The server consumes the ticket atomically and echoes only `tan-studio.v1`; it never logs the ticket. A reconnect obtains a new ticket.
 
@@ -2189,13 +2217,19 @@ The first release is a universal or paired arm64/x86_64 Tauri 2 application cont
 
 All executable code and native modules are inside signed, read-only bundle resources. Mutable data is under OS application data. The app is hardened-runtime signed, notarized, stapled, and tested after moving into `/Applications` and launching from a non-developer account.
 
-### 13.2 Version compatibility
+### 13.2 Raspberry Pi appliance release
+
+`bun run build:pi` uses `deploy/raspberry-pi/Dockerfile` to produce a reusable Linux ARM64 directory containing the compiled Bun headless server, compiled Rust serial helper, Vite assets, systemd unit, udev rule, installer, and version manifest. `bun run deploy:pi` transfers that artifact over SSH and invokes the installer with `sudo`; application build tools are not installed on the Pi.
+
+The initial supported appliance is Raspberry Pi 3 B+ or later running a 64-bit Debian/Raspberry Pi OS derivative with systemd, Avahi, udev, and glibc. The release gate includes a clean installation, same-version redeployment, authenticated API/UI checks, SQLite ownership/integrity checks, USB hotplug discovery, and a full reboot check.
+
+### 13.3 Version compatibility
 
 One signed Tan Studio release contains a mutually compatible shell, frontend, companion, helpers, API contract, and migrations. These parts do not update independently in production. Bootstrap compares build IDs and refuses a mismatch.
 
 Device firmware is a separate artifact and is never bundled as an automatic app update, automatically flashed, or required merely to open local history. Firmware operations remain a later maintenance capability.
 
-### 13.3 Updater and rollback
+### 13.4 Updater and rollback
 
 - Tauri updater consumes signed HTTPS metadata and signed artifacts.
 - Download is user-initiated or background-only according to preference; installation requires explicit confirmation when a roast/device job is active.
@@ -2203,7 +2237,7 @@ Device firmware is a separate artifact and is never bundled as an automatic app 
 - Application rollback may reopen the old binary only if its declared maximum schema is compatible. Otherwise the user restores the pre-update backup into a separate data root or installs a forward-compatible fix.
 - Update failure leaves the installed version and database untouched.
 
-### 13.4 Development mode
+### 13.5 Development mode
 
 Development normally runs through the Tauri shell so origin/bootstrap behavior is exercised. An explicit `dev-browser` launcher may start Vite and companion, generate an ephemeral token, inject it into the opened browser session, and allow only the exact Vite origin. It must print neither token nor credential. Production builds reject all dev origins/flags.
 

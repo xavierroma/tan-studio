@@ -2,14 +2,14 @@
 
 Product name: **Tan Studio**
 Status: **approved product baseline**
-Date: 18 July 2026
-Primary platform: macOS-first Tauri 2 desktop application with a transport-neutral React/Vite UI and signed Bun companion sidecar
+Date: 19 July 2026
+Primary platforms: macOS Tauri 2 desktop application and always-on Raspberry Pi LAN appliance sharing one transport-neutral React/Vite UI and Bun companion
 Target stack: Bun, strict TypeScript, React 19, Vite 8, Tailwind CSS 4, shadcn `base-nova`/Base UI, TanStack Router/Query/Table/Virtual, Zustand 5, ECharts 6, Hono, Zod/OpenAPI, Drizzle, and `bun:sqlite`
 Normative engineering design: [Tan Studio technical specification](04-technical-specification.md)
 
 ## 1. Product statement
 
-Tan Studio is an offline-first, modern desktop application for Kaffelogic Nano 7 owners. It preserves native profile, log, live-monitoring, synchronization, and device-management compatibility while turning roast development into a coherent workflow built around suppliers, green-coffee purchases and lots, coffee identities, roasts, tastings, next-roast plans, labels, and profile revisions.
+Tan Studio is a local-first modern application for Kaffelogic Nano 7 owners. It can run as a macOS desktop application or as an always-on Raspberry Pi appliance available at `tan-studio.local`. Both forms preserve native profile, log, live-monitoring, synchronization, and device-management compatibility while turning roast development into a coherent workflow built around suppliers, green-coffee purchases and lots, coffee identities, roasts, tastings, next-roast plans, labels, and profile revisions.
 
 The product must feel like a calm instrument, not a desktop file editor: the current roast is obvious, critical event controls are unambiguous, detailed telemetry is available without visual noise, and every roast naturally becomes searchable knowledge.
 
@@ -631,6 +631,8 @@ Independently testable bounded modules are catalog/inventory; roasts/telemetry; 
 
 Tauri serves the built frontend through its custom protocol, generates a per-launch 256-bit in-memory token, and launches the compatible signed Bun sidecar with that token over a private inherited control channel. The sidecar binds a random loopback-only port and rejects unexpected Host/Origin values, wildcard CORS, and DNS rebinding. It is never exposed to the LAN.
 
+The Raspberry Pi deployment is a separate supported composition root for the same frontend, API, domain services, database migrations, SASSI protocol, and serial helper. It runs the native ARM64 companion under systemd, serves the UI and API from one exact trusted-LAN origin at `http://tan-studio.local`, and remains active with no browser open. Its persistent 256-bit bearer token is root-readable only, injected into browser memory, and excluded from URLs, logs, SQLite, backups, and diagnostics. It must not be forwarded from the router or treated as internet remote access.
+
 USB byte transport runs in a small target-specific Rust helper using the maintained `serialport` crate because Bun's Node native serial binding cannot open the reference CDC device reliably. SASSI framing, command allowlisting, session behavior, use cases, and the API remain TypeScript. The helper receives only bounded byte-transport requests over inherited pipes; it is not a custom USB driver or a second protocol implementation. A separate Web Serial demo may be researched later but is not part of the production frontend.
 
 ## 12. Data model
@@ -766,8 +768,8 @@ Each boundary has an independent service interface. Remote sessions receive READ
 
 ### 13.2 Required controls
 
-- Bind the companion only to an OS-assigned `127.0.0.1` port; never expose it to the LAN.
-- Authenticate every API request with a per-launch 256-bit in-memory token delivered by the Tauri parent. The token never enters URLs, logs, SQLite, backups, or diagnostics.
+- Bind the desktop companion only to an OS-assigned `127.0.0.1` port. Only the explicitly installed Raspberry Pi appliance may bind a LAN port, protected by exact Host/Origin policy and bearer authentication; neither form is exposed to the public internet.
+- Authenticate every API request with a 256-bit token. Desktop receives an in-memory per-launch token from Tauri; the appliance receives its persistent token from a root-owned `0600` environment file. Tokens never enter URLs, logs, SQLite, backups, or diagnostics.
 - Enforce exact Host and Origin allowlists, restrictive CSP, no wildcard CORS, JSON mutation bodies except enumerated bounded upload streams, DNS-rebinding protection, and one-use WebSocket tickets.
 - Validate all local API inputs and native paths.
 - Prevent path traversal and writes outside explicit mirror roots.

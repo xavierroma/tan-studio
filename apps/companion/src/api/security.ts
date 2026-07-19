@@ -7,6 +7,7 @@ export type SecurityOptions = {
   allowedOrigins: string[]
   allowedHosts: string[]
   allowedClientIds?: string[]
+  allowOriginlessRequests?: boolean
   development?: boolean
 }
 
@@ -40,13 +41,15 @@ export function securityMiddleware(
         status: 403,
         code: "host_not_allowed",
         title: "Host not allowed",
-        detail:
-          "The request Host is not the assigned loopback companion authority.",
+        detail: "The request Host is not an assigned Tan Studio authority.",
       })
     }
 
     const origin = c.req.header("origin")
-    if (!origin || !options.allowedOrigins.includes(origin)) {
+    if (
+      (origin && !options.allowedOrigins.includes(origin)) ||
+      (!origin && !options.allowOriginlessRequests)
+    ) {
       throw new ApiError({
         status: 403,
         code: "origin_not_allowed",
@@ -57,6 +60,14 @@ export function securityMiddleware(
     }
 
     if (c.req.method === "OPTIONS") {
+      if (!origin) {
+        throw new ApiError({
+          status: 403,
+          code: "origin_not_allowed",
+          title: "Origin not allowed",
+          detail: "CORS preflight requires an authorized Origin.",
+        })
+      }
       c.header("Access-Control-Allow-Origin", origin)
       c.header("Vary", "Origin")
       c.header(
@@ -102,8 +113,10 @@ export function securityMiddleware(
       }
     }
 
-    c.header("Access-Control-Allow-Origin", origin)
-    c.header("Vary", "Origin")
+    if (origin) {
+      c.header("Access-Control-Allow-Origin", origin)
+      c.header("Vary", "Origin")
+    }
     await next()
   }
 }

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/index.ts --target=bun --outdir=dist/src",
+    "build": "bun build src/index.ts src/headless.ts --target=bun --outdir=dist/src",
     "dev": "cargo build --locked --manifest-path ../serial-bridge/Cargo.toml && bun --watch src/dev.ts",
     "start": "bun src/index.ts",
     "db:migrate": "bun src/db/migrate.ts",

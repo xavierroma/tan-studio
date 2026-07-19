@@ -1,6 +1,6 @@
 # Tan Studio
 
-Tan Studio is a local-first, modern desktop replacement for Kaffelogic Studio, built around a Tauri shell, transport-neutral React/Vite interface, and Bun companion service.
+Tan Studio is a local-first, modern replacement for Kaffelogic Studio. The same React/Vite interface and Bun companion run either in a Tauri desktop shell or as an always-on Raspberry Pi appliance.
 
 ## Implemented workspace
 
@@ -25,7 +25,19 @@ bun install
 bun run dev
 ```
 
-The web app is served at `http://127.0.0.1:1420`; the development companion binds only to `127.0.0.1:4317`, uses the development-only token, and seeds a representative local workspace. Production gets a fresh 256-bit launch token and random loopback port from the Tauri shell.
+The web app is served at `http://127.0.0.1:1420`; the development companion binds only to `127.0.0.1:4317`, uses the development-only token, and seeds a representative local workspace. Desktop production gets a fresh 256-bit launch token and random loopback port from the Tauri shell.
+
+## Raspberry Pi appliance
+
+The appliance serves the website and authenticated API at `http://tan-studio.local`, remains active when no browser is open, and automatically discovers a Nano connected to the Pi by USB. Docker is used on the build Mac only; the Pi runs native ARM64 executables under systemd.
+
+With Docker Desktop running and SSH key access configured, deploy or update with:
+
+```sh
+bun run deploy:pi
+```
+
+Build a reusable artifact without deploying it with `bun run build:pi`. Fresh-Pi setup, paths, overrides, backup, and rollback behavior are documented in [`deploy/raspberry-pi/README.md`](deploy/raspberry-pi/README.md).
 
 The current implementation is the compatibility foundation plus an offline product vertical slice: catalog/lot reads, the roast database, log detail and telemetry charts, lossless parsers, SASSI framing, deterministic label rendering, and the secured desktop/companion lifecycle are executable. An attached Nano 7 is now discovered and connected through its standard USB CDC serial interface; Tan Studio completes the SASSI v1 time-sync handshake and reads operational/system information in read-only mode. Filesystem access, live telemetry, device writes, automated print submission, persisted profile editing, and AI/remote adapters remain capability-disabled until their implementation and verification gates pass. Packaged builds fail closed and never replace unavailable device, roast, or print state with sample data; the sample workspace is enabled only by the explicit development setting in `apps/web/.env.development`.
 
