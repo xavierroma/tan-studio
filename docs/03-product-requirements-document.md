@@ -295,6 +295,7 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 | LOG-16 | P1 | Compute phase durations, DTR, end delta, curve deviation, RoR statistics, AUC, energy estimates, green-to-roasted loss percentage, and tasting-score trend. |
 | LOG-17 | P1 | Export the current table selection/view to CSV or NDJSON and export an individual chart image, PDF report, parsed samples, and original file. |
 | LOG-18 | P1 | Extract a new profile revision from a source log with selectable carried-forward fields. |
+| LOG-19 | P0 | Classify every native parse as exact, compatible, or degraded. A source that needs error-level recovery or cannot be converted to bounded integer/JSON storage is quarantined with immutable bytes and a stable reason, creates no partial roast/profile/sample rows, is visible in device sync status, and does not prevent other logs from importing. |
 
 ### 9.4 Coffee and tasting records
 

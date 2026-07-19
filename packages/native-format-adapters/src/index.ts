@@ -3,7 +3,7 @@ export {
   scanPhysicalLines,
   serializeLosslessNative,
 } from "./lossless"
-export { parseKlog } from "./klog"
+export { assertKlogImportable, parseKlog } from "./klog"
 export type {
   KlogChannel,
   KlogChannelUnit,

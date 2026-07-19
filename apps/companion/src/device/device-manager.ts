@@ -8,6 +8,7 @@ const ROAST_LOG_DIRECTORY = "kaffelogic/roast-logs"
 const ROAST_PROFILE_DIRECTORY = "kaffelogic/roast-profiles"
 
 export type DeviceLogImportPort = {
+  isQuarantinedError(error: unknown): boolean
   import(input: {
     bytes: Uint8Array
     devicePath: string
@@ -35,6 +36,7 @@ export type DeviceAdapterSnapshot = {
   importedLogCount: number
   updatedLogCount: number
   importWarningCount: number
+  quarantinedLogCount: number
   lastSyncedAt: string | null
   readOnly: true
 }
@@ -65,6 +67,7 @@ export class NanoDeviceManager implements DeviceManagerPort {
     importedLogCount: 0,
     updatedLogCount: 0,
     importWarningCount: 0,
+    quarantinedLogCount: 0,
     lastSyncedAt: null,
     readOnly: true,
   }
@@ -237,18 +240,27 @@ export class NanoDeviceManager implements DeviceManagerPort {
       let importedLogCount = 0
       let updatedLogCount = 0
       let importWarningCount = 0
+      let quarantinedLogCount = 0
       if (this.#logImporter) {
         for (const entry of logs) {
           const file = await this.#session.readFile(entry.path)
-          const result = this.#logImporter.import({
-            bytes: file.bytes,
-            devicePath: file.path,
-            filename: entry.name,
-            sourceModifiedAt: file.modifiedAt || entry.modifiedAt,
-          })
-          if (result.imported) importedLogCount += 1
-          if (result.updated) updatedLogCount += 1
-          importWarningCount += result.warningCount
+          try {
+            const result = this.#logImporter.import({
+              bytes: file.bytes,
+              devicePath: file.path,
+              filename: entry.name,
+              sourceModifiedAt: file.modifiedAt || entry.modifiedAt,
+            })
+            if (result.imported) importedLogCount += 1
+            if (result.updated) updatedLogCount += 1
+            importWarningCount += result.warningCount
+          } catch (error) {
+            if (!this.#logImporter.isQuarantinedError(error)) throw error
+            // Importers quarantine unsafe source bytes. One malformed historical
+            // log must not prevent the remaining Nano library from syncing.
+            importWarningCount += 1
+            quarantinedLogCount += 1
+          }
         }
       }
       this.#snapshot = {
@@ -259,6 +271,7 @@ export class NanoDeviceManager implements DeviceManagerPort {
         importedLogCount,
         updatedLogCount,
         importWarningCount,
+        quarantinedLogCount,
         lastSyncedAt: new Date().toISOString(),
       }
     } catch (error) {

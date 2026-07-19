@@ -1571,10 +1571,10 @@ The production parser may reference immutable byte slices instead of copying eve
 2. Sniff encoding/format without executing content.
 3. Tokenize line endings and first-colon property boundaries into source spans.
 4. Locate the `.klog` table boundary, optional offsets, header, rows, and `!` incidentals.
-5. Detect exactly one table delimiter from the format grammar, reject mixed delimiters, then use `csv-parse` with `quote: false`, the detected single delimiter, no record relaxation, and the exact expected column count. The lossless scanner remains authoritative for raw bytes, duplicate cells, and spans; generic CSV quote/escape inference is prohibited.
-6. Parse finite numeric values with explicit diagnostics. Never silently convert blank/invalid values to a real zero in the domain model.
+5. Preserve the observed native delimiter for provenance, then apply Studio's established compatibility normalization (tabs become commas) to table semantics. Tables remain unquoted; generic CSV quote/escape inference is prohibited. A mixed-generation row may be inspected, but any structural recovery receives a diagnostic.
+6. Parse finite numeric values with explicit diagnostics. The compatibility view may expose Studio's recovered zero, but any such recovery is error-level and cannot enter typed roast tables.
 7. Build the semantic view and deterministic validation report.
-8. Map valid/partially valid evidence into domain commands in one transaction; preserve warnings and raw artifact even when mapping is rejected.
+8. Map only import-eligible evidence into domain commands in one transaction. Rejected evidence is content-hashed and quarantined with its raw bytes and stable reason; it creates no partial roast/profile/sample/event rows.
 9. Build the derived Arrow sample cache after the domain commit.
 
 The `.kpro` and `.klog` plugins implement the exact grammar and schema boundaries in the protocol specification. Generic INI libraries are prohibited because their trimming, duplicate, comment, quoting, and serialization rules are incompatible.
@@ -1594,7 +1594,9 @@ With an empty edit set, output must be byte-for-byte identical. A supported nati
 
 ### 9.5 Limits and hostile inputs
 
-Default import limits are 64 MiB per file, 1,000 metadata properties, 256 channels, 250,000 sample rows, 1 MiB per line, 10,000 diagnostics, and a maximum nesting depth of 20 for JSON-based app formats. Limits are configurable only in an advanced local setting and are enforced before allocation. ZIP imports reject absolute paths, `..`, links, duplicate normalized paths, compression bombs, and more than 10,000 entries.
+Default import limits are 64 MiB per file, 1,000 metadata properties, 256 channels, 250,000 sample rows, 1 MiB per line, 256 diagnostics, and a maximum nesting depth of 20 for JSON-based app formats. Limits are configurable only in an advanced local setting and are enforced before allocation. ZIP imports reject absolute paths, `..`, links, duplicate normalized paths, compression bombs, and more than 10,000 entries.
+
+For the current SQLite vertical slice, migration 3 adds a content-addressed `native_file_quarantine` and defensive triggers around native byte length, JSON type/size, stream time bounds, and standardized telemetry ranges. Parser failure, projection failure, or trigger failure must roll back all typed rows. The target content-addressed external artifact store remains the production storage topology; moving retained bytes from the vertical-slice BLOBs to that store may not change hashes, provenance, quarantine semantics, or rebuild behavior.
 
 Studio `.sync_base` pickle content and legacy encrypted files are retained as opaque unsupported artifacts. They are never deserialized, decrypted with extracted secrets, or treated as trusted metadata.
 

@@ -121,6 +121,7 @@ export type NativeFormatErrorCode =
   | "invalid_edit"
   | "invalid_utf8"
   | "missing_table"
+  | "unsafe_semantic_projection"
   | "missing_delimiter"
   | "mixed_delimiters"
   | "empty_record"

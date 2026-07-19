@@ -309,7 +309,7 @@ export function DeviceScreen() {
               ) : (
                 <div className="text-muted-foreground p-8 text-center text-sm">
                   {state?.syncState === "ready"
-                    ? `${state.logCount ?? 0} roast logs and ${state.profileCount ?? 0} profiles are present on the Nano. ${state.importWarningCount === 0 ? "Every imported log passed native row parsing." : `${state.importWarningCount} parser warnings need review.`}`
+                    ? `${state.logCount ?? 0} roast logs and ${state.profileCount ?? 0} profiles are present on the Nano. ${state.quarantinedLogCount > 0 ? `${state.quarantinedLogCount} log${state.quarantinedLogCount === 1 ? " was" : "s were"} quarantined without creating roast rows.` : state.importWarningCount === 0 ? "Every imported log passed native row parsing." : `${state.importWarningCount} parser warnings need review.`}`
                     : state?.busy
                       ? "The Nano is connected, but its filesystem is locked. This normally clears when the roaster returns to its fully idle state."
                       : "Device files are shown after the verified read-only inventory completes."}

@@ -124,6 +124,7 @@ export type DeviceState = {
   importedLogCount: number
   updatedLogCount: number
   importWarningCount: number
+  quarantinedLogCount: number
   lastSyncedAt: string | null
   readOnly: boolean
 }

@@ -3,7 +3,10 @@ import type { Database } from "bun:sqlite"
 
 import { openDatabase } from "../src/db/database"
 import { migrate } from "../src/db/migrate"
-import { KlogImporter } from "../src/import/klog-importer"
+import {
+  KlogImporter,
+  KlogImportRejectedError,
+} from "../src/import/klog-importer"
 
 let database: Database
 
@@ -159,6 +162,111 @@ describe("Kaffelogic log import", () => {
       revision: 2,
       stream_version: 2,
     })
+  })
+
+  test("quarantines unsafe logs without creating partial roast rows", () => {
+    const importer = new KlogImporter(database)
+    const bytes = fixture("2.00000", "521.216")
+    const text = new TextDecoder().decode(bytes)
+    const unsafe = new TextEncoder().encode(
+      text.replace("521\t216.1", "521\t1e100")
+    )
+    const input = {
+      bytes: unsafe,
+      devicePath: "kaffelogic/roast-logs/log0099.klog",
+      filename: "log0099.klog",
+      sourceModifiedAt: "202607186184617",
+    }
+
+    expect(() => importer.import(input)).toThrow(KlogImportRejectedError)
+    expect(() => importer.import(input)).toThrow(KlogImportRejectedError)
+    expect(
+      database.query("SELECT count(*) AS count FROM roasts").get()
+    ).toEqual({ count: 0 })
+    expect(
+      database.query("SELECT count(*) AS count FROM native_files").get()
+    ).toEqual({ count: 0 })
+    expect(
+      database
+        .query(
+          `SELECT byte_length, length(original_bytes) AS retained_length,
+                  error_code, attempt_count
+             FROM native_file_quarantine`
+        )
+        .get()
+    ).toEqual({
+      byte_length: unsafe.byteLength,
+      retained_length: unsafe.byteLength,
+      error_code: "unsafe_semantic_projection",
+      attempt_count: 2,
+    })
+  })
+
+  test("SQLite rejects invalid telemetry even when the importer is bypassed", () => {
+    const importer = new KlogImporter(database)
+    const result = importer.import({
+      bytes: fixture("2.00000", "521.216"),
+      devicePath: "kaffelogic/roast-logs/log0013.klog",
+      filename: "log0013.klog",
+      sourceModifiedAt: "202607186184617",
+    })
+
+    expect(() =>
+      database
+        .query(
+          `INSERT INTO roast_series_points
+          (roast_id, sample_seq, elapsed_ms, temperature_milli_c, values_json)
+          VALUES (?, 99, 999999999999, 200000, '{}')`
+        )
+        .run(result.roastId)
+    ).toThrow("invalid roast series point")
+    expect(
+      database
+        .query(
+          "SELECT count(*) AS count FROM roast_series_points WHERE roast_id = ?"
+        )
+        .get(result.roastId)
+    ).toEqual({ count: 2 })
+  })
+
+  test("imports a stopped preheat without creating a negative chart event", () => {
+    const importer = new KlogImporter(database)
+    const bytes = new TextEncoder().encode(
+      [
+        "log_file_name:kaffelogic/roast-logs/log0009.klog",
+        "profile_short_name:Stopped preheat",
+        "profile_schema_version:1.8",
+        "roast_date:18/07/2026 18:00:00 UTC",
+        "",
+        "time\t@temp",
+        "-5\t40",
+        "!roast_end:-12.8161",
+        "!roast_end_reason:2",
+        "",
+      ].join("\n")
+    )
+
+    const result = importer.import({
+      bytes,
+      devicePath: "kaffelogic/roast-logs/log0009.klog",
+      filename: "log0009.klog",
+      sourceModifiedAt: "202607186180000",
+    })
+
+    expect(
+      database
+        .query(
+          "SELECT status, result, roast_duration_ms FROM roasts WHERE id = ?"
+        )
+        .get(result.roastId)
+    ).toEqual({
+      status: "interrupted",
+      result: "aborted",
+      roast_duration_ms: 0,
+    })
+    expect(
+      database.query("SELECT count(*) AS count FROM roast_events").get()
+    ).toEqual({ count: 0 })
   })
 })
 

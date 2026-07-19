@@ -565,6 +565,8 @@ Supported event names include:
 - `roast_end`
 - `anti_beanlock`
 
+A nonzero negative `roast_end` is observed on a user-stopped preheat. It is a valid interrupted-roast marker, not a chart anchor or a completed roast duration. Tan Studio preserves it as native event/metadata evidence, classifies the recording as interrupted, and does not insert it into the nonnegative chart-event table. Zero retains its separate override meaning of deleting the event.
+
 Every post-separator `!key:value` line is stripped from the numeric stream and applied after the original metadata. It is a generic late override, not an event-only syntax; the last duplicate wins. For example, a live level change may arrive as `!roasting_level:3.1`.
 
 When deleting an event from an offline or saved log, Studio appends an incidental override such as `!first_crack:0`. A zero event value removes the existing event; later nonzero overrides replace it. This expresses the same user intent as the live `=X` command at a different layer. A capture is still required before claiming firmware itself emits the zero-value line. `tasting_notes` uses `\v` for line breaks.
@@ -605,6 +607,32 @@ Static reader/editor behavior does not prove:
 - Nano acceptance of `fc_zone_*`, schema 1.9/1.10, and all fan-step fields.
 
 The golden-fixture set should therefore include a native profile pull; completed and live-growing logs; event and level changes; user abort; saved-log edit; fan steps; zone power profiling; non-default reference load; and re-save/reload semantic comparison.
+
+### 6.7 Implemented compatibility and ingestion contract
+
+Parser version 2 is grounded in three independent evidence sets:
+
+- Static inspection of the installed Kaffelogic Studio 7.4.3 reader established line normalization, first-colon properties, last-value-wins metadata, generic `!` overrides, header-prefix behavior, time-offset application, short/extra-row behavior, and Studio's invalid-number-to-zero recovery.
+- The attached Nano corpus contains 13 native firmware 7.20.6 logs, 6,167 total samples, one 13-channel schema, completed and interrupted recordings, negative pre-roast timestamps down to approximately -5.6 seconds, and cooldown data beyond 14 minutes. All 13 parse as `exact` with byte-identical raw retention and no diagnostics.
+- Kaffelogic's own support forum documents a firmware/storage failure in which one valid roast was split across two `.klog` files, with approximately six seconds lost; Studio support instructed users to stitch the numeric continuation manually. A headerless continuation is therefore known evidence, not a complete independently importable roast. Tan Studio retains/quarantines it until fragment reconciliation exists rather than inventing a header or second roast. [Kaffelogic: log file split in two](https://community.kaffelogic.com/viewtopic.php?t=128)
+
+The compatibility claim is deliberately bounded: no finite corpus can prove every past or future log. Tan Studio instead guarantees these safety properties:
+
+1. Every accepted source remains available byte-for-byte with its SHA-256, parser version, channel-schema fingerprint, diagnostics, and provenance.
+2. Unknown metadata keys and unknown numeric channels are preserved; they do not need a schema release merely to survive import and round-trip.
+3. Semantic projection has an explicit `exact`, `compatible`, or `degraded` result. Any error-level recovery, absent master temperature, empty table, unsafe integer conversion, unsafe physical value, oversized projection, or invalid ordering makes the document ineligible for typed roast tables.
+4. An ineligible source is stored once in `native_file_quarantine` by content hash (up to the 64 MiB retention limit), with stable error code and retry count. It creates no `roasts`, `roast_sample_streams`, `roast_series_points`, profile, event, library, or FTS row.
+5. A device sync continues after quarantining one file, so one corrupt historical log cannot hide the remaining library.
+6. Import is transactional and SQLite triggers independently enforce JSON shape/size, byte-length equality, elapsed bounds, and typed telemetry ranges if application validation is bypassed.
+7. Parser diagnostics are capped at 256, files at 64 MiB, lines at 1 MiB, properties at 1,000, channels at 256, and rows at 250,000. Numeric projection uses safe integers only.
+
+Run the privacy-safe corpus auditor against any Studio mirror or fixture directory:
+
+```bash
+bun run audit:klog -- "/path/to/kaffelogic/roast-logs"
+```
+
+The report emits filenames, hashes, structural keys/channels, time/count ranges, fingerprints, and diagnostic codes; it does not emit telemetry values, metadata values, device serials, or tasting-note content. A rejected file produces a nonzero exit status. Public/user fixtures must be redacted before entering version control.
 
 ## 7. Live stream behavior
 

@@ -139,6 +139,7 @@ describe("capability-gated device and printing adapters", () => {
         importedLogCount: 0,
         updatedLogCount: 0,
         importWarningCount: 0,
+        quarantinedLogCount: 0,
         lastSyncedAt: null,
         readOnly: true,
       },

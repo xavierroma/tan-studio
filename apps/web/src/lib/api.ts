@@ -50,6 +50,7 @@ type AdapterCapability = {
   importedLogCount?: number
   updatedLogCount?: number
   importWarningCount?: number
+  quarantinedLogCount?: number
   lastSyncedAt?: string | null
   readOnly?: boolean
 }
@@ -215,6 +216,9 @@ function normalizeAdapter(value: unknown): AdapterCapability {
     ...(optionalNumber(candidate.importWarningCount) === undefined
       ? {}
       : { importWarningCount: number(candidate.importWarningCount) }),
+    ...(optionalNumber(candidate.quarantinedLogCount) === undefined
+      ? {}
+      : { quarantinedLogCount: number(candidate.quarantinedLogCount) }),
     ...(candidate.lastSyncedAt === null
       ? { lastSyncedAt: null }
       : optionalText(candidate.lastSyncedAt)
@@ -718,6 +722,7 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
         importedLogCount: usb.importedLogCount ?? 0,
         updatedLogCount: usb.updatedLogCount ?? 0,
         importWarningCount: usb.importWarningCount ?? 0,
+        quarantinedLogCount: usb.quarantinedLogCount ?? 0,
         lastSyncedAt: usb.lastSyncedAt ?? null,
         readOnly: usb.readOnly !== false,
       },

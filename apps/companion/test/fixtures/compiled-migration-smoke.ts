@@ -8,7 +8,7 @@ const database = openDatabase(databasePath)
 await migrate(database)
 const migration = database
   .query(
-    "SELECT version, name, sql_sha256 AS sqlSha256 FROM schema_migrations WHERE version = 2"
+    "SELECT version, name, sql_sha256 AS sqlSha256 FROM schema_migrations WHERE version = 3"
   )
   .get()
 database.close()

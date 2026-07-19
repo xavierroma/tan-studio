@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run build:serial-bridge && tauri dev",
-    "build": "bun run build:serial-bridge && bun run build:sidecar && tauri build --bundles app",
+    "build": "bun run build:serial-bridge && bun run build:sidecar && tauri build --bundles app && bun scripts/verify-test-app.ts",
     "bundle:installers": "bun run build:serial-bridge && bun run build:sidecar && tauri build",
     "build:serial-bridge": "bun scripts/build-serial-bridge.ts",
     "build:sidecar": "bun scripts/build-sidecar.ts",

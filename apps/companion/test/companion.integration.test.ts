@@ -72,7 +72,7 @@ describe("security and bootstrap", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(await response.json()).toMatchObject({
       apiVersion: "v1",
-      schemaVersion: 2,
+      schemaVersion: 3,
       recoveryState: "ready",
       features: { catalog: true, roastLibrary: true, deviceConnection: false },
       adapters: { database: { state: "ready" } },
@@ -97,6 +97,7 @@ describe("security and bootstrap", () => {
       importedLogCount: 0,
       updatedLogCount: 0,
       importWarningCount: 0,
+      quarantinedLogCount: 0,
       lastSyncedAt: null,
       readOnly: true,
     })
@@ -570,5 +571,6 @@ test("migrations are repeatable and hash-verified", async () => {
   expect(migrations).toEqual([
     { version: 1, name: "initial" },
     { version: 2, name: "roast_brew_workflow" },
+    { version: 3, name: "klog_ingestion_safety" },
   ])
 })
