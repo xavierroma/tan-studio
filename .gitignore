@@ -14,5 +14,6 @@ apps/companion/data/
 apps/companion/*.sqlite*
 apps/web/playwright-report/
 apps/web/test-results/
+.tan-studio/
 apps/desktop/src-tauri/target/
 apps/serial-bridge/target/

@@ -20,8 +20,7 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/tan-studio-companion",
-      "binaries/tan-studio-serial-bridge"
+      "binaries/tan-studio-service"
     ],
     "icon": [
       "icons/32x32.png",

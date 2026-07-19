@@ -17,16 +17,11 @@ import type {
   LabelRecord,
   CoffeeIdentity,
 } from "@/types"
-
-declare global {
-  interface Window {
-    __TAN_STUDIO_BOOTSTRAP__?: {
-      apiOrigin: string
-      token: string
-      clientId: string
-    }
-  }
-}
+import {
+  companionClient,
+  requireCompanion,
+  unwrapResponse,
+} from "@/lib/companion-client"
 
 export type DataSource = "companion" | "demo"
 
@@ -76,17 +71,6 @@ export class CapabilityUnavailableError extends Error {
   }
 }
 
-const browserBootstrap =
-  typeof window === "undefined" ? undefined : window.__TAN_STUDIO_BOOTSTRAP__
-const configuredOrigin =
-  browserBootstrap?.apiOrigin ??
-  import.meta.env.VITE_COMPANION_ORIGIN ??
-  (import.meta.env.DEV ? "http://127.0.0.1:4317" : undefined)
-const configuredToken =
-  browserBootstrap?.token ??
-  import.meta.env.VITE_COMPANION_TOKEN ??
-  (import.meta.env.DEV ? "tan-studio-development-only" : undefined)
-
 export function allowsDemoData(dev: boolean, configuredValue?: string) {
   return dev && configuredValue === "true"
 }
@@ -100,38 +84,6 @@ export function isDemoResult<T>(
   result: CompanionResult<T> | undefined
 ): result is CompanionResult<T> & { source: "demo" } {
   return demoDataEnabled && result?.source === "demo"
-}
-
-async function companionFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!configuredOrigin || !configuredToken) {
-    throw new Error("Companion bootstrap is unavailable")
-  }
-
-  const response = await fetch(`${configuredOrigin}/api/v1${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${configuredToken}`,
-      "Content-Type": "application/json",
-      "X-Tan-Studio-Client":
-        browserBootstrap?.clientId ?? "tan-studio-browser-dev",
-      ...init?.headers,
-    },
-  })
-
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") ?? ""
-    const problem = contentType.includes("json")
-      ? record(await response.json().catch(() => null))
-      : {}
-    throw new Error(
-      optionalText(problem.detail) ??
-        optionalText(problem.title) ??
-        `Companion request failed (${response.status})`
-    )
-  }
-
-  return (await response.json()) as T
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -311,47 +263,46 @@ export async function listRoasts(
   signal?: AbortSignal
 ): Promise<CompanionResult<RoastSummary[]>> {
   try {
-    const response = await companionFetch<{
-      rows?: Array<Record<string, unknown>>
-      items?: Array<Record<string, unknown>>
-    }>("/roast-library/query", {
-      method: "POST",
-      ...(signal ? { signal } : {}),
-      body: JSON.stringify({
-        viewVersion: 1,
-        filters: { op: "and", clauses: [] },
-        groups: [],
-        sorts: [{ field: "roastedAt", direction: "desc", nulls: "last" }],
-        columns: [
-          "roastId",
-          "roastNumber",
-          "nativeLogNumber",
-          "roastedAt",
-          "durationMs",
-          "coffeeName",
-          "providerName",
-          "countryCode",
-          "region",
-          "farmProducer",
-          "process",
-          "lotCode",
-          "profileName",
-          "profileRevisionNumber",
-          "roastLevelThousandths",
-          "greenInputMassMg",
-          "roastLossBasisPoints",
-          "developmentBasisPoints",
-          "tastingScoreBasisPoints",
-          "tastingDescriptors",
-          "tastingNotes",
-          "result",
-          "status",
-        ],
-        aggregates: [],
-        page: { first: 100 },
-      }),
-    })
-    const rows = response.rows ?? response.items ?? []
+    requireCompanion()
+    const response = unwrapResponse(
+      await companionClient.POST("/api/v1/roast-library/query", {
+        ...(signal ? { signal } : {}),
+        body: {
+          viewVersion: 1,
+          filters: { op: "and", clauses: [] },
+          groups: [],
+          sorts: [{ field: "roastedAt", direction: "desc", nulls: "last" }],
+          columns: [
+            "roastId",
+            "roastNumber",
+            "nativeLogNumber",
+            "roastedAt",
+            "durationMs",
+            "coffeeName",
+            "providerName",
+            "countryCode",
+            "region",
+            "farmProducer",
+            "process",
+            "lotCode",
+            "profileName",
+            "profileRevisionNumber",
+            "roastLevelThousandths",
+            "greenInputMassMg",
+            "roastLossBasisPoints",
+            "developmentBasisPoints",
+            "tastingScoreBasisPoints",
+            "tastingDescriptors",
+            "tastingNotes",
+            "result",
+            "status",
+          ],
+          aggregates: [],
+          page: { first: 100 },
+        },
+      })
+    )
+    const rows = response.kind === "rows" ? response.rows : []
     return {
       data: rows.map((row) => {
         const values = row.values
@@ -383,19 +334,24 @@ async function loadSeries(
   if (streamVersion === undefined) return []
   const firstElapsedMs = optionalNumber(sampleStream.firstElapsedMs) ?? 0
   const lastElapsedMs = optionalNumber(sampleStream.lastElapsedMs) ?? 3_600_000
-  const params = new URLSearchParams({
-    streamVersion: String(streamVersion),
-    fromElapsedMs: String(firstElapsedMs),
-    toElapsedMs: String(lastElapsedMs),
-    maxPoints: "2000",
-    channels:
-      "temperature,spotTemperature,meanTemperature,profileTemperature,profileRor,ror,desiredRor,power,actualFanRpm,native",
-  })
-  const response = await companionFetch<{ points?: unknown[] }>(
-    `/roasts/${encodeURIComponent(roastId)}/series?${params}`,
-    signal ? { signal } : undefined
+  requireCompanion()
+  const response = unwrapResponse(
+    await companionClient.GET("/api/v1/roasts/{reference}/series", {
+      params: {
+        path: { reference: roastId },
+        query: {
+          streamVersion,
+          fromElapsedMs: firstElapsedMs,
+          toElapsedMs: lastElapsedMs,
+          maxPoints: 2000,
+          channels:
+            "temperature,spotTemperature,meanTemperature,profileTemperature,profileRor,ror,desiredRor,power,actualFanRpm,native",
+        },
+      },
+      ...(signal ? { signal } : {}),
+    })
   )
-  return (response.points ?? []).map((value) => {
+  return response.points.map((value) => {
     const point = record(value)
     return {
       elapsedMs: number(point.elapsedMs),
@@ -582,13 +538,16 @@ export async function getRoast(
   signal?: AbortSignal
 ): Promise<CompanionResult<RoastDetail>> {
   try {
-    const resource = await companionFetch<Record<string, unknown>>(
-      `/roasts/${encodeURIComponent(id)}`,
-      signal ? { signal } : undefined
+    requireCompanion()
+    const resource = unwrapResponse(
+      await companionClient.GET("/api/v1/roasts/{reference}", {
+        params: { path: { reference: id } },
+        ...(signal ? { signal } : {}),
+      })
     )
     return {
       source: "companion",
-      data: await mapRoastDetail(resource, signal),
+      data: await mapRoastDetail(record(resource), signal),
     }
   } catch (error) {
     if (demoDataEnabled) return { data: getRoastDetail(id), source: "demo" }
@@ -598,17 +557,24 @@ export async function getRoast(
 
 export async function listCoffeeLots(): Promise<CompanionResult<CoffeeLot[]>> {
   try {
+    requireCompanion()
     const [lotsResponse, coffeesResponse] = await Promise.all([
-      companionFetch<{ items?: unknown[] }>("/lots?first=200"),
-      companionFetch<{ items?: unknown[] }>("/coffees?first=200"),
+      companionClient.GET("/api/v1/lots", {
+        params: { query: { first: 200 } },
+      }),
+      companionClient.GET("/api/v1/coffees", {
+        params: { query: { first: 200 } },
+      }),
     ])
+    const lotsPage = unwrapResponse(lotsResponse)
+    const coffeesPage = unwrapResponse(coffeesResponse)
     const coffeesById = new Map(
-      (coffeesResponse.items ?? []).map((value) => {
+      coffeesPage.items.map((value) => {
         const coffee = record(value)
         return [text(coffee.id), coffee] as const
       })
     )
-    const lots = (lotsResponse.items ?? []).map((value): CoffeeLot => {
+    const lots = lotsPage.items.map((value): CoffeeLot => {
       const lot = record(value)
       const provider = record(lot.provider)
       const purchase = record(lot.purchase)
@@ -657,10 +623,13 @@ export async function listCoffeeLots(): Promise<CompanionResult<CoffeeLot[]>> {
 }
 
 export async function listCoffeeIdentities(): Promise<CoffeeIdentity[]> {
-  const response = await companionFetch<{ items?: unknown[] }>(
-    "/coffees?first=200"
+  requireCompanion()
+  const response = unwrapResponse(
+    await companionClient.GET("/api/v1/coffees", {
+      params: { query: { first: 200 } },
+    })
   )
-  return (response.items ?? []).map((value) => {
+  return response.items.map((value) => {
     const coffee = record(value)
     return {
       id: text(coffee.id),
@@ -678,21 +647,26 @@ export async function assignRoastCoffee(
   revision: number,
   coffeeNumber: number | null
 ): Promise<void> {
-  await companionFetch(`/roasts/${roastNumber}/coffee`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "If-Match": `"revision:${revision}"`,
-    },
-    body: JSON.stringify({ coffeeNumber }),
-  })
+  requireCompanion()
+  unwrapResponse(
+    await companionClient.PATCH("/api/v1/roasts/{reference}/coffee", {
+      params: { path: { reference: String(roastNumber) } },
+      headers: {
+        "If-Match": `"revision:${revision}"`,
+      },
+      body: { coffeeNumber },
+    })
+  )
 }
 
 export async function getSystemCapabilities(): Promise<
   CompanionResult<SystemCapabilities>
 > {
   try {
-    const bootstrap = await companionFetch<unknown>("/system/bootstrap")
+    requireCompanion()
+    const bootstrap = unwrapResponse(
+      await companionClient.GET("/api/v1/system/bootstrap")
+    )
     return { data: normalizeCapabilities(bootstrap), source: "companion" }
   } catch (error) {
     if (demoDataEnabled) return { data: demoCapabilities, source: "demo" }
@@ -702,7 +676,10 @@ export async function getSystemCapabilities(): Promise<
 
 export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
   try {
-    const usb = normalizeAdapter(await companionFetch<unknown>("/device"))
+    requireCompanion()
+    const usb = normalizeAdapter(
+      unwrapResponse(await companionClient.GET("/api/v1/device"))
+    )
     const connection = usb.connection ?? "disconnected"
     return {
       source: "companion",
@@ -734,11 +711,17 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
 }
 
 export async function refreshDevice(): Promise<void> {
-  await companionFetch("/device/refresh", { method: "POST" })
+  requireCompanion()
+  unwrapResponse(
+    await companionClient.POST("/api/v1/device/refresh", { body: {} })
+  )
 }
 
 export async function synchronizeDevice(): Promise<void> {
-  await companionFetch("/device/synchronize", { method: "POST", body: "{}" })
+  requireCompanion()
+  unwrapResponse(
+    await companionClient.POST("/api/v1/device/synchronize", { body: {} })
+  )
 }
 
 function mapPreferences(value: unknown): UserPreferences {
@@ -794,29 +777,35 @@ function mapBrew(value: unknown): Brew {
 }
 
 export async function getPreferences(): Promise<UserPreferences> {
-  return mapPreferences(await companionFetch("/preferences"))
+  requireCompanion()
+  return mapPreferences(
+    unwrapResponse(await companionClient.GET("/api/v1/preferences"))
+  )
 }
 
 export async function updatePreferences(
   revision: number,
   input: Partial<Omit<UserPreferences, "revision">>
 ): Promise<UserPreferences> {
+  requireCompanion()
   return mapPreferences(
-    await companionFetch("/preferences", {
-      method: "PATCH",
-      headers: { "If-Match": `"revision:${revision}"` },
-      body: JSON.stringify(input),
-    })
+    unwrapResponse(
+      await companionClient.PATCH("/api/v1/preferences", {
+        headers: { "If-Match": `"revision:${revision}"` },
+        body: input,
+      })
+    )
   )
 }
 
 export async function listBrews(roastNumber?: number): Promise<Brew[]> {
-  const params = new URLSearchParams()
-  if (roastNumber) params.set("roastNumber", String(roastNumber))
-  const response = await companionFetch<{ items?: unknown[] }>(
-    `/brews${params.size ? `?${params}` : ""}`
+  requireCompanion()
+  const response = unwrapResponse(
+    await companionClient.GET("/api/v1/brews", {
+      params: { query: roastNumber ? { roastNumber } : {} },
+    })
   )
-  return (response.items ?? []).map(mapBrew)
+  return response.items.map(mapBrew)
 }
 
 export async function createBrew(input: {
@@ -833,11 +822,9 @@ export async function createBrew(input: {
   tastingNotes?: string
   notes?: string
 }): Promise<Brew> {
+  requireCompanion()
   return mapBrew(
-    await companionFetch("/brews", {
-      method: "POST",
-      body: JSON.stringify(input),
-    })
+    unwrapResponse(await companionClient.POST("/api/v1/brews", { body: input }))
   )
 }
 
@@ -845,11 +832,11 @@ export async function createLabelRecord(input: {
   roastNumber: number
   copies: number
 }): Promise<LabelRecord> {
+  requireCompanion()
   const row = record(
-    await companionFetch("/labels", {
-      method: "POST",
-      body: JSON.stringify(input),
-    })
+    unwrapResponse(
+      await companionClient.POST("/api/v1/labels", { body: input })
+    )
   )
   const status = text(row.status)
   return {
@@ -894,15 +881,14 @@ export async function submitPrintJob(input: {
     )
   }
 
-  const result = await companionFetch<{ id: string; status: "submitted" }>(
-    "/print-jobs",
-    {
-      method: "POST",
+  requireCompanion()
+  const result = unwrapResponse(
+    await companionClient.POST("/api/v1/print-jobs", {
       headers: { "Idempotency-Key": crypto.randomUUID() },
-      body: JSON.stringify(input),
-    }
+      body: input,
+    })
   )
-  return { ...result, source: "companion" }
+  return { id: result.id, status: "submitted", source: "companion" }
 }
 
 export const queryKeys = {

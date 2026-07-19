@@ -9,17 +9,20 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo dev --filter=@tan-studio/web --filter=@tan-studio/companion",
+    "dev": "bun script/dev.ts",
     "dev:web": "bun run --filter @tan-studio/web dev",
     "dev:companion": "bun run --filter @tan-studio/companion dev",
+    "dev:service": "cargo run --manifest-path apps/service/Cargo.toml",
     "dev:desktop": "bun run --filter @tan-studio/desktop dev",
     "build": "bun run --filter @tan-studio/companion build && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
     "build:pi": "./script/build_pi_release.sh",
     "deploy:pi": "./script/deploy_pi.sh",
-    "test": "bun run --filter '@tan-studio/*' test",
+    "test": "cargo test --manifest-path apps/service/Cargo.toml && bun run --filter '@tan-studio/*' test",
     "typecheck": "bun run --filter '@tan-studio/*' typecheck",
     "boundaries": "bun scripts/check-boundaries.ts",
     "audit:klog": "bun scripts/audit-klog-corpus.ts",
+    "contract:generate": "bun run --cwd apps/web contract:generate",
+    "contract:check": "bun run contract:generate && git diff --exit-code -- apps/web/src/generated/openapi.json apps/web/src/generated/api.ts",
     "check": "bun run boundaries && bun run typecheck && bun run test && bun run build",
     "format": "prettier --write package.json tsconfig.json turbo.json scripts apps packages",
     "format:check": "prettier --check package.json tsconfig.json turbo.json scripts apps packages"

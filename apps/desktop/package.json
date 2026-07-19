@@ -3,14 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun run build:serial-bridge && tauri dev",
-    "build": "bun run build:serial-bridge && bun run build:sidecar && tauri build --bundles app && bun scripts/verify-test-app.ts",
-    "bundle:installers": "bun run build:serial-bridge && bun run build:sidecar && tauri build",
-    "build:serial-bridge": "bun scripts/build-serial-bridge.ts",
-    "build:sidecar": "bun scripts/build-sidecar.ts",
-    "test": "bun run build:serial-bridge && bun run build:sidecar && cargo test --manifest-path src-tauri/Cargo.toml",
-    "typecheck": "bun run typecheck:sidecar && bun run build:serial-bridge && bun run build:sidecar && cargo check --manifest-path src-tauri/Cargo.toml",
-    "typecheck:sidecar": "bunx tsc -p sidecar/tsconfig.json --noEmit"
+    "dev": "bun run build:service && tauri dev",
+    "build": "bun run build:service && tauri build --bundles app && bun scripts/verify-test-app.ts",
+    "bundle:installers": "bun run build:service && tauri build",
+    "build:service": "bun scripts/build-service.ts",
+    "test": "bun run build:service && cargo test --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "bun run build:service && cargo check --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tan-studio/web": "workspace:*",

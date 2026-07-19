@@ -16,7 +16,7 @@ use tokio::{
     time::{timeout_at, Instant},
 };
 
-const SIDECAR_NAME: &str = "tan-studio-companion";
+const SIDECAR_NAME: &str = "tan-studio-service";
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_BOOTSTRAP_RECORD_BYTES: usize = 4 * 1024;
 const PACKAGED_UI_ORIGIN: &str = "tauri://localhost";
@@ -231,17 +231,17 @@ fn spawn_with_development_fallback<R: Runtime>(
         return Err(CompanionError::Spawn);
     }
 
-    let entrypoint = development_entrypoint()?;
-    let working_directory = entrypoint
+    let manifest = development_manifest()?;
+    let working_directory = manifest
         .parent()
-        .and_then(Path::parent)
         .ok_or(CompanionError::DevelopmentSource)?;
 
     let process = app
         .shell()
-        .command("bun")
+        .command("cargo")
         .set_raw_out(true)
-        .arg(&entrypoint)
+        .args(["run", "--quiet", "--manifest-path"])
+        .arg(&manifest)
         .current_dir(working_directory)
         .spawn()
         .map_err(|_| CompanionError::Spawn)?;
@@ -270,13 +270,13 @@ fn initialize_launch_channel(
     Ok((events, child))
 }
 
-fn development_entrypoint() -> Result<PathBuf, CompanionError> {
+fn development_manifest() -> Result<PathBuf, CompanionError> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let candidate = manifest_dir.join("../sidecar/entry.ts");
+    let candidate = manifest_dir.join("../../service/Cargo.toml");
     let canonical = candidate
         .canonicalize()
         .map_err(|_| CompanionError::DevelopmentSource)?;
-    let expected_suffix = Path::new("apps/desktop/sidecar/entry.ts");
+    let expected_suffix = Path::new("apps/service/Cargo.toml");
 
     if !canonical.ends_with(expected_suffix) || !canonical.is_file() {
         return Err(CompanionError::DevelopmentSource);
