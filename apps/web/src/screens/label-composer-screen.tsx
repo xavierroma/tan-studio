@@ -186,7 +186,7 @@ export function LabelComposerScreen() {
                 <Input
                   id="label-roast-date"
                   type="date"
-                  defaultValue={roast?.roastedAt.slice(0, 10)}
+                  defaultValue={roast?.roastedAt?.slice(0, 10)}
                 />
               </Field>
               <div className="grid grid-cols-2 gap-3">

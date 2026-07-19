@@ -559,13 +559,13 @@ impl KlogImporter {
         };
         if updated {
             transaction.execute(
-                "UPDATE roasts SET profile_revision_id=?, roasted_at_ms=?, source_timezone='UTC', level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, notes=?, native_log_number=?, roast_duration_ms=?, cooldown_end_ms=?, source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
-                params![profile_revision_id, facts.roasted_at_ms, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, roast_id],
+                "UPDATE roasts SET profile_revision_id=?, roasted_at_ms=?, roasted_at_source=?, source_timezone='UTC', level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, notes=?, native_log_number=?, roast_duration_ms=?, cooldown_end_ms=?, source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
+                params![profile_revision_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, roast_id],
             )?;
         } else {
             transaction.execute(
-                "INSERT INTO roasts (id, serial_number, profile_revision_id, roasted_at_ms, source_timezone, level_thousandths, development_basis_points, green_input_mass_mg, end_reason, result, status, notes, native_log_number, roast_duration_ms, cooldown_end_ms, source_file_id, native_metadata_json, import_warnings_json, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'UTC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params![roast_id, serial_number, profile_revision_id, facts.roasted_at_ms, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, now],
+                "INSERT INTO roasts (id, serial_number, profile_revision_id, roasted_at_ms, roasted_at_source, source_timezone, level_thousandths, development_basis_points, green_input_mass_mg, end_reason, result, status, notes, native_log_number, roast_duration_ms, cooldown_end_ms, source_file_id, native_metadata_json, import_warnings_json, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, 'UTC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![roast_id, serial_number, profile_revision_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, now],
             )?;
         }
         replace_telemetry(&transaction, &roast_id, stream_version, &document, now)?;
@@ -680,6 +680,7 @@ fn range(value: f64, minimum: f64, maximum: f64, label: &str) -> Result<(), Klog
 struct Facts {
     native_log_number: Option<i64>,
     roasted_at_ms: i64,
+    roasted_at_source: &'static str,
     level_thousandths: Option<i64>,
     development_basis_points: Option<i64>,
     green_input_mass_mg: Option<i64>,
@@ -720,14 +721,11 @@ fn facts(document: &Document, input: &ImportInput) -> Facts {
         .get("log_file_name")
         .map(String::as_str)
         .unwrap_or(&input.filename);
+    let (roasted_at_ms, roasted_at_source) = roast_timestamp(document, input);
     Facts {
         native_log_number: native_log_number(source_name),
-        roasted_at_ms: document
-            .metadata
-            .get("roast_date")
-            .and_then(|value| parse_roast_date(value))
-            .or_else(|| parse_source_modified(&input.source_modified_at))
-            .unwrap_or_else(|| Utc::now().timestamp_millis()),
+        roasted_at_ms,
+        roasted_at_source,
         level_thousandths: document
             .metadata
             .get("roasting_level")
@@ -930,7 +928,7 @@ fn insert_projection(
     profile_revision: Option<&str>,
 ) -> Result<(), KlogError> {
     let profile = profile_details(transaction, profile_revision)?;
-    transaction.execute("INSERT INTO roast_library_rows (roast_id, serial_number, revision, roasted_at_ms, coffee_name, provider_name, varieties_json, profile_revision_id, profile_name, profile_revision_number, roast_level_thousandths, green_input_mass_mg, development_basis_points, tags_json, result, status, needs_tasting, native_log_number, duration_ms) VALUES (?, ?, 1, ?, 'Unassigned coffee', NULL, '[]', ?, ?, ?, ?, ?, ?, '[]', ?, ?, 1, ?, ?)", params![roast_id, serial, facts.roasted_at_ms, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms])?;
+    transaction.execute("INSERT INTO roast_library_rows (roast_id, serial_number, revision, roasted_at_ms, roasted_at_source, coffee_name, provider_name, varieties_json, profile_revision_id, profile_name, profile_revision_number, roast_level_thousandths, green_input_mass_mg, development_basis_points, tags_json, result, status, needs_tasting, native_log_number, duration_ms) VALUES (?, ?, 1, ?, ?, 'Unassigned coffee', NULL, '[]', ?, ?, ?, ?, ?, ?, '[]', ?, ?, 1, ?, ?)", params![roast_id, serial, facts.roasted_at_ms, facts.roasted_at_source, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms])?;
     replace_fts(
         transaction,
         roast_id,
@@ -949,7 +947,7 @@ fn refresh_projection(
     profile_revision: Option<&str>,
 ) -> Result<(), KlogError> {
     let profile = profile_details(transaction, profile_revision)?;
-    transaction.execute("UPDATE roast_library_rows SET revision=revision+1, roasted_at_ms=?, profile_revision_id=?, profile_name=?, profile_revision_number=?, roast_level_thousandths=?, green_input_mass_mg=?, development_basis_points=?, result=?, status=?, native_log_number=?, duration_ms=? WHERE roast_id=?", params![facts.roasted_at_ms, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms, roast_id])?;
+    transaction.execute("UPDATE roast_library_rows SET revision=revision+1, roasted_at_ms=?, roasted_at_source=?, profile_revision_id=?, profile_name=?, profile_revision_number=?, roast_level_thousandths=?, green_input_mass_mg=?, development_basis_points=?, result=?, status=?, native_log_number=?, duration_ms=? WHERE roast_id=?", params![facts.roasted_at_ms, facts.roasted_at_source, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms, roast_id])?;
     let row = transaction.query_row("SELECT coalesce(coffee_name,'Unassigned coffee'), coalesce(provider_name,''), coalesce(farm_producer,''), coalesce(process,''), coalesce(tasting_notes,'') FROM roast_library_rows WHERE roast_id=?", [roast_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
     replace_fts(
         transaction,
@@ -1035,6 +1033,22 @@ fn native_log_number(value: &str) -> Option<i64> {
     let tail = value.rsplit('/').next()?;
     let digits = tail.strip_prefix("log")?.strip_suffix(".klog")?;
     digits.parse().ok()
+}
+fn roast_timestamp(document: &Document, input: &ImportInput) -> (i64, &'static str) {
+    if let Some(value) = document
+        .metadata
+        .get("roast_date")
+        .and_then(|value| parse_roast_date(value))
+    {
+        return (value, "metadata");
+    }
+    if let Some(value) = parse_source_modified(&input.source_modified_at) {
+        if value != 978_310_860_000 {
+            return (value, "file_modified");
+        }
+        return (value, "unknown");
+    }
+    (Utc::now().timestamp_millis(), "unknown")
 }
 fn parse_roast_date(value: &str) -> Option<i64> {
     NaiveDateTime::parse_from_str(
@@ -1157,5 +1171,22 @@ mod tests {
             parse_source_modified("2000-12-31T17:01:00Z"),
             Some(978_282_060_000)
         );
+    }
+
+    #[test]
+    fn treats_the_nano_clock_sentinel_as_an_unknown_roast_date() {
+        let mut document = parse(&fixture("2.00000", "521.216")).unwrap();
+        document.metadata.remove("roast_date");
+        let input = ImportInput {
+            bytes: Vec::new(),
+            device_path: "kaffelogic/roast-logs/log0014.klog".into(),
+            filename: "log0014.klog".into(),
+            source_modified_at: "200101011010100".into(),
+        };
+
+        let facts = facts(&document, &input);
+
+        assert_eq!(facts.roasted_at_ms, 978_310_860_000);
+        assert_eq!(facts.roasted_at_source, "unknown");
     }
 }

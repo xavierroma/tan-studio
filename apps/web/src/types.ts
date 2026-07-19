@@ -5,7 +5,7 @@ export type RoastSummary = {
   id: string
   number: number
   nativeLogNumber: number | null
-  roastedAt: string
+  roastedAt: string | null
   coffeeName: string
   providerName: string
   country: string

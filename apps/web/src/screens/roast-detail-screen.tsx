@@ -104,7 +104,7 @@ export function RoastDetailScreen() {
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow={`${roastedAt.date} · ${roastedAt.time} · Native log ${roast.nativeLogNumber ?? "—"}`}
+        eyebrow={`${roastedAt.date}${roastedAt.time ? ` · ${roastedAt.time}` : ""} · Native log ${roast.nativeLogNumber ?? "—"}`}
         title={`Roast #${roast.number} · ${roast.coffeeName}`}
         description={`${roast.providerName} · ${roast.country}, ${roast.region} · Lot ${roast.lotCode}`}
         actions={

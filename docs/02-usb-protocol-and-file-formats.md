@@ -19,7 +19,7 @@ The roaster was unavailable during the initial pass. A later IORegistry inspecti
 
 The same session sent the read-only type-5 inventory request for `kaffelogic/roast-logs`. The attached Nano returned a final type-6 response with lower outcome `103` (`busy`) and sequence `0`. Its operational status concurrently reported `sassi_file_lock=7`. Static inspection of Studio confirms that Studio also defers filesystem synchronization until this field becomes `0`. Tan Studio therefore remains connected, reports the busy state, and automatically retries synchronization after a later not-busy type-30 status notification. This verifies the request/error path without inventing a command or bypassing the device lock. A successful directory payload and complete type-8 file transfer still require a capture while the Nano reports an unlocked filesystem. Live-roast traffic and every mutating command remain disabled and uncaptured.
 
-On 19 July 2026 the user reconnected the cable for a parity run, but macOS exposed neither USB modem node and listed no Nano in its USB system report. Kaffeelogic Studio likewise reached only its cached sync folder. That observation does not invalidate the earlier live capture; it establishes that the current physical connection was not enumerating and therefore could not be used to claim a new live filesystem transfer.
+On 19 July 2026 the user reconnected the cable after an initial non-enumerating attempt. macOS exposed the Nano as a USB modem, the packaged Tan Studio application negotiated a read-only SASSI session, and it inventoried and downloaded 14 KLOG files plus 16 KPRO files. Kaffelogic Studio independently refreshed the same device corpus. SHA-256 reconciliation matched all 30 synchronized source files byte-for-byte between Studio's device cache and Tan Studio's immutable native-file store.
 
 ## 2. USB serial transport
 
@@ -121,7 +121,7 @@ YYYYMMDDdHHMMSS
 
 ### 3.2 Minimum read-only connection sequence
 
-An initial compatibility client must stage this sequence by evidence. Steps 1-7 and the busy filesystem response in step 8 are implemented and verified against the attached Nano. The successful directory/file payload path remains fixture-tested but awaits an unlocked hardware capture; live behavior remains capture-gated:
+An initial compatibility client must stage this sequence by evidence. Steps 1-8 are implemented and verified read-only against the attached Nano, including unlocked directory inventory, multi-packet file transfer, and import of 14 logs plus 16 profiles:
 
 1. Select the CDC port whose USB VID/PID is `0x2e8a:0x000a`.
 2. Open it at 115200 baud, assert DTR, and buffer bytes until `\r`.
@@ -621,7 +621,8 @@ The golden-fixture set should therefore include a native profile pull; completed
 Parser version 2 is grounded in three independent evidence sets:
 
 - Static inspection of the installed Kaffelogic Studio 7.4.3 reader established line normalization, first-colon properties, last-value-wins metadata, generic `!` overrides, header-prefix behavior, time-offset application, short/extra-row behavior, and Studio's invalid-number-to-zero recovery.
-- The attached Nano corpus contains 13 native firmware 7.20.6 logs, 6,167 total samples, one 13-channel schema, completed and interrupted recordings, negative pre-roast timestamps down to approximately -5.6 seconds, and cooldown data beyond 14 minutes. All 13 parse as `exact` with byte-identical raw retention and no diagnostics.
+- The attached Nano corpus contains 14 native firmware 7.20.6 logs, 6,828 total samples, one 13-channel schema, completed and interrupted recordings, negative pre-roast timestamps down to approximately -5.6 seconds, and cooldown data beyond 14 minutes. All 14 parse as `exact` with byte-identical raw retention and no diagnostics.
+- Ten logs omit `roast_date` and carry the Nano filesystem clock sentinel `2001-01-01 01:01:00 UTC`. This is not a valid roast date. Importers must preserve it as provenance while projecting the user-facing date as unknown; local timezone conversion must not turn it into an apparently real 31 December 2000 roast.
 - Kaffelogic's own support forum documents a firmware/storage failure in which one valid roast was split across two `.klog` files, with approximately six seconds lost; Studio support instructed users to stitch the numeric continuation manually. A headerless continuation is therefore known evidence, not a complete independently importable roast. Tan Studio retains/quarantines it until fragment reconciliation exists rather than inventing a header or second roast. [Kaffelogic: log file split in two](https://community.kaffelogic.com/viewtopic.php?t=128)
 
 The compatibility claim is deliberately bounded: no finite corpus can prove every past or future log. Tan Studio instead guarantees these safety properties:
@@ -741,8 +742,8 @@ Before calling the transport production-ready, capture these scenarios against a
 
 1. USB descriptors and endpoint layout. **Completed read-only:** composite CDC ACM control/data interfaces, full-speed link, VID/PID, and macOS bindings verified.
 2. Device connection request and negotiation. **Completed read-only on the reference Nano:** repeated type-2 requests confirmed platform `1`, capability value `128`, redacted 10-byte serial position, SASSI version `1`, model `KN1007B`, manufacturer domain, empty description, advertised limits `4064`/`192`, changing CRC seed, and CRC validation. A Studio-compatible type-3 response was accepted and returned the matching type-4 acknowledgement.
-3. System, filesystem, technical, and operational-status reads. **Partially completed read-only:** type-13 codes 9 and 3 returned matching type-14 responses; system information yielded firmware `7.20.6`. Filesystem and technical reads still require capture and fixtures.
-4. Directory list, file pull, file push to a harmless test name, and conflict behavior.
+3. System, filesystem, technical, and operational-status reads. **Filesystem/system/status completed read-only:** type-13 codes 9 and 3 returned matching type-14 responses; system information yielded firmware `7.20.6`; directory and file reads completed. Technical information still requires capture and fixtures.
+4. Directory list and file pull are **completed read-only** for the 14-log/16-profile reference corpus. File push to a harmless test name and conflict behavior remain disabled and capture-gated.
 5. Idle to busy transition without starting the roast from software.
 6. Incremental live log and event notification during a supervised physical roast.
 7. Final log reconciliation.

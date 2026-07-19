@@ -889,7 +889,8 @@ export interface components {
             revision: number;
             /** Format: int64 */
             roastLevelThousandths?: number | null;
-            roastedAt: string;
+            roastedAt?: string | null;
+            roastedAtSource: string;
             /** Format: int64 */
             roastedYieldMassMg?: number | null;
             sampleStream?: null | components["schemas"]["RoastSampleStream"];

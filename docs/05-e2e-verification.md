@@ -2,13 +2,13 @@
 
 - **Verification date:** 2026-07-19
 - **Host:** Apple Silicon Mac, macOS, local Rust service, Vite/React client
-- **Data source:** 13 native roast logs and the 16-profile Nano sync corpus from Kaffeelogic Studio's application-support directory
+- **Data source:** Live Nano USB synchronization: 14 native roast logs and 16 roast profiles, cross-checked with Kaffeelogic Studio's synchronized device corpus
 
 This report records what has been exercised against real user data. It is an evidence boundary, not a claim that every Kaffeelogic firmware or historical `.klog` variant has been observed.
 
 ## Result
 
-Tan Studio imported all 13 available native logs transactionally with no warnings or quarantined files. SQLite contains 13 roast records, 13 sample-stream manifests, and 6,167 telemetry rows. `PRAGMA quick_check` returns `ok`.
+Tan Studio imported all 14 available native logs transactionally with no warnings or quarantined files. SQLite contains 14 roast records, 14 sample-stream manifests, and 6,828 telemetry rows. `PRAGMA quick_check` returns `ok`.
 
 Tan Studio also imported all 16 profiles displayed by Kaffeelogic Studio's Nano sync-folder view with zero compatibility warnings. Each original `.kpro` byte stream is retained by SHA-256, and every profile produced both a sampled temperature curve and a sampled fan curve through the typed `/api/v1/profiles` contract.
 
@@ -29,6 +29,7 @@ Every imported stream's declared row count matches both the native file's parsed
 | 11 | 883 | 883 | 13 | 594,720 | Completed |
 | 12 | 794 | 794 | 13 | 556,257 | Completed |
 | 13 | 759 | 759 | 13 | 521,216 | Completed |
+| 14 | 661 | 661 | 13 | 414,444 | Completed |
 
 Interrupted roasts remain valid roast records and retain all available samples. The notebook labels and filters these separately instead of presenting them as successful roasts awaiting tasting.
 
@@ -46,6 +47,10 @@ Native log 13 was opened in Kaffeelogic Studio and in Tan Studio. The following 
 | Green load | 50 g | 50 g |
 
 The end annotation uses the mean-temperature channel, matching Studio, while preserving the independently offset spot-temperature channel for charting. Tan Studio retains and visualizes the native temperature, mean temperature, profile, profile ROR, actual ROR, desired ROR, power, fan, PID, and incidental channel values present in the file.
+
+After live USB synchronization, native log 14 was also opened in both applications. Studio and Tan Studio agree on a 6:54 roast end, 219.8 °C end temperature, 661 numeric rows, 13 channels, roast level 1.4, and 120 g green load. SHA-256 reconciliation proved that Tan Studio retained the exact same bytes as Studio for all 14 KLOG files and all 16 KPRO files.
+
+Log 14 and nine earlier logs contain no `roast_date`; their Nano filesystem timestamp is the `2001-01-01 01:01:00 UTC` clock sentinel. Studio's macOS file panel displays this as 31 December 2000 at 17:01 in Pacific time. Tan Studio preserves the source timestamp for provenance but exposes the roast date as unknown, labels it `Date unavailable`, and orders the notebook by descending short roast number instead of presenting the sentinel as a real date.
 
 ### Profile corpus parity
 
@@ -77,7 +82,8 @@ The curve renderer uses the same cubic Bézier grouping as Studio: each node is 
 The following flows were exercised against the Rust API and the real local database:
 
 - Roast notebook search, grouping, sorting, date, provider, process, score, and status controls are URL-backed and survive reload.
-- The packaged Tauri app opens native log 13, renders the ECharts telemetry view in macOS WebKit, and preserves `/roasts/13` plus its graph across reload. Roast detail loads telemetry separately from notebook rows, displays all native channels, and provides an explicit Notebook back action.
+- The packaged Tauri app opens native logs 13 and 14, renders the ECharts telemetry view in macOS WebKit, and preserves short-number detail routes plus their graphs across reload. Roast detail loads telemetry separately from notebook rows, displays all native channels, and provides an explicit Notebook back action.
+- The notebook defaults to an ungrouped, descending roast-number view. Unknown Nano clock dates sort without inventing timestamps and render as `Date unavailable`.
 - Invalid roast references render a recoverable error view instead of crashing the application.
 - Catalog acquisition creates provider, coffee, purchase, lot, and inventory records transactionally; the new lot survives reload.
 - Catalog search and selected-lot state are URL-backed.
@@ -86,7 +92,7 @@ The following flows were exercised against the Rust API and the real local datab
 - The React client consumes the OpenAPI-generated client; it does not hand-maintain endpoint response types.
 - The Profiles route loads the real typed API, exposes all 16 native files, keeps the selected profile in the URL, renders temperature and fan curves, and displays native metadata instead of prototype data.
 
-Temporary catalog and preference values created solely for E2E testing were removed or restored after verification. The retained development database contains the 13 real roast logs.
+Temporary catalog and preference values created solely for E2E testing were removed or restored after verification. The packaged application database contains the 14 real roast logs and 16 real roast profiles.
 
 The existing desktop database was also upgraded from the former TypeScript companion's migration ledger to the canonical Rust ledger after hash validation and an automatic backup. The executable launch check requires both the desktop shell and its Rust sidecar to remain alive, preventing a shell-only false positive.
 
@@ -106,12 +112,6 @@ The automated test suite includes fragmented SASSI frame parsing, CRC mutation r
 
 ## Hardware status and remaining gate
 
-At the end of this verification macOS exposed no `/dev/cu.usbmodem*` or `/dev/tty.usbmodem*` node, and the Nano was absent from the USB system report. Kaffelogic Studio also showed only its cached Nano sync folder rather than a live roaster connection. Consequently, live USB discovery and an on-device sync cannot truthfully be marked E2E-passing in this run. The service fails closed as disconnected/read-only; it does not issue speculative writes. The 16-profile result above is a parity check against Studio's exact cached device corpus, not a claim that the currently connected cable enumerated successfully.
+The Nano enumerated as a macOS USB CDC modem and the packaged Tan Studio application completed passive discovery, SASSI negotiation, system-information lookup, directory inventory, file download, and transactional import. It reported model `KN1007B`, firmware `7.20.6`, SASSI v1, 16 profiles, and 14 roast logs. The same inventory was independently refreshed in Kaffelogic Studio. Tan Studio reacquired the USB connection after Studio quit without an application restart.
 
-Once the Nano enumerates, the remaining acceptance run is:
-
-1. Confirm passive SASSI capability discovery.
-2. Compare the service's device log inventory with Studio's inventory.
-3. Import into a disposable database and repeat row/channel/hash reconciliation.
-4. Run one live roast with Studio closed and compare the completed log against the device file.
-5. Keep all device writes disabled until a legitimate Studio session capture validates the command protocol.
+This read-only USB path is now E2E-passing. Device writes remain disabled until legitimate Studio traffic establishes the exact profile-write, command, acknowledgement, and recovery behavior. A supervised new roast, incremental live-log notification, cable interruption during a roast, and post-roast automatic synchronization remain the live-monitoring acceptance gates.

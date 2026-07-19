@@ -45,11 +45,45 @@ describe("development demo gate", () => {
 
 describe("production-safe companion reads", () => {
   test("keeps an empty roast collection empty", async () => {
-    mockFetch().mockResolvedValue(jsonResponse({ rows: [] }))
+    const fetchMock = mockFetch().mockResolvedValue(jsonResponse({ rows: [] }))
 
     await expect(listRoasts()).resolves.toEqual({
       data: [],
       source: "companion",
+    })
+    const request = fetchMock.mock.calls[0]?.[0]
+    const body = await (request as Request).clone().json()
+    expect(body.sorts).toEqual([
+      { field: "roastNumber", direction: "desc", nulls: "last" },
+    ])
+  })
+
+  test("keeps a missing Nano roast date unknown", async () => {
+    mockFetch().mockResolvedValue(
+      jsonResponse({
+        kind: "rows",
+        rows: [
+          {
+            roastId: "roast-14",
+            values: {
+              roastNumber: 14,
+              nativeLogNumber: 14,
+              roastedAt: null,
+              roastedAtSource: "unknown",
+              status: "completed",
+              result: "success",
+            },
+          },
+        ],
+      })
+    )
+
+    const result = await listRoasts()
+
+    expect(result.data[0]).toMatchObject({
+      number: 14,
+      nativeLogNumber: 14,
+      roastedAt: null,
     })
   })
 
@@ -148,6 +182,7 @@ describe("production-safe companion reads", () => {
         direction: "desc",
         nulls: "last",
       },
+      { field: "roastNumber", direction: "desc", nulls: "last" },
     ])
   })
 

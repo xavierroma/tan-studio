@@ -85,7 +85,7 @@ export function RoastLibraryScreen() {
   const search = useSearch({ strict: false }) as RoastLibraryOptions
   const view = {
     ...search,
-    group: search.group ?? "lot",
+    group: search.group ?? "none",
     sort: search.sort ?? "newest",
     date: search.date ?? "all",
   } satisfies RoastLibraryOptions
@@ -103,8 +103,8 @@ export function RoastLibraryScreen() {
   const columns = useMemo(
     () => [
       columnHelper.display({ id: "select" }),
-      columnHelper.accessor("roastedAt", { header: "Date ↓" }),
-      columnHelper.accessor("coffeeName", { header: "Coffee" }),
+      columnHelper.accessor("roastedAt", { header: "Date" }),
+      columnHelper.accessor("coffeeName", { header: "Roast # ↓ · coffee" }),
       columnHelper.accessor("providerName", { header: "Provider" }),
       columnHelper.accessor("region", { header: "Country · region · farm" }),
       columnHelper.accessor("process", { header: "Process" }),
@@ -225,7 +225,7 @@ export function RoastLibraryScreen() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="newest">Date · newest</SelectItem>
+              <SelectItem value="newest">Roast # · newest</SelectItem>
               <SelectItem value="score">Score · highest</SelectItem>
               <SelectItem value="coffee">Coffee · A–Z</SelectItem>
             </SelectContent>
@@ -357,7 +357,7 @@ export function RoastLibraryScreen() {
               ? " score descending"
               : view.sort === "coffee"
                 ? " coffee A–Z"
-                : " newest first"}
+                : " roast # descending"}
           </span>
           <span className="text-muted-foreground ml-auto text-xs">
             {data?.source === "companion"
@@ -439,7 +439,7 @@ export function RoastLibraryScreen() {
                         >
                           <p className="font-medium">{roastDate.date}</p>
                           <p className="text-muted-foreground">
-                            {roastDate.time}
+                            {roastDate.time || "Nano clock not recorded"}
                           </p>
                         </div>
                         <div role="cell" className="min-w-0">

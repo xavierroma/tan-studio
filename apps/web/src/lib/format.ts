@@ -9,7 +9,10 @@ export const timeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 })
 
-export function formatRoastDate(value: string) {
+export function formatRoastDate(value: string | null) {
+  if (value == null) {
+    return { date: "Date unavailable", time: "" }
+  }
   const date = new Date(value)
   return {
     date: dateFormatter.format(date),

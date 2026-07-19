@@ -168,7 +168,7 @@ function DemoCoffeeLotScreen() {
                           <span className="font-mono text-xs">
                             <strong className="block">{date.date}</strong>
                             <small className="text-muted-foreground">
-                              {date.time}
+                              {date.time || "Nano clock not recorded"}
                             </small>
                           </span>
                           <span>

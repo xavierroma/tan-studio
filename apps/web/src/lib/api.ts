@@ -250,7 +250,7 @@ function mapLibraryRow(row: Record<string, unknown>): RoastSummary {
     id: text(row.roastId || row.id),
     number: number(row.roastNumber),
     nativeLogNumber: optionalNumber(row.nativeLogNumber) ?? null,
-    roastedAt: text(row.roastedAt, new Date(0).toISOString()),
+    roastedAt: optionalText(row.roastedAt) ?? null,
     coffeeName: text(row.coffeeName, "Uncataloged coffee"),
     providerName: text(row.providerName, "Unknown provider"),
     country: text(row.countryCode, "—"),
@@ -363,7 +363,7 @@ export async function listRoasts(
         ? { field: "tastingScoreBasisPoints", direction: "desc", nulls: "last" }
         : options.sort === "coffee"
           ? { field: "coffeeName", direction: "asc", nulls: "last" }
-          : { field: "roastedAt", direction: "desc", nulls: "last" }
+          : { field: "roastNumber", direction: "desc", nulls: "last" }
     const groupSort =
       options.group === "lot"
         ? { field: "lotCode", direction: "asc", nulls: "last" }
@@ -372,11 +372,19 @@ export async function listRoasts(
           : options.group === "provider"
             ? { field: "providerName", direction: "asc", nulls: "last" }
             : null
-    const sorts = groupSort
+    const numberSort = {
+      field: "roastNumber",
+      direction: "desc",
+      nulls: "last",
+    }
+    const groupedSorts = groupSort
       ? groupSort.field === primarySort.field
         ? [primarySort]
         : [groupSort, primarySort]
       : [primarySort]
+    const sorts = groupedSorts.some((sort) => sort.field === numberSort.field)
+      ? groupedSorts
+      : [...groupedSorts, numberSort]
 
     const response = unwrapResponse(
       await companionClient.POST("/api/v1/roast-library/query", {
@@ -391,6 +399,7 @@ export async function listRoasts(
             "roastNumber",
             "nativeLogNumber",
             "roastedAt",
+            "roastedAtSource",
             "durationMs",
             "coffeeName",
             "providerName",
@@ -548,7 +557,7 @@ async function mapRoastDetail(
     number: roastNumber,
     revision: number(resource.revision, 1),
     nativeLogNumber: optionalNumber(resource.nativeLogNumber) ?? null,
-    roastedAt: text(resource.roastedAt, new Date(0).toISOString()),
+    roastedAt: optionalText(resource.roastedAt) ?? null,
     coffeeName: text(coffee.displayName, "Uncataloged coffee"),
     coffeeId: optionalText(coffee.id) ?? null,
     providerName: text(provider.displayName, "Unknown provider"),

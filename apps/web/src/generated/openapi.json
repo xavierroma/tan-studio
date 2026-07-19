@@ -3259,7 +3259,7 @@
           "kind",
           "id",
           "revision",
-          "roastedAt",
+          "roastedAtSource",
           "sourceTimezone",
           "result",
           "status",
@@ -3411,6 +3411,12 @@
             "format": "int64"
           },
           "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedAtSource": {
             "type": "string"
           },
           "roastedYieldMassMg": {
