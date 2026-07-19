@@ -1,6 +1,9 @@
 export type RoastLibraryField =
   | "roastId"
+  | "roastNumber"
+  | "nativeLogNumber"
   | "roastedAt"
+  | "durationMs"
   | "coffeeId"
   | "coffeeName"
   | "providerId"

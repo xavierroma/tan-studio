@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button } from "@tan-studio/ui/components/button"
+import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
   Field,
   FieldDescription,
@@ -15,11 +15,19 @@ import {
   TabsTrigger,
 } from "@tan-studio/ui/components/tabs"
 import { Textarea } from "@tan-studio/ui/components/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@tan-studio/ui/components/select"
 import { toast } from "sonner"
 import {
   ArrowLeftIcon,
   BookmarkPlusIcon,
   GitCompareArrowsIcon,
+  CoffeeIcon,
   PrinterIcon,
   SaveIcon,
   SparklesIcon,
@@ -30,7 +38,12 @@ import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import { RoastChart } from "@/components/roast-chart"
 import { StatusChip } from "@/components/status-chip"
-import { getRoast, queryKeys } from "@/lib/api"
+import {
+  assignRoastCoffee,
+  getRoast,
+  listCoffeeIdentities,
+  queryKeys,
+} from "@/lib/api"
 import {
   formatDuration,
   formatElapsed,
@@ -41,7 +54,7 @@ import { useWorkspaceStore } from "@/stores/workspace-store"
 
 export function RoastDetailScreen() {
   const { roastId } = useParams({ strict: false }) as { roastId: string }
-  const { data, isPending } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: queryKeys.roast(roastId),
     queryFn: ({ signal }) => getRoast(roastId, signal),
   })
@@ -50,6 +63,32 @@ export function RoastDetailScreen() {
     state.selectedRoastIds.includes(roastId)
   )
   const [note, setNote] = useState("")
+  const queryClient = useQueryClient()
+  const coffees = useQuery({
+    queryKey: queryKeys.coffeeIdentities(),
+    queryFn: listCoffeeIdentities,
+  })
+  const assignCoffee = useMutation({
+    mutationFn: (input: {
+      roastNumber: number
+      revision: number
+      coffeeNumber: number | null
+    }) =>
+      assignRoastCoffee(input.roastNumber, input.revision, input.coffeeNumber),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.roasts() }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.coffeeIdentities(),
+        }),
+      ])
+      toast.success("Coffee linked to this roast")
+    },
+    onError: (mutationError) => toast.error(mutationError.message),
+  })
+
+  if (error) throw error
 
   if (isPending || !data) {
     return (
@@ -65,40 +104,43 @@ export function RoastDetailScreen() {
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow={`${roastedAt.date} · ${roastedAt.time}`}
-        title={roast.coffeeName}
+        eyebrow={`${roastedAt.date} · ${roastedAt.time} · Native log ${roast.nativeLogNumber ?? "—"}`}
+        title={`Roast #${roast.number} · ${roast.coffeeName}`}
         description={`${roast.providerName} · ${roast.country}, ${roast.region} · Lot ${roast.lotCode}`}
         actions={
           <>
-            <Button
-              nativeButton={false}
-              variant="ghost"
-              render={
-                <Link
-                  to="/roasts"
-                  search={{
-                    q: undefined,
-                    process: undefined,
-                    status: undefined,
-                  }}
-                />
-              }
+            <Link
+              to="/roasts"
+              search={{
+                q: undefined,
+                process: undefined,
+                status: undefined,
+              }}
+              className={buttonVariants({ variant: "ghost" })}
             >
               <ArrowLeftIcon data-icon="inline-start" />
               Notebook
-            </Button>
+            </Link>
             <Button variant="outline" onClick={() => addToComparison(roast.id)}>
               <GitCompareArrowsIcon data-icon="inline-start" />
               {selected ? "Selected" : "Compare"}
             </Button>
-            <Button
-              nativeButton={false}
-              variant="outline"
-              render={<Link to="/labels" search={{ roastId: roast.id }} />}
+            <Link
+              to="/brews"
+              search={{ roastNumber: roast.number }}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <CoffeeIcon data-icon="inline-start" />
+              Log brew
+            </Link>
+            <Link
+              to="/labels"
+              search={{ roastId: roast.number }}
+              className={buttonVariants({ variant: "outline" })}
             >
               <PrinterIcon data-icon="inline-start" />
               Label
-            </Button>
+            </Link>
           </>
         }
       />
@@ -108,6 +150,11 @@ export function RoastDetailScreen() {
           <div className="mb-5 flex flex-wrap items-center gap-2">
             <StatusChip status={roast.status} />
             <Badge variant="outline">Raw .klog retained</Badge>
+            <Badge variant={roast.importWarningCount ? "warning" : "success"}>
+              {roast.importWarningCount
+                ? `${roast.importWarningCount} import warnings`
+                : "All native rows parsed"}
+            </Badge>
             <Badge variant="info">
               {data.source === "companion" ? "Local database" : "Sample log"}
             </Badge>
@@ -127,24 +174,17 @@ export function RoastDetailScreen() {
                   to inspect
                 </p>
               </div>
-              <div className="text-muted-foreground flex flex-wrap gap-4 text-xs">
-                <span className="flex items-center gap-2">
-                  <i className="bg-chart-1 size-2 rounded-full" />
-                  Measured
-                </span>
-                <span className="flex items-center gap-2">
-                  <i className="bg-chart-2 size-2 rounded-full" />
-                  Target
-                </span>
-                <span className="flex items-center gap-2">
-                  <i className="bg-chart-3 size-2 rounded-full" />
-                  RoR
-                </span>
-              </div>
+              <Badge variant="secondary">
+                {roast.channels.length} native channels
+              </Badge>
             </div>
             <RoastChart
+              key={roast.id}
               points={roast.chart}
+              channels={roast.channels}
               events={roast.events}
+              durationMs={roast.durationSeconds * 1_000}
+              cooldownEndMs={roast.cooldownSeconds * 1_000}
               height={430}
             />
           </section>
@@ -242,7 +282,11 @@ export function RoastDetailScreen() {
               />
               <Metric
                 label="Weight loss"
-                value={`${roast.lossPercent.toFixed(1)}%`}
+                value={
+                  roast.lossPercent == null
+                    ? "—"
+                    : `${roast.lossPercent.toFixed(1)}%`
+                }
               />
               <Metric
                 label="Green load"
@@ -250,9 +294,45 @@ export function RoastDetailScreen() {
               />
               <Metric
                 label="Roasted"
-                value={`${roast.roastedWeightGrams.toFixed(1)} g`}
+                value={
+                  roast.roastedWeightGrams == null
+                    ? "—"
+                    : `${roast.roastedWeightGrams.toFixed(1)} g`
+                }
               />
             </div>
+            <Field className="mt-6 border-t pt-5">
+              <FieldLabel>Catalog coffee</FieldLabel>
+              <Select
+                value={String(
+                  coffees.data?.find((coffee) => coffee.id === roast.coffeeId)
+                    ?.number ?? 0
+                )}
+                onValueChange={(value) =>
+                  assignCoffee.mutate({
+                    roastNumber: roast.number,
+                    revision: roast.revision,
+                    coffeeNumber: value === "0" ? null : Number(value),
+                  })
+                }
+                disabled={coffees.isPending || assignCoffee.isPending}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Link this roast to a coffee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">Uncataloged coffee</SelectItem>
+                  {(coffees.data ?? []).map((coffee) => (
+                    <SelectItem key={coffee.id} value={String(coffee.number)}>
+                      #{coffee.number} · {coffee.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                All brews, labels and future tastings keep this roast link.
+              </FieldDescription>
+            </Field>
             <div className="mt-6 border-t pt-5">
               <p className="text-muted-foreground text-xs font-semibold tracking-[0.1em] uppercase">
                 Profile

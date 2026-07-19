@@ -6,8 +6,12 @@ import {
 import type { QueryRoastLibrary } from "@tan-studio/application"
 import type { CompanionEnv } from "../api/env"
 import { parseJson, setResourceHeaders } from "../api/http"
-import { validationError } from "../api/problem"
-import { roastLibraryQuerySchema, seriesQuerySchema } from "../api/schemas"
+import { revisionConflict, validationError } from "../api/problem"
+import {
+  roastCoffeePatchSchema,
+  roastLibraryQuerySchema,
+  seriesQuerySchema,
+} from "../api/schemas"
 import type { RoastRepository } from "../repositories/roast-repository"
 
 export function registerRoastRoutes(
@@ -27,6 +31,22 @@ export function registerRoastRoutes(
     const resource = repository.getDetail(c.req.param("id"))
     setResourceHeaders(c, resource.revision)
     return c.json(resource)
+  })
+
+  app.patch("/api/v1/roasts/:id/coffee", async (c) => {
+    const ifMatch = c.req.header("if-match")
+    const match = ifMatch ? /^"revision:(\d+)"$/.exec(ifMatch) : null
+    if (!match) {
+      throw revisionConflict('an ETag such as "revision:1"', ifMatch)
+    }
+    const input = await parseJson(c, roastCoffeePatchSchema)
+    const resource = repository.assignCoffee(
+      c.req.param("id"),
+      Number(match[1]),
+      input.coffeeNumber
+    )
+    setResourceHeaders(c, resource.revision)
+    return c.json({ resource })
   })
 
   app.get("/api/v1/roasts/:id/series", (c) => {

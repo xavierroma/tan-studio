@@ -3,6 +3,8 @@ import type { CoffeeLot, DeviceState, RoastDetail, RoastSummary } from "@/types"
 export const roastSummaries: RoastSummary[] = [
   {
     id: "0197f1d2-9000-7000-8000-000000000001",
+    number: 1,
+    nativeLogNumber: 1,
     roastedAt: "2026-07-17T16:42:00.000Z",
     coffeeName: "Ethiopia Hamasho",
     providerName: "Sey Coffee",
@@ -26,6 +28,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000002",
+    number: 2,
+    nativeLogNumber: 2,
     roastedAt: "2026-07-13T18:08:00.000Z",
     coffeeName: "Ethiopia Hamasho",
     providerName: "Sey Coffee",
@@ -49,6 +53,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000003",
+    number: 3,
+    nativeLogNumber: 3,
     roastedAt: "2026-07-10T15:26:00.000Z",
     coffeeName: "Colombia Las Flores",
     providerName: "Osito Coffee",
@@ -72,6 +78,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000004",
+    number: 4,
+    nativeLogNumber: 4,
     roastedAt: "2026-07-06T17:51:00.000Z",
     coffeeName: "Kenya Gichathaini AA",
     providerName: "Coffee Shrub",
@@ -95,6 +103,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000005",
+    number: 5,
+    nativeLogNumber: 5,
     roastedAt: "2026-06-29T16:17:00.000Z",
     coffeeName: "Panama Elida Catuai",
     providerName: "Small Batch Green",
@@ -119,6 +129,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000006",
+    number: 6,
+    nativeLogNumber: 6,
     roastedAt: "2026-06-22T17:03:00.000Z",
     coffeeName: "Rwanda Gitwe Bourbon",
     providerName: "Sweet Maria's",
@@ -142,6 +154,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000007",
+    number: 7,
+    nativeLogNumber: 7,
     roastedAt: "2026-06-18T15:44:00.000Z",
     coffeeName: "Colombia Las Flores",
     providerName: "Osito Coffee",
@@ -166,6 +180,8 @@ export const roastSummaries: RoastSummary[] = [
   },
   {
     id: "0197f1d2-9000-7000-8000-000000000008",
+    number: 8,
+    nativeLogNumber: 8,
     roastedAt: "2026-06-11T16:31:00.000Z",
     coffeeName: "Ethiopia Hamasho",
     providerName: "Sey Coffee",
@@ -313,16 +329,24 @@ function buildChart(durationSeconds: number): RoastDetail["chart"] {
 }
 
 export function getRoastDetail(id: string): RoastDetail {
-  const roast =
-    roastSummaries.find((candidate) => candidate.id === id) ??
-    roastSummaries[0]!
+  const roast = roastSummaries.find(
+    (candidate) => candidate.id === id || String(candidate.number) === id
+  )
+  if (!roast) throw new Error(`Roast #${id} was not found`)
   return {
     ...roast,
+    revision: 1,
+    coffeeId: null,
     greenWeightGrams: roast.loadGrams,
     roastedWeightGrams:
-      Math.round(roast.loadGrams * (1 - roast.lossPercent / 100) * 10) / 10,
+      Math.round(roast.loadGrams * (1 - (roast.lossPercent ?? 0) / 100) * 10) /
+      10,
     profileDescription:
       "A restrained declining-rate profile that protects floral clarity while carrying enough energy through first crack.",
+    channels: [],
+    cooldownSeconds: roast.durationSeconds,
+    nativeMetadata: {},
+    importWarningCount: 0,
     nextAction:
       roast.id === roastSummaries[0]!.id
         ? "Repeat revision 8. If the cooled cup loses sweetness, extend post-crack time by 10 seconds without increasing end temperature."
@@ -380,8 +404,14 @@ export const deviceState: DeviceState = {
   firmware: "7.4.8",
   protocol: "SASSI 1",
   packetLimitBytes: 4_064,
+  busy: false,
   profileCount: 12,
   logCount: 47,
+  syncState: "ready",
+  importedLogCount: 0,
+  updatedLogCount: 0,
+  importWarningCount: 0,
+  lastSyncedAt: "2026-07-18T18:46:17.000Z",
   readOnly: true,
 }
 

@@ -191,7 +191,15 @@ The app opens to **Roast** when a device is busy and **Roasts** when idle. A cof
 5. The lot ledger begins with a receipt transaction; future roasts and manual corrections create immutable consumption/adjustment transactions.
 6. Opening the coffee shows all acquired lots, remaining stock, all related roasts and tastings, current conclusions, and the next planned experiment.
 
-### 8.5 Print a label
+### 8.5 Log a brew and tasting
+
+1. Open a roast by its short number or scan its label QR, then choose `Log brew`.
+2. Start from personal defaults for roaster, grinder, grinder setting, kettle, water, method, coffee mass, water mass, and water temperature. V1 defaults to V60, 15 g coffee, 250 g water, and 93 °C until the user changes them.
+3. Record optional bloom, total brew time, score, descriptors, tasting notes, and process notes. The ratio is calculated from coffee and water mass.
+4. Save an immutable short-numbered brew linked to exactly one roast. The coffee, provider, roast profile, roast curve, rest age, labels, and future next-roast analysis are reached through that roast link rather than copied into the brew.
+5. Show prior brews for the same roast newest first so grinder, ratio, temperature, and tasting changes are easy to compare.
+
+### 8.6 Print a label
 
 1. From a roast, choose `Print label`.
 2. Default template fills coffee, origin/process, roast date, profile, level, roast degree, tasting/use window, and QR identifier. Green input load, measured roasted yield, and package net weight are separate optional fields.
@@ -199,8 +207,9 @@ The app opens to **Roast** when a device is busy and **Roasts** when idle. A cof
 4. Preview shows the exact paper size and overflow.
 5. User chooses exact PDF/system print, an installed queue, or a compatible discovered IPP/ZPL printer; unsupported options remain disabled with a reason.
 6. Print job, immutable artifact, template revision, capability snapshot, adapter version, and truthful status history are recorded for one-click reprint.
+7. The default QR is `tan:roast:<short-number>` and the printed record remains linked to that roast. Scanning or entering the number starts a brew/tasting against the correct roast.
 
-### 8.6 Create a profile with LLM assistance
+### 8.7 Create a profile with LLM assistance
 
 1. Choose an official/user profile or a source roast as the base.
 2. Describe the coffee, brew method, desired flavor, and observed problem.
@@ -211,7 +220,7 @@ The app opens to **Roast** when a device is busy and **Roasts** when idle. A cof
 7. User can accept individual changes, edit them, or reject the proposal.
 8. Accepted output becomes a new local revision; deployment to the roaster is a separate explicit action.
 
-### 8.7 Remote monitoring
+### 8.8 Remote monitoring
 
 1. Local companion or future hardware bridge starts an outbound authenticated TLS session.
 2. Owner opens a short-lived, read-only session on phone/web.
@@ -306,6 +315,8 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 | COF-13 | P0 | Search coffee/lot selectors by coffee name, provider, supplier/internal lot code, country, region, farm/producer, process, and tag; depleted lots are hidden by default but remain accessible. |
 | COF-14 | P1 | Provide tasting reminders and a `Needs tasting` queue based on roast time and intended rest window. |
 | COF-15 | P1 | Support unit-safe inventory views and purchase summaries without expanding into invoicing, accounting, or ecommerce. |
+| COF-16 | P0 | Create many short-numbered brew records per roast with brewed time, method, grinder and setting, kettle, water, coffee/water masses and calculated ratio, water temperature, optional bloom and brew duration, score, descriptors, tasting notes, and free notes. |
+| COF-17 | P0 | Maintain one editable personal defaults record for the user's roaster and brew setup. Every new brew starts from these defaults without duplicating equipment tables in v1. |
 
 ### 9.5 Profile library and editor
 
@@ -338,7 +349,7 @@ Release boundary: P0 is delivered only after Phases 0-2 pass their exit criteria
 | LAB-07 | P1 | Reprint and batch print from library selection. |
 | LAB-08 | P1 | Template designer with reusable field visibility and layout presets. |
 | LAB-09 | P0 | Discover installed OS queues and direct IPP/IPPS printers, query capabilities, and submit only an advertised compatible PDF/PWG-raster path. |
-| LAB-10 | P0 | Default QR contains only an opaque roast identifier. A resolvable read-only URL is an explicit publish option through the relay, never a local path, device serial, viewer token, or secret. |
+| LAB-10 | P0 | Default QR contains only `tan:roast:<short-number>`. A resolvable read-only URL is an explicit publish option through the relay, never a local path, device serial, viewer token, or secret. |
 | LAB-11 | P0 | Provide ZPL as the first direct printer-language adapter, separated from transport and tested on Zebra ZD421-class 203/300 DPI hardware. |
 | LAB-12 | P1 | Add TSPL2, Brother QL raster, and selected ESC/POS adapters only through the same renderer/encoder/transport ports and model-specific HIL evidence. |
 | LAB-13 | P0 | Distinguish submitted, spooled, device-accepted, physically-confirmed, failed, cancelled, and unknown outcomes; never describe a job as physically printed without explicit confirmation. |
@@ -353,7 +364,7 @@ Natural Light · Level 1.1 · Green load 100 g
 Best from day 5 · Roast ID / QR
 ```
 
-QR data must use an opaque local/public identifier, never a raw filesystem path, device serial, or secret token.
+QR data uses the short local roast number, never a raw filesystem path, device serial, or secret token.
 `Net` is printed only when package weight is explicitly entered or measured; it is never inferred from green input load or roasted yield.
 
 ### 9.7 LLM assistance
@@ -625,7 +636,7 @@ USB byte transport runs in a small target-specific Rust helper using the maintai
 
 The catalog separates descriptive identity from physical stock. A coffee identity describes what the coffee is; a green lot describes a specific bag/batch acquired through a purchase and available to consume. This permits another purchase of the “same coffee” without corrupting the history or inventory of the earlier bag.
 
-V1 is single-user with one SQLite database per OS account. IDs are UUIDv7; timestamps store UTC plus source IANA timezone; mass uses integer milligrams, temperature integer milli-Celsius, elapsed time integer milliseconds, percentages basis points, and roast level thousandths. SQLite uses WAL, foreign keys, busy timeout, one transactional writer, forward-only migrations, and a verified pre-migration backup. Imported bytes are immutable and content addressed; parsed rows and derived Apache Arrow sample streams are rebuildable.
+V1 is single-user with one SQLite database per OS account. Internal IDs are UUIDv7, while coffees, roasts, brews, and labels also receive immutable short integer numbers starting at 1 for display, labels, QR codes, URLs, and manual entry. Timestamps store UTC plus source IANA timezone; mass uses integer milligrams, temperature integer milli-Celsius, elapsed time integer milliseconds, percentages basis points, and roast level thousandths. SQLite uses WAL, foreign keys, busy timeout, one transactional writer, forward-only migrations, and a verified pre-migration backup. Imported bytes are immutable and content addressed; parsed sample streams are rebuildable.
 
 ```mermaid
 erDiagram
@@ -679,6 +690,7 @@ erDiagram
 | `Attachment` | Immutable content-addressed photo/document evidence with media type, size, and relationship metadata. |
 | `TastingScaleRevision` | Immutable dimensions, bounds, units, and scoring rules selected by a tasting. |
 | `Tasting` | One immutable/revision-linked sensory evaluation among many per roast, including tasted time/rest age, scale revision, score, descriptors, component observations, defects, brew context, notes, author, and structured conclusion fields. |
+| `Brew` | One short-numbered preparation linked to a roast, containing method/equipment snapshot, coffee and water masses, ratio, temperature, timing, score, descriptors, tasting notes, and free notes. Personal defaults prefill new brews but do not rewrite saved history. |
 | `NextRoastPlan` | Versioned objective and intended settings for the next iteration, scoped to coffee and optionally lot, with status and eventual executed-roast link. |
 | `PlanEvidence` | Join record citing a roast and optionally a tasting/metric/annotation as evidence for a next-roast plan. |
 | `SavedRoastView` | Versioned column, grouping, filter, multi-sort, density, and aggregate definition; contains no duplicated roast data. |

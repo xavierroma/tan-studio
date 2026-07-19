@@ -16,6 +16,7 @@
     "@tan-studio/api-contract": "workspace:*",
     "@tan-studio/application": "workspace:*",
     "@tan-studio/device-sassi": "workspace:*",
+    "@tan-studio/native-format-adapters": "workspace:*",
     "hono": "^4.10.6",
     "zod": "^4.1.12"
   },

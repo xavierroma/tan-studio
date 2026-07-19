@@ -38,13 +38,55 @@ export type Type14InfoResponse = {
   infoCode: number
 }
 
+export type Type6DirectoryListChunk = {
+  kind: "directory_list_chunk"
+  path: string
+  outcome: number
+  final: boolean
+  format: number
+  sequence: number
+  base64Data: string
+}
+
+export type Type8FileChunk = {
+  kind: "file_chunk"
+  path: string
+  outcome: number
+  final: boolean
+  modifiedAt: string
+  sequence: number
+  base64Data: string
+}
+
+export type Type30StatusNotification = {
+  kind: "status_notification"
+  data: string
+  infoCode: number
+}
+
+export type Type32IncrementalFileChunk = {
+  kind: "incremental_file_chunk"
+  path: string
+  outcome: number
+  final: boolean
+  modifiedAt: string
+  sequence: number
+  base64Data: string
+}
+
 export type UnknownInboundMessage = {
   kind: "unknown"
   type: number
 }
 
 export type KnownInboundMessage =
-  Type2ConnectionRequest | Type4TimeSyncAcknowledgement | Type14InfoResponse
+  | Type2ConnectionRequest
+  | Type4TimeSyncAcknowledgement
+  | Type6DirectoryListChunk
+  | Type8FileChunk
+  | Type14InfoResponse
+  | Type30StatusNotification
+  | Type32IncrementalFileChunk
 
 export type DecodedSassiMessage = {
   type: number

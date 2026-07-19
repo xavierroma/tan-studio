@@ -20,7 +20,10 @@ type LibraryRow = Record<string, string | number | null>
 
 const fieldColumns: Record<RoastLibraryField, string> = {
   roastId: "roast_id",
+  roastNumber: "serial_number",
+  nativeLogNumber: "native_log_number",
   roastedAt: "roasted_at_ms",
+  durationMs: "duration_ms",
   coffeeId: "coffee_id",
   coffeeName: "coffee_name",
   providerId: "provider_id",
@@ -61,6 +64,9 @@ const arrayFields = new Set<RoastLibraryField>([
 const instantFields = new Set<RoastLibraryField>(["roastedAt"])
 const booleanFields = new Set<RoastLibraryField>(["needsTasting"])
 const numericAggregateFields = new Set<RoastLibraryField>([
+  "roastNumber",
+  "nativeLogNumber",
+  "durationMs",
   "profileRevisionNumber",
   "roastLevelThousandths",
   "greenInputMassMg",

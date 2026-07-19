@@ -108,6 +108,7 @@ function mapProvider(row: ProviderRow) {
 
 type CoffeeRow = {
   id: string
+  serial_number: number | null
   display_name: string
   country_code: string | null
   region: string | null
@@ -133,6 +134,7 @@ function mapCoffee(row: CoffeeRow) {
   return {
     kind: "coffee" as const,
     id: row.id,
+    serialNumber: row.serial_number,
     revision: row.revision,
     displayName: row.display_name,
     countryCode: row.country_code,
@@ -434,30 +436,38 @@ export class CatalogRepository {
   createCoffee(input: CoffeeCreate): CoffeeResource {
     const id = newId()
     const now = Date.now()
-    this.database
-      .query(
-        `INSERT INTO coffee_identities
-        (id, display_name, normalized_name, country_code, region, farm_producer, station_cooperative,
-         process, varieties_json, altitude_min_m, altitude_max_m, harvest_label, notes, created_at_ms, updated_at_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.displayName,
-        normalizeName(input.displayName),
-        input.countryCode ?? null,
-        input.region ?? null,
-        input.farmProducer ?? null,
-        input.stationCooperative ?? null,
-        input.process ?? null,
-        JSON.stringify(input.varieties ?? []),
-        input.altitudeMinMetres ?? null,
-        input.altitudeMaxMetres ?? null,
-        input.harvestLabel ?? null,
-        input.notes ?? null,
-        now,
-        now
-      )
+    withImmediateTransaction(this.database, () => {
+      const serial = this.database
+        .query(
+          "SELECT coalesce(max(serial_number), 0) + 1 AS value FROM coffee_identities"
+        )
+        .get() as { value: number }
+      this.database
+        .query(
+          `INSERT INTO coffee_identities
+          (id, serial_number, display_name, normalized_name, country_code, region, farm_producer, station_cooperative,
+           process, varieties_json, altitude_min_m, altitude_max_m, harvest_label, notes, created_at_ms, updated_at_ms)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          id,
+          serial.value,
+          input.displayName,
+          normalizeName(input.displayName),
+          input.countryCode ?? null,
+          input.region ?? null,
+          input.farmProducer ?? null,
+          input.stationCooperative ?? null,
+          input.process ?? null,
+          JSON.stringify(input.varieties ?? []),
+          input.altitudeMinMetres ?? null,
+          input.altitudeMaxMetres ?? null,
+          input.harvestLabel ?? null,
+          input.notes ?? null,
+          now,
+          now
+        )
+    })
     return this.getCoffee(id)
   }
 

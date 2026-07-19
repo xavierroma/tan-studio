@@ -12,8 +12,8 @@ import {
   CableIcon,
   ChartNoAxesCombinedIcon,
   CoffeeIcon,
+  CupSodaIcon,
   FlameIcon,
-  TagsIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -22,7 +22,7 @@ const navigation = [
   { label: "Roasts", to: "/roasts", icon: BookOpenTextIcon },
   { label: "Profiles", to: "/profiles", icon: ChartNoAxesCombinedIcon },
   { label: "Coffees", to: "/coffees", icon: CoffeeIcon },
-  { label: "Labels", to: "/labels", icon: TagsIcon },
+  { label: "Brews", to: "/brews", icon: CupSodaIcon },
   { label: "Devices", to: "/devices", icon: CableIcon },
 ] as const
 

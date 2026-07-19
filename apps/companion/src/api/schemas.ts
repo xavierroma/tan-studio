@@ -166,7 +166,10 @@ export const lotPatchSchema = z
 
 export const roastLibraryFieldSchema = z.enum([
   "roastId",
+  "roastNumber",
+  "nativeLogNumber",
   "roastedAt",
+  "durationMs",
   "coffeeId",
   "coffeeName",
   "providerId",
@@ -275,6 +278,9 @@ const groupValueFieldSchema = z.enum([
 ])
 
 const groupNumericFieldSchema = z.enum([
+  "roastNumber",
+  "nativeLogNumber",
+  "durationMs",
   "profileRevisionNumber",
   "roastLevelThousandths",
   "greenInputMassMg",
@@ -411,7 +417,7 @@ export const seriesQuerySchema = z
   .object({
     format: z.enum(["json"]).default("json"),
     streamVersion: z.coerce.number().int().positive(),
-    fromElapsedMs: z.coerce.number().int().nonnegative().default(0),
+    fromElapsedMs: z.coerce.number().int().min(-60_000).default(-60_000),
     toElapsedMs: z.coerce.number().int().nonnegative().default(3_600_000),
     maxPoints: z.coerce.number().int().min(2).max(2_000).default(1_000),
     throughSampleSeq: z.coerce.number().int().nonnegative().optional(),
@@ -435,6 +441,58 @@ export const collectionQuerySchema = z
   })
   .strict()
 
+export const brewCreateSchema = z
+  .object({
+    roastNumber: z.int().positive(),
+    brewedAt: z.iso.datetime({ offset: true }).optional(),
+    sourceTimezone: z.string().trim().min(1).max(100).optional(),
+    method: z.string().trim().min(1).max(100).optional(),
+    grinderName: z.string().trim().max(200).optional(),
+    grinderSetting: z.string().trim().max(200).optional(),
+    kettleName: z.string().trim().max(200).optional(),
+    waterName: z.string().trim().max(200).optional(),
+    coffeeMassMg: z.int().positive().optional(),
+    waterMassMg: z.int().positive().optional(),
+    waterTemperatureMilliC: z.int().min(0).max(100_000).nullable().optional(),
+    bloomWaterMassMg: z.int().nonnegative().nullable().optional(),
+    bloomDurationMs: z.int().nonnegative().nullable().optional(),
+    brewDurationMs: z.int().nonnegative().nullable().optional(),
+    scoreBasisPoints: z.int().min(0).max(10_000).nullable().optional(),
+    descriptors: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+    tastingNotes: z.string().max(10_000).optional(),
+    notes: z.string().max(10_000).optional(),
+  })
+  .strict()
+
+export const preferencesPatchSchema = z.object({
+  defaultRoasterName: z.string().trim().max(200).optional(),
+  defaultGrinderName: z.string().trim().max(200).optional(),
+  defaultGrinderSetting: z.string().trim().max(200).optional(),
+  defaultKettleName: z.string().trim().max(200).optional(),
+  defaultWaterName: z.string().trim().max(200).optional(),
+  defaultBrewMethod: z.string().trim().min(1).max(100).optional(),
+  defaultCoffeeMassMg: z.int().positive().optional(),
+  defaultWaterMassMg: z.int().positive().optional(),
+  defaultWaterTemperatureMilliC: z.int().min(0).max(100_000).optional(),
+})
+
+export const labelCreateSchema = z
+  .object({
+    roastNumber: z.int().positive(),
+    copies: z.int().positive().max(99).default(1),
+  })
+  .strict()
+
+export const roastCoffeePatchSchema = z
+  .object({
+    coffeeNumber: z.int().positive().nullable(),
+  })
+  .strict()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required",
+  })
+
 export type ProviderCreate = z.infer<typeof providerCreateSchema>
 export type ProviderPatch = z.infer<typeof providerPatchSchema>
 export type CoffeeCreate = z.infer<typeof coffeeCreateSchema>
@@ -443,3 +501,7 @@ export type LotCreate = z.infer<typeof lotCreateSchema>
 export type LotPatch = z.infer<typeof lotPatchSchema>
 export type RoastLibraryQuery = z.infer<typeof roastLibraryQuerySchema>
 export type RoastLibraryField = z.infer<typeof roastLibraryFieldSchema>
+export type BrewCreate = z.infer<typeof brewCreateSchema>
+export type PreferencesPatch = z.infer<typeof preferencesPatchSchema>
+export type LabelCreate = z.infer<typeof labelCreateSchema>
+export type RoastCoffeePatch = z.infer<typeof roastCoffeePatchSchema>

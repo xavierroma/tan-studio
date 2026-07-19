@@ -7,9 +7,16 @@ import {
 } from "@tanstack/react-router"
 
 import { AppShell } from "@/components/app-shell"
+import { AppErrorScreen, AppPendingScreen } from "@/components/app-error-screen"
+import { buttonVariants } from "@tan-studio/ui/components/button"
+import { Link } from "@tanstack/react-router"
 
 const rootRoute = createRootRoute({
   component: AppShell,
+  errorComponent: ({ error, reset }) => (
+    <AppErrorScreen error={error} reset={reset} />
+  ),
+  pendingComponent: AppPendingScreen,
   notFoundComponent: () => (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
       <p className="text-muted-foreground text-sm font-semibold uppercase">
@@ -19,8 +26,24 @@ const rootRoute = createRootRoute({
         This workspace view does not exist
       </h1>
       <p className="text-muted-foreground max-w-md text-sm">
-        Return to the roast notebook from the navigation.
+        The link may be old or the roast may no longer exist.
       </p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <button
+          type="button"
+          className={buttonVariants({ variant: "outline" })}
+          onClick={() => window.history.back()}
+        >
+          Go back
+        </button>
+        <Link
+          to="/roasts"
+          search={{ q: undefined, process: undefined, status: undefined }}
+          className={buttonVariants()}
+        >
+          Roast notebook
+        </Link>
+      </div>
     </div>
   ),
 })
@@ -97,11 +120,34 @@ const labelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/labels",
   validateSearch: (search: Record<string, unknown>) => ({
-    roastId: typeof search.roastId === "string" ? search.roastId : undefined,
+    roastId:
+      typeof search.roastId === "number" && Number.isSafeInteger(search.roastId)
+        ? search.roastId
+        : typeof search.roastId === "string" && /^\d+$/u.test(search.roastId)
+          ? Number(search.roastId)
+          : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/label-composer-screen"),
     "LabelComposerScreen"
+  ),
+})
+const brewsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/brews",
+  validateSearch: (search: Record<string, unknown>) => ({
+    roastNumber:
+      typeof search.roastNumber === "number" &&
+      Number.isSafeInteger(search.roastNumber)
+        ? search.roastNumber
+        : typeof search.roastNumber === "string" &&
+            /^\d+$/u.test(search.roastNumber)
+          ? Number(search.roastNumber)
+          : undefined,
+  }),
+  component: lazyRouteComponent(
+    () => import("@/screens/brews-screen"),
+    "BrewsScreen"
   ),
 })
 const devicesRoute = createRoute({
@@ -141,12 +187,18 @@ const routeTree = rootRoute.addChildren([
   coffeesRoute,
   coffeeLotRoute,
   labelsRoute,
+  brewsRoute,
   devicesRoute,
   compareRoute,
   preflightRoute,
 ])
 
-export const router = createRouter({ routeTree, defaultPreload: "intent" })
+export const router = createRouter({
+  routeTree,
+  defaultPreload: "intent",
+  defaultPendingMs: 120,
+  defaultPendingMinMs: 240,
+})
 
 declare module "@tanstack/react-router" {
   interface Register {

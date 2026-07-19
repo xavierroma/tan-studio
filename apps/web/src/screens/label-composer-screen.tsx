@@ -1,12 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { useSearch } from "@tanstack/react-router"
+import { Link, useSearch } from "@tanstack/react-router"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button } from "@tan-studio/ui/components/button"
+import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import { Checkbox } from "@tan-studio/ui/components/checkbox"
 import {
   Field,
@@ -25,24 +25,27 @@ import {
 import { toast } from "sonner"
 import {
   CheckCircle2Icon,
+  ArrowLeftIcon,
   FileDownIcon,
   InfoIcon,
   PrinterIcon,
   QrCodeIcon,
-  ShieldCheckIcon,
 } from "lucide-react"
 import { useState } from "react"
 
 import { PageHeader } from "@/components/page-header"
 import {
+  createLabelRecord,
+  getRoast,
   getSystemCapabilities,
   isDemoResult,
   queryKeys,
   submitPrintJob,
 } from "@/lib/api"
+import { formatRoastDate } from "@/lib/format"
 
 export function LabelComposerScreen() {
-  const search = useSearch({ strict: false }) as { roastId?: string }
+  const search = useSearch({ strict: false }) as { roastId?: number }
   const [widthMm, setWidthMm] = useState(50)
   const [heightMm, setHeightMm] = useState(30)
   const [copies, setCopies] = useState(1)
@@ -53,6 +56,12 @@ export function LabelComposerScreen() {
     queryKey: queryKeys.capabilities(),
     queryFn: getSystemCapabilities,
   })
+  const roastQuery = useQuery({
+    queryKey: queryKeys.roast(String(search.roastId ?? "none")),
+    queryFn: ({ signal }) => getRoast(String(search.roastId), signal),
+    enabled: Boolean(search.roastId),
+  })
+  const roast = roastQuery.data?.data
   const printing = capabilities.data?.data.adapters.printing
   const printingReady =
     isDemoResult(capabilities.data) ||
@@ -75,6 +84,19 @@ export function LabelComposerScreen() {
       )
     },
   })
+  const labelRecord = useMutation({
+    mutationFn: createLabelRecord,
+    onSuccess: (record) =>
+      toast.success(
+        `Label #${record.number} linked to roast #${record.roastNumber}`
+      ),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Label could not be generated"
+      ),
+  })
+
+  if (roastQuery.error) throw roastQuery.error
 
   const submit = (artifact: "pdf" | "queue") => {
     if (!printingReady) {
@@ -82,7 +104,7 @@ export function LabelComposerScreen() {
       return
     }
     printJob.mutate({
-      ...(search.roastId ? { roastId: search.roastId } : {}),
+      ...(search.roastId ? { roastId: String(search.roastId) } : {}),
       printerId,
       widthMm,
       heightMm,
@@ -94,11 +116,32 @@ export function LabelComposerScreen() {
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow="Label design · physical units"
-        title="Label composer"
-        description="Exact-size preview with deterministic rendering and capability-aware output"
+        eyebrow={roast ? `Roast #${roast.number}` : "Roast workflow"}
+        title={roast ? `Label · ${roast.coffeeName}` : "Generate roast label"}
+        description="Generate the bag identity from a roast, then print or save it at exact physical size."
         actions={
           <>
+            {roast ? (
+              <Link
+                to="/roasts/$roastId"
+                params={{ roastId: String(roast.number) }}
+                className={buttonVariants({ variant: "ghost" })}
+              >
+                <ArrowLeftIcon data-icon="inline-start" />
+                Roast #{roast.number}
+              </Link>
+            ) : null}
+            <Button
+              variant="outline"
+              disabled={!roast || labelRecord.isPending}
+              onClick={() =>
+                roast &&
+                labelRecord.mutate({ roastNumber: roast.number, copies })
+              }
+            >
+              <QrCodeIcon data-icon="inline-start" />
+              {labelRecord.isPending ? "Generating…" : "Generate label"}
+            </Button>
             <Button
               variant="outline"
               disabled={printJob.isPending || !printingReady}
@@ -123,6 +166,7 @@ export function LabelComposerScreen() {
       <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[20rem_minmax(0,1fr)_20rem]">
         <aside className="min-w-0">
           <section
+            key={roast?.id ?? "unselected"}
             className="bg-card rounded-xl border p-5"
             aria-labelledby="label-content-heading"
           >
@@ -132,24 +176,35 @@ export function LabelComposerScreen() {
             <FieldGroup className="mt-5">
               <Field>
                 <FieldLabel htmlFor="label-coffee">Coffee name</FieldLabel>
-                <Input id="label-coffee" defaultValue="Ethiopia Hamasho" />
+                <Input
+                  id="label-coffee"
+                  defaultValue={roast?.coffeeName ?? "Select a roast"}
+                />
               </Field>
               <Field>
                 <FieldLabel htmlFor="label-roast-date">Roasted</FieldLabel>
                 <Input
                   id="label-roast-date"
                   type="date"
-                  defaultValue="2026-07-17"
+                  defaultValue={roast?.roastedAt.slice(0, 10)}
                 />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field>
                   <FieldLabel htmlFor="label-net">Package net</FieldLabel>
-                  <Input id="label-net" type="number" defaultValue={87.4} />
+                  <Input
+                    id="label-net"
+                    type="number"
+                    defaultValue={roast?.roastedWeightGrams ?? undefined}
+                  />
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="label-load">Green load</FieldLabel>
-                  <Input id="label-load" type="number" defaultValue={100} />
+                  <Input
+                    id="label-load"
+                    type="number"
+                    defaultValue={roast?.greenWeightGrams || undefined}
+                  />
                 </Field>
               </div>
               <Field orientation="horizontal">
@@ -247,14 +302,16 @@ export function LabelComposerScreen() {
               >
                 <div className="flex min-w-0 flex-col">
                   <p className="text-muted-foreground text-[0.625rem] font-semibold tracking-[0.18em] uppercase">
-                    Tan Studio · Roast 02418
+                    Tan Studio · Roast #{roast?.number ?? "—"}
                   </p>
                   <h3 className="mt-2 text-xl leading-tight font-bold tracking-[-0.03em]">
-                    Ethiopia Hamasho
+                    {roast?.coffeeName ?? "Select a roast"}
                   </h3>
                   {showOrigin ? (
                     <p className="text-muted-foreground mt-1 text-xs">
-                      Bensa, Sidama · Washed · 74158
+                      {roast
+                        ? `${roast.region} · ${roast.process}`
+                        : "Origin and process"}
                     </p>
                   ) : null}
                   <div className="mt-auto flex items-end gap-5 pt-4">
@@ -263,7 +320,9 @@ export function LabelComposerScreen() {
                         Roasted
                       </p>
                       <p className="mt-1 font-mono text-xs font-semibold">
-                        17 JUL 2026
+                        {roast
+                          ? formatRoastDate(roast.roastedAt).date.toUpperCase()
+                          : "—"}
                       </p>
                     </div>
                     <div>
@@ -271,7 +330,9 @@ export function LabelComposerScreen() {
                         Net
                       </p>
                       <p className="mt-1 font-mono text-xs font-semibold">
-                        87.4 g
+                        {roast?.roastedWeightGrams != null
+                          ? `${roast.roastedWeightGrams.toFixed(1)} g`
+                          : "—"}
                       </p>
                     </div>
                     {showScore ? (
@@ -280,7 +341,7 @@ export function LabelComposerScreen() {
                           Cup
                         </p>
                         <p className="mt-1 font-mono text-xs font-semibold">
-                          88.25
+                          {roast?.score?.toFixed(2) ?? "—"}
                         </p>
                       </div>
                     ) : null}
@@ -289,7 +350,8 @@ export function LabelComposerScreen() {
                 <div className="flex flex-col items-center justify-center border-l pl-4">
                   <QrCodeIcon className="size-16" strokeWidth={1.3} />
                   <p className="text-muted-foreground mt-2 max-w-20 text-center font-mono text-[0.5rem]">
-                    opaque local roast ID
+                    {labelRecord.data?.qrPayload ??
+                      (roast ? `tan:roast:${roast.number}` : "tan:roast:—")}
                   </p>
                 </div>
               </article>
@@ -297,11 +359,12 @@ export function LabelComposerScreen() {
           </section>
 
           <Alert className="bg-info mt-5">
-            <ShieldCheckIcon />
-            <AlertTitle>Privacy check</AlertTitle>
+            <QrCodeIcon />
+            <AlertTitle>Roast-linked identity</AlertTitle>
             <AlertDescription>
-              The QR code contains an opaque roast identifier—not tasting notes,
-              a local path, the device serial, or personal information.
+              {roast
+                ? `The label points to roast #${roast.number}. Scanning it starts a brew linked to this exact roast and its native log.`
+                : "Open a roast from the notebook, then choose Label to generate its short QR identity."}
             </AlertDescription>
           </Alert>
         </main>

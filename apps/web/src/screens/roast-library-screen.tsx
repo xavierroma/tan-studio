@@ -82,7 +82,7 @@ function exportRoasts(roasts: RoastSummary[]) {
 }
 
 export function RoastLibraryScreen() {
-  const { data, isPending } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: queryKeys.roasts(),
     queryFn: ({ signal }) => listRoasts(signal),
   })
@@ -153,6 +153,8 @@ export function RoastLibraryScreen() {
     estimateSize: () => 68,
     overscan: 8,
   })
+
+  if (error) throw error
 
   const setSearch = (
     patch: Partial<Record<"q" | "process" | "status", string | undefined>>
@@ -430,10 +432,10 @@ export function RoastLibraryScreen() {
                         <div role="cell" className="min-w-0">
                           <Link
                             to="/roasts/$roastId"
-                            params={{ roastId: roast.id }}
+                            params={{ roastId: String(roast.number) }}
                             className="hover:text-primary block truncate font-semibold hover:underline hover:underline-offset-4"
                           >
-                            {roast.coffeeName}
+                            Roast #{roast.number} · {roast.coffeeName}
                           </Link>
                           <p className="text-muted-foreground truncate text-xs">
                             Lot {roast.lotCode}

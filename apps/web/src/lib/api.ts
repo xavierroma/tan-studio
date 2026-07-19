@@ -12,6 +12,10 @@ import type {
   RoastDetail,
   RoastStatus,
   RoastSummary,
+  Brew,
+  UserPreferences,
+  LabelRecord,
+  CoffeeIdentity,
 } from "@/types"
 
 declare global {
@@ -39,8 +43,14 @@ type AdapterCapability = {
   firmware?: string
   protocol?: string
   packetLimitBytes?: number
+  busy?: boolean | null
   profileCount?: number
   logCount?: number
+  syncState?: DeviceState["syncState"]
+  importedLogCount?: number
+  updatedLogCount?: number
+  importWarningCount?: number
+  lastSyncedAt?: string | null
   readOnly?: boolean
 }
 
@@ -109,7 +119,15 @@ async function companionFetch<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new Error(`Companion request failed (${response.status})`)
+    const contentType = response.headers.get("content-type") ?? ""
+    const problem = contentType.includes("json")
+      ? record(await response.json().catch(() => null))
+      : {}
+    throw new Error(
+      optionalText(problem.detail) ??
+        optionalText(problem.title) ??
+        `Companion request failed (${response.status})`
+    )
   }
 
   return (await response.json()) as T
@@ -173,12 +191,35 @@ function normalizeAdapter(value: unknown): AdapterCapability {
     ...(optionalNumber(candidate.packetLimitBytes) === undefined
       ? {}
       : { packetLimitBytes: number(candidate.packetLimitBytes) }),
+    ...(typeof candidate.busy === "boolean" || candidate.busy === null
+      ? { busy: candidate.busy as boolean | null }
+      : {}),
     ...(optionalNumber(candidate.profileCount) === undefined
       ? {}
       : { profileCount: number(candidate.profileCount) }),
     ...(optionalNumber(candidate.logCount) === undefined
       ? {}
       : { logCount: number(candidate.logCount) }),
+    ...(candidate.syncState === "idle" ||
+    candidate.syncState === "syncing" ||
+    candidate.syncState === "ready" ||
+    candidate.syncState === "failed"
+      ? { syncState: candidate.syncState }
+      : {}),
+    ...(optionalNumber(candidate.importedLogCount) === undefined
+      ? {}
+      : { importedLogCount: number(candidate.importedLogCount) }),
+    ...(optionalNumber(candidate.updatedLogCount) === undefined
+      ? {}
+      : { updatedLogCount: number(candidate.updatedLogCount) }),
+    ...(optionalNumber(candidate.importWarningCount) === undefined
+      ? {}
+      : { importWarningCount: number(candidate.importWarningCount) }),
+    ...(candidate.lastSyncedAt === null
+      ? { lastSyncedAt: null }
+      : optionalText(candidate.lastSyncedAt)
+        ? { lastSyncedAt: text(candidate.lastSyncedAt) }
+        : {}),
     ...(typeof candidate.readOnly === "boolean"
       ? { readOnly: candidate.readOnly }
       : {}),
@@ -227,6 +268,8 @@ function mapLibraryRow(row: Record<string, unknown>): RoastSummary {
 
   return {
     id: text(row.roastId || row.id),
+    number: number(row.roastNumber),
+    nativeLogNumber: optionalNumber(row.nativeLogNumber) ?? null,
     roastedAt: text(row.roastedAt, new Date(0).toISOString()),
     coffeeName: text(row.coffeeName, "Uncataloged coffee"),
     providerName: text(row.providerName, "Unknown provider"),
@@ -252,7 +295,10 @@ function mapLibraryRow(row: Record<string, unknown>): RoastSummary {
         ? resultText
         : "completed",
     developmentPercent: number(row.developmentBasisPoints) / 100,
-    lossPercent: number(row.roastLossBasisPoints) / 100,
+    lossPercent:
+      optionalNumber(row.roastLossBasisPoints) === undefined
+        ? null
+        : number(row.roastLossBasisPoints) / 100,
     durationSeconds: number(row.durationMs) / 1_000,
   }
 }
@@ -274,7 +320,10 @@ export async function listRoasts(
         sorts: [{ field: "roastedAt", direction: "desc", nulls: "last" }],
         columns: [
           "roastId",
+          "roastNumber",
+          "nativeLogNumber",
           "roastedAt",
+          "durationMs",
           "coffeeName",
           "providerName",
           "countryCode",
@@ -328,12 +377,15 @@ async function loadSeries(
 ): Promise<ChartPoint[]> {
   const streamVersion = optionalNumber(sampleStream.streamVersion)
   if (streamVersion === undefined) return []
+  const firstElapsedMs = optionalNumber(sampleStream.firstElapsedMs) ?? 0
   const lastElapsedMs = optionalNumber(sampleStream.lastElapsedMs) ?? 3_600_000
   const params = new URLSearchParams({
     streamVersion: String(streamVersion),
-    fromElapsedMs: "0",
+    fromElapsedMs: String(firstElapsedMs),
     toElapsedMs: String(lastElapsedMs),
     maxPoints: "2000",
+    channels:
+      "temperature,spotTemperature,meanTemperature,profileTemperature,profileRor,ror,desiredRor,power,actualFanRpm,native",
   })
   const response = await companionFetch<{ points?: unknown[] }>(
     `/roasts/${encodeURIComponent(roastId)}/series?${params}`,
@@ -344,6 +396,14 @@ async function loadSeries(
     return {
       elapsedMs: number(point.elapsedMs),
       temperatureC: number(point.temperatureMilliC) / 1_000,
+      spotTemperatureC:
+        optionalNumber(point.spotTemperatureMilliC) === undefined
+          ? null
+          : number(point.spotTemperatureMilliC) / 1_000,
+      meanTemperatureC:
+        optionalNumber(point.meanTemperatureMilliC) === undefined
+          ? null
+          : number(point.meanTemperatureMilliC) / 1_000,
       profileC:
         optionalNumber(point.profileTemperatureMilliC) === undefined
           ? null
@@ -352,6 +412,24 @@ async function loadSeries(
         optionalNumber(point.rorMilliCPerMin) === undefined
           ? null
           : number(point.rorMilliCPerMin) / 1_000,
+      profileRorCPerMin:
+        optionalNumber(point.profileRorMilliCPerMin) === undefined
+          ? null
+          : number(point.profileRorMilliCPerMin) / 1_000,
+      desiredRorCPerMin:
+        optionalNumber(point.desiredRorMilliCPerMin) === undefined
+          ? null
+          : number(point.desiredRorMilliCPerMin) / 1_000,
+      powerKw:
+        optionalNumber(point.powerMilliKw) === undefined
+          ? null
+          : number(point.powerMilliKw) / 1_000,
+      actualFanRpm: optionalNumber(point.actualFanRpm) ?? null,
+      values: Object.fromEntries(
+        Object.entries(record(point.values)).filter(
+          (entry): entry is [string, number] => typeof entry[1] === "number"
+        )
+      ),
     }
   })
 }
@@ -376,15 +454,28 @@ async function mapRoastDetail(
     ? resource.annotations
     : []
   const roastId = text(resource.id)
-  const chart = await loadSeries(roastId, sampleStream, signal)
+  const roastNumber = number(resource.serialNumber)
+  const chart = await loadSeries(
+    String(roastNumber || roastId),
+    sampleStream,
+    signal
+  )
   const durationMs =
-    optionalNumber(sampleStream.lastElapsedMs) ?? chart.at(-1)?.elapsedMs ?? 0
+    optionalNumber(resource.durationMs) ??
+    optionalNumber(sampleStream.lastElapsedMs) ??
+    chart.at(-1)?.elapsedMs ??
+    0
+  const cooldownEndMs = optionalNumber(resource.cooldownEndMs) ?? durationMs
   const resultText = text(resource.result)
 
   return {
     id: roastId,
+    number: roastNumber,
+    revision: number(resource.revision, 1),
+    nativeLogNumber: optionalNumber(resource.nativeLogNumber) ?? null,
     roastedAt: text(resource.roastedAt, new Date(0).toISOString()),
     coffeeName: text(coffee.displayName, "Uncataloged coffee"),
+    coffeeId: optionalText(coffee.id) ?? null,
     providerName: text(provider.displayName, "Unknown provider"),
     country: text(origin.countryCode, "—"),
     region: text(origin.region, "—"),
@@ -414,11 +505,44 @@ async function mapRoastDetail(
         : "completed",
     developmentPercent: number(resource.developmentBasisPoints) / 100,
     lossPercent:
-      greenMassMg > 0 ? ((greenMassMg - roastedMassMg) / greenMassMg) * 100 : 0,
+      greenMassMg > 0 && roastedMassMg > 0
+        ? ((greenMassMg - roastedMassMg) / greenMassMg) * 100
+        : null,
     durationSeconds: durationMs / 1_000,
+    cooldownSeconds: cooldownEndMs / 1_000,
     greenWeightGrams: greenMassMg / 1_000,
-    roastedWeightGrams: roastedMassMg / 1_000,
+    roastedWeightGrams: roastedMassMg > 0 ? roastedMassMg / 1_000 : null,
     profileDescription: "",
+    channels: Array.isArray(sampleStream.channels)
+      ? sampleStream.channels.map((channel) => {
+          const value = record(channel)
+          return {
+            key: text(value.key),
+            name: text(value.name),
+            rawName: text(value.rawName),
+            sourceIndex: number(value.sourceIndex),
+            offsetMs: number(value.offsetMs),
+            unit:
+              value.unit === "celsius" ||
+              value.unit === "celsius_per_minute" ||
+              value.unit === "kilowatts" ||
+              value.unit === "rpm"
+                ? value.unit
+                : "unitless",
+            hiddenByDefault: value.hiddenByDefault === true,
+            reusePreviousScale: value.reusePreviousScale === true,
+            specialProcessing: value.specialProcessing === true,
+          }
+        })
+      : [],
+    nativeMetadata: Object.fromEntries(
+      Object.entries(record(resource.nativeMetadata)).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string"
+      )
+    ),
+    importWarningCount: Array.isArray(resource.importWarnings)
+      ? resource.importWarnings.length
+      : 0,
     nextAction: text(tasting.nextAction),
     conclusion: text(tasting.conclusion, text(tasting.notes)),
     events: [
@@ -528,6 +652,38 @@ export async function listCoffeeLots(): Promise<CompanionResult<CoffeeLot[]>> {
   }
 }
 
+export async function listCoffeeIdentities(): Promise<CoffeeIdentity[]> {
+  const response = await companionFetch<{ items?: unknown[] }>(
+    "/coffees?first=200"
+  )
+  return (response.items ?? []).map((value) => {
+    const coffee = record(value)
+    return {
+      id: text(coffee.id),
+      number: number(coffee.serialNumber),
+      name: text(coffee.displayName, "Unnamed coffee"),
+      country: optionalText(coffee.countryCode) ?? null,
+      region: optionalText(coffee.region) ?? null,
+      process: optionalText(coffee.process) ?? null,
+    }
+  })
+}
+
+export async function assignRoastCoffee(
+  roastNumber: number,
+  revision: number,
+  coffeeNumber: number | null
+): Promise<void> {
+  await companionFetch(`/roasts/${roastNumber}/coffee`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "If-Match": `"revision:${revision}"`,
+    },
+    body: JSON.stringify({ coffeeNumber }),
+  })
+}
+
 export async function getSystemCapabilities(): Promise<
   CompanionResult<SystemCapabilities>
 > {
@@ -555,8 +711,14 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
         firmware: usb.firmware ?? null,
         protocol: usb.protocol ?? null,
         packetLimitBytes: usb.packetLimitBytes ?? null,
+        busy: usb.busy ?? null,
         profileCount: usb.profileCount ?? null,
         logCount: usb.logCount ?? null,
+        syncState: usb.syncState ?? "idle",
+        importedLogCount: usb.importedLogCount ?? 0,
+        updatedLogCount: usb.updatedLogCount ?? 0,
+        importWarningCount: usb.importWarningCount ?? 0,
+        lastSyncedAt: usb.lastSyncedAt ?? null,
         readOnly: usb.readOnly !== false,
       },
     }
@@ -568,6 +730,138 @@ export async function getDeviceState(): Promise<CompanionResult<DeviceState>> {
 
 export async function refreshDevice(): Promise<void> {
   await companionFetch("/device/refresh", { method: "POST" })
+}
+
+export async function synchronizeDevice(): Promise<void> {
+  await companionFetch("/device/synchronize", { method: "POST", body: "{}" })
+}
+
+function mapPreferences(value: unknown): UserPreferences {
+  const row = record(value)
+  return {
+    revision: number(row.revision, 1),
+    defaultRoasterName: text(row.defaultRoasterName),
+    defaultGrinderName: text(row.defaultGrinderName),
+    defaultGrinderSetting: text(row.defaultGrinderSetting),
+    defaultKettleName: text(row.defaultKettleName),
+    defaultWaterName: text(row.defaultWaterName),
+    defaultBrewMethod: text(row.defaultBrewMethod, "V60"),
+    defaultCoffeeMassMg: number(row.defaultCoffeeMassMg, 15_000),
+    defaultWaterMassMg: number(row.defaultWaterMassMg, 250_000),
+    defaultWaterTemperatureMilliC: number(
+      row.defaultWaterTemperatureMilliC,
+      93_000
+    ),
+  }
+}
+
+function mapBrew(value: unknown): Brew {
+  const row = record(value)
+  const roast = record(row.roast)
+  return {
+    id: text(row.id),
+    number: number(row.serialNumber),
+    revision: number(row.revision, 1),
+    roastNumber: number(roast.serialNumber),
+    coffeeName: optionalText(roast.coffeeName) ?? null,
+    brewedAt: text(row.brewedAt),
+    method: text(row.method),
+    grinderName: text(row.grinderName),
+    grinderSetting: text(row.grinderSetting),
+    kettleName: text(row.kettleName),
+    waterName: text(row.waterName),
+    coffeeMassMg: number(row.coffeeMassMg),
+    waterMassMg: number(row.waterMassMg),
+    ratio: number(row.ratio),
+    waterTemperatureMilliC: optionalNumber(row.waterTemperatureMilliC) ?? null,
+    bloomWaterMassMg: optionalNumber(row.bloomWaterMassMg) ?? null,
+    bloomDurationMs: optionalNumber(row.bloomDurationMs) ?? null,
+    brewDurationMs: optionalNumber(row.brewDurationMs) ?? null,
+    scoreBasisPoints: optionalNumber(row.scoreBasisPoints) ?? null,
+    descriptors: Array.isArray(row.descriptors)
+      ? row.descriptors.filter(
+          (descriptor): descriptor is string => typeof descriptor === "string"
+        )
+      : [],
+    tastingNotes: text(row.tastingNotes),
+    notes: text(row.notes),
+  }
+}
+
+export async function getPreferences(): Promise<UserPreferences> {
+  return mapPreferences(await companionFetch("/preferences"))
+}
+
+export async function updatePreferences(
+  revision: number,
+  input: Partial<Omit<UserPreferences, "revision">>
+): Promise<UserPreferences> {
+  return mapPreferences(
+    await companionFetch("/preferences", {
+      method: "PATCH",
+      headers: { "If-Match": `"revision:${revision}"` },
+      body: JSON.stringify(input),
+    })
+  )
+}
+
+export async function listBrews(roastNumber?: number): Promise<Brew[]> {
+  const params = new URLSearchParams()
+  if (roastNumber) params.set("roastNumber", String(roastNumber))
+  const response = await companionFetch<{ items?: unknown[] }>(
+    `/brews${params.size ? `?${params}` : ""}`
+  )
+  return (response.items ?? []).map(mapBrew)
+}
+
+export async function createBrew(input: {
+  roastNumber: number
+  method?: string
+  grinderName?: string
+  grinderSetting?: string
+  kettleName?: string
+  waterName?: string
+  coffeeMassMg?: number
+  waterMassMg?: number
+  waterTemperatureMilliC?: number
+  scoreBasisPoints?: number
+  tastingNotes?: string
+  notes?: string
+}): Promise<Brew> {
+  return mapBrew(
+    await companionFetch("/brews", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  )
+}
+
+export async function createLabelRecord(input: {
+  roastNumber: number
+  copies: number
+}): Promise<LabelRecord> {
+  const row = record(
+    await companionFetch("/labels", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  )
+  const status = text(row.status)
+  return {
+    id: text(row.id),
+    number: number(row.serialNumber),
+    roastNumber: number(row.roastNumber),
+    qrPayload: text(row.qrPayload),
+    copies: number(row.copies, 1),
+    status:
+      status === "submitted" ||
+      status === "spooled" ||
+      status === "failed" ||
+      status === "unknown"
+        ? status
+        : "generated",
+    createdAt: text(row.createdAt),
+  }
 }
 
 export async function submitPrintJob(input: {
@@ -610,6 +904,9 @@ export const queryKeys = {
   roasts: () => ["roasts"] as const,
   roast: (id: string) => ["roasts", id] as const,
   coffeeLots: () => ["coffee-lots"] as const,
+  coffeeIdentities: () => ["coffee-identities"] as const,
   capabilities: () => ["system-capabilities"] as const,
   device: () => ["device"] as const,
+  preferences: () => ["preferences"] as const,
+  brews: (roastNumber?: number) => ["brews", roastNumber ?? "all"] as const,
 }

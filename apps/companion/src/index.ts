@@ -7,6 +7,7 @@ import {
   type DeviceManagerPort,
 } from "./device/device-manager"
 import { RustSerialTransport } from "./device/rust-serial-transport"
+import { KlogImporter } from "./import/klog-importer"
 
 const development = process.env.TAN_STUDIO_DEV === "1"
 const launchToken = process.env.TAN_STUDIO_LAUNCH_TOKEN
@@ -33,7 +34,10 @@ const security = {
 
 let deviceManager: DeviceManagerPort
 try {
-  const manager = new NanoDeviceManager(new RustSerialTransport())
+  const manager = new NanoDeviceManager(
+    new RustSerialTransport(),
+    new KlogImporter(database)
+  )
   await manager.start()
   deviceManager = manager
 } catch {
@@ -46,11 +50,18 @@ try {
       firmware: null,
       protocol: null,
       packetLimitBytes: null,
+      busy: null,
       profileCount: null,
       logCount: null,
+      syncState: "failed",
+      importedLogCount: 0,
+      updatedLogCount: 0,
+      importWarningCount: 0,
+      lastSyncedAt: null,
       readOnly: true,
     }),
     refresh: async () => {},
+    synchronize: async () => {},
     stop: async () => {},
   }
 }

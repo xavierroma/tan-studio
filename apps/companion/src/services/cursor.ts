@@ -72,11 +72,14 @@ export class CursorService {
     } catch {
       throw invalidCursor()
     }
+    if (actual.toString("base64url") !== signature) throw invalidCursor()
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
       throw invalidCursor()
 
     let payload: CursorPayload
     try {
+      if (Buffer.from(encoded, "base64url").toString("base64url") !== encoded)
+        throw invalidCursor()
       payload = JSON.parse(
         Buffer.from(encoded, "base64url").toString("utf8")
       ) as CursorPayload

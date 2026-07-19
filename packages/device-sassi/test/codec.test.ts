@@ -196,3 +196,80 @@ describe("unknown messages", () => {
     })
   })
 })
+
+describe("read-only filesystem messages", () => {
+  test("decodes directory and file chunks with sequence and final bit", () => {
+    const seed = 0x81f2
+    const directory = encodeInbound(
+      6,
+      ["kaffelogic/roast-logs", "0", "1", "1", "IGxvZzAwMDEua2xvZw=="],
+      seed
+    )
+    const file = encodeInbound(
+      8,
+      [
+        "kaffelogic/roast-logs/log0001.klog",
+        "128",
+        "202607186184617",
+        "2",
+        "cm9hc3RfZGF0ZTo=",
+      ],
+      seed
+    )
+
+    expect(
+      decodeSassiFrame(textBytes(directory), { negotiatedCrcSeed: seed })
+    ).toMatchObject({
+      ok: true,
+      message: {
+        evidence: "static_inferred",
+        parsed: {
+          kind: "directory_list_chunk",
+          outcome: 0,
+          final: false,
+          sequence: 1,
+        },
+      },
+    })
+    expect(
+      decodeSassiFrame(textBytes(file), { negotiatedCrcSeed: seed })
+    ).toMatchObject({
+      ok: true,
+      message: {
+        parsed: {
+          kind: "file_chunk",
+          outcome: 0,
+          final: true,
+          sequence: 2,
+        },
+      },
+    })
+  })
+
+  test("decodes a final busy response with sequence zero", () => {
+    const seed = 0x1d0f
+    const busy = encodeInbound(
+      6,
+      ["kaffelogic/roast-logs", String(0x80 | 103), "1", "0", ""],
+      seed
+    )
+    expect(
+      decodeSassiFrame(textBytes(busy), { negotiatedCrcSeed: seed })
+    ).toMatchObject({
+      ok: true,
+      message: {
+        parsed: {
+          kind: "directory_list_chunk",
+          outcome: 103,
+          final: true,
+          sequence: 0,
+        },
+      },
+    })
+  })
+})
+
+function encodeInbound(type: number, fields: string[], seed: number): string {
+  const body = `KL*${type}|2a|${fields.join("|")}|`
+  return `${body}${formatCrc16(crc16CcittXmodem(textBytes(body), seed))}\r`
+}

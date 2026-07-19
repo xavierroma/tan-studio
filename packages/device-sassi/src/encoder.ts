@@ -28,6 +28,19 @@ export type InfoRequestFrameInput = {
   maximumFrameBytes?: number
 }
 
+export type ReadOnlyFilesystemFrameInput = {
+  elapsedMs: number
+  crcSeed: number
+  path: string
+  maximumFrameBytes?: number
+}
+
+export type AcknowledgementFrameInput = {
+  elapsedMs: number
+  crcSeed: number
+  maximumFrameBytes?: number
+}
+
 /** Encode a CR-terminated SASSI frame using the negotiated seeded CRC. */
 export function encodeSassiFrame(input: EncodeSassiFrameInput): Uint8Array {
   assertInteger(input.type, "type", 0, 255)
@@ -81,6 +94,50 @@ export function encodeInfoRequestFrame(
     type: 13,
     elapsedMs: input.elapsedMs,
     fields: ["", String(input.infoCode)],
+    crcSeed: input.crcSeed,
+    ...(input.maximumFrameBytes === undefined
+      ? {}
+      : { maximumFrameBytes: input.maximumFrameBytes }),
+  })
+}
+
+/** Read-only type-5 directory inventory request in Studio format 1. */
+export function encodeDirectoryListFrame(
+  input: ReadOnlyFilesystemFrameInput
+): Uint8Array {
+  return encodeSassiFrame({
+    type: 5,
+    elapsedMs: input.elapsedMs,
+    fields: [input.path, "", "1"],
+    crcSeed: input.crcSeed,
+    ...(input.maximumFrameBytes === undefined
+      ? {}
+      : { maximumFrameBytes: input.maximumFrameBytes }),
+  })
+}
+
+/** Read-only type-7 native-file request. */
+export function encodeFileRequestFrame(
+  input: ReadOnlyFilesystemFrameInput
+): Uint8Array {
+  return encodeSassiFrame({
+    type: 7,
+    elapsedMs: input.elapsedMs,
+    fields: [input.path],
+    crcSeed: input.crcSeed,
+    ...(input.maximumFrameBytes === undefined
+      ? {}
+      : { maximumFrameBytes: input.maximumFrameBytes }),
+  })
+}
+
+/** Type-1 packet acknowledgement used between inbound transfer chunks. */
+export function encodeAcknowledgementFrame(
+  input: AcknowledgementFrameInput
+): Uint8Array {
+  return encodeSassiFrame({
+    type: 1,
+    elapsedMs: input.elapsedMs,
     crcSeed: input.crcSeed,
     ...(input.maximumFrameBytes === undefined
       ? {}

@@ -21,7 +21,7 @@ test("compiled executable embeds and applies migration SQL", async () => {
     new URL("./fixtures/compiled-migration-smoke.ts", import.meta.url)
   )
   const migrationPath = fileURLToPath(
-    new URL("../migrations/0001_initial.sql", import.meta.url)
+    new URL("../migrations/0002_roast_brew_workflow.sql", import.meta.url)
   )
   const expectedSqlSha256 = new CryptoHasher("sha256")
     .update(await Bun.file(migrationPath).text())
@@ -59,8 +59,8 @@ test("compiled executable embeds and applies migration SQL", async () => {
       ])
       expect(exitCode, stderr).toBe(0)
       expect(JSON.parse(stdout)).toEqual({
-        version: 1,
-        name: "initial",
+        version: 2,
+        name: "roast_brew_workflow",
         sqlSha256: expectedSqlSha256,
       })
     }

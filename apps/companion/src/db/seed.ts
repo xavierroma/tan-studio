@@ -290,11 +290,12 @@ export function seedDatabase(database: CompanionDatabase): void {
     )
 
     const coffee = database.query(`INSERT INTO coffee_identities
-      (id, display_name, normalized_name, country_code, region, farm_producer, process, varieties_json,
+      (id, serial_number, display_name, normalized_name, country_code, region, farm_producer, process, varieties_json,
        altitude_min_m, altitude_max_m, harvest_label, notes, created_at_ms, updated_at_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`)
     coffee.run(
       seedIds.coffees.guji,
+      1,
       "Guji Shakiso",
       "guji shakiso",
       "ET",
@@ -310,6 +311,7 @@ export function seedDatabase(database: CompanionDatabase): void {
     )
     coffee.run(
       seedIds.coffees.bensa,
+      2,
       "Bensa Bombe",
       "bensa bombe",
       "ET",
@@ -325,6 +327,7 @@ export function seedDatabase(database: CompanionDatabase): void {
     )
     coffee.run(
       seedIds.coffees.elParaiso,
+      3,
       "El Paraíso",
       "el paraíso",
       "CO",
@@ -340,6 +343,7 @@ export function seedDatabase(database: CompanionDatabase): void {
     )
     coffee.run(
       seedIds.coffees.lasFlores,
+      4,
       "Las Flores",
       "las flores",
       "CO",
@@ -571,30 +575,32 @@ export function seedDatabase(database: CompanionDatabase): void {
     )
 
     const roastStatement = database.query(`INSERT INTO roasts
-      (id, green_lot_id, coffee_id, profile_revision_id, roasted_at_ms, source_timezone,
+      (id, serial_number, green_lot_id, coffee_id, profile_revision_id, roasted_at_ms, source_timezone,
        level_thousandths, development_basis_points, green_input_mass_mg, roasted_yield_mass_mg,
-       end_reason, result, status, notes, promoted_tasting_id, created_at_ms, updated_at_ms)
-      VALUES (?, ?, ?, ?, ?, 'America/Los_Angeles', ?, ?, ?, ?, 'profile_complete', 'success', 'completed', '', ?, ?, ?)`)
+       roast_duration_ms, end_reason, result, status, notes, promoted_tasting_id, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, 'America/Los_Angeles', ?, ?, ?, ?, 558000, 'profile_complete', 'success', 'completed', '', ?, ?, ?)`)
     const tasting = database.query(`INSERT INTO tastings
       (id, roast_id, tasted_at_ms, source_timezone, score_basis_points, descriptors_json, notes,
        conclusion, next_action, created_at_ms) VALUES (?, ?, ?, 'America/Los_Angeles', ?, ?, ?, ?, ?, ?)`)
     const library = database.query(`INSERT INTO roast_library_rows
-      (roast_id, revision, roasted_at_ms, coffee_id, coffee_name, provider_id, provider_name,
+      (roast_id, serial_number, revision, roasted_at_ms, coffee_id, coffee_name, provider_id, provider_name,
        purchase_id, purchase_reference, green_lot_id, lot_code, country_code, region, farm_producer,
        process, varieties_json, profile_revision_id, profile_name, profile_revision_number,
        roast_level_thousandths, green_input_mass_mg, roasted_yield_mass_mg, roast_loss_basis_points,
        development_basis_points, tasting_score_basis_points, tasting_descriptors_json, tasting_notes,
-       tasting_conclusion, tags_json, result, status, needs_tasting)
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'success', 'completed', ?)`)
+       tasting_conclusion, tags_json, result, status, needs_tasting, duration_ms)
+      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'success', 'completed', ?, 558000)`)
     const fts = database.query(`INSERT INTO roast_library_fts
       (roast_id, coffee_name, provider_name, farm_producer, process, tasting_notes, tasting_conclusion)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
 
     for (const roast of roasts) {
+      const serialNumber = roasts.indexOf(roast) + 1
       const tastingId =
         roast.score == null ? null : id(String(100 + roasts.indexOf(roast)))
       roastStatement.run(
         roast.id,
+        serialNumber,
         roast.lotId,
         roast.coffeeId,
         roast.profileRevisionId,
@@ -625,6 +631,7 @@ export function seedDatabase(database: CompanionDatabase): void {
       )
       library.run(
         roast.id,
+        serialNumber,
         roast.roastedAt,
         roast.coffeeId,
         roast.coffeeName,

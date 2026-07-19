@@ -184,7 +184,9 @@ function DemoCompareScreen() {
                       {roast.developmentPercent.toFixed(1)}%
                     </span>
                     <span className="font-mono tabular-nums">
-                      {roast.lossPercent.toFixed(1)}%
+                      {roast.lossPercent == null
+                        ? "—"
+                        : `${roast.lossPercent.toFixed(1)}%`}
                     </span>
                     <span className="font-mono text-lg font-semibold tabular-nums">
                       {formatScore(roast.score)}

@@ -33,6 +33,7 @@ import {
   isDemoResult,
   queryKeys,
   refreshDevice,
+  synchronizeDevice,
 } from "@/lib/api"
 
 const files = [
@@ -85,6 +86,8 @@ export function DeviceScreen() {
   const adapterReady =
     state?.adapterState === "ready" || state?.adapterState === "degraded"
   const demoDevice = isDemoResult(device.data) && deviceAvailable
+
+  if (device.error) throw device.error
 
   return (
     <div className="min-h-screen">
@@ -184,7 +187,9 @@ export function DeviceScreen() {
             {demoDevice
               ? "Development-only sample device"
               : deviceAvailable
-                ? "Nano connected in read-only mode"
+                ? state?.busy
+                  ? "Nano connected · filesystem busy"
+                  : "Nano connected in read-only mode"
                 : state?.connection === "reconnecting"
                   ? "Negotiating SASSI session"
                   : adapterReady
@@ -195,7 +200,9 @@ export function DeviceScreen() {
             {demoDevice
               ? "This is an explicitly enabled development simulation; no physical roaster state is being reported."
               : deviceAvailable
-                ? `${state.model ?? "Connected roaster"}${state.protocol ? ` · ${state.protocol}` : ""}${state.packetLimitBytes == null ? "" : ` · packet limit ${state.packetLimitBytes.toLocaleString()} bytes`}. The device serial is never shown, logged or included in fixtures.`
+                ? state.busy
+                  ? "The roaster reports its filesystem lock is active. Kaffelogic Studio also defers folder access in this state. Tan Studio will stay connected and import automatically when the Nano reports not busy."
+                  : `${state.model ?? "Connected roaster"}${state.protocol ? ` · ${state.protocol}` : ""}${state.packetLimitBytes == null ? "" : ` · packet limit ${state.packetLimitBytes.toLocaleString()} bytes`}. The read-only log importer is ready.`
                 : state?.connection === "reconnecting"
                   ? "The CDC port is open exclusively. Tan Studio is validating the Nano identity, seeded CRC and time-sync acknowledgement."
                   : adapterReady
@@ -235,10 +242,24 @@ export function DeviceScreen() {
                     conflicts remain preserved.
                   </p>
                 </div>
-                <Badge variant={demoDevice ? "warning" : "secondary"}>
+                <Badge
+                  variant={
+                    state?.syncState === "ready"
+                      ? "success"
+                      : state?.busy
+                        ? "warning"
+                        : "secondary"
+                  }
+                >
                   {demoDevice
                     ? "1 review · 1 import available"
-                    : "No inventory"}
+                    : state?.busy
+                      ? "Waiting for device"
+                      : state?.syncState === "syncing"
+                        ? "Importing logs"
+                        : state?.syncState === "ready"
+                          ? `${state.logCount ?? 0} logs indexed`
+                          : "Inventory pending"}
                 </Badge>
               </div>
               {demoDevice ? (
@@ -287,8 +308,11 @@ export function DeviceScreen() {
                 </div>
               ) : (
                 <div className="text-muted-foreground p-8 text-center text-sm">
-                  Device files are shown only after a verified adapter inventory
-                  is available.
+                  {state?.syncState === "ready"
+                    ? `${state.logCount ?? 0} roast logs and ${state.profileCount ?? 0} profiles are present on the Nano. ${state.importWarningCount === 0 ? "Every imported log passed native row parsing." : `${state.importWarningCount} parser warnings need review.`}`
+                    : state?.busy
+                      ? "The Nano is connected, but its filesystem is locked. This normally clears when the roaster returns to its fully idle state."
+                      : "Device files are shown after the verified read-only inventory completes."}
                 </div>
               )}
               <div className="bg-secondary/40 flex flex-col gap-3 border-t p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -297,14 +321,33 @@ export function DeviceScreen() {
                   Device writes disabled; log import is read-only.
                 </div>
                 <Button
-                  disabled={!demoDevice}
-                  onClick={() =>
-                    toast.success(
-                      "One new roast log imported; original bytes retained"
-                    )
+                  disabled={
+                    (!deviceAvailable && !demoDevice) ||
+                    state?.busy === true ||
+                    state?.syncState === "syncing"
                   }
+                  onClick={() => {
+                    if (demoDevice) {
+                      toast.success(
+                        "One new roast log imported; original bytes retained"
+                      )
+                      return
+                    }
+                    void synchronizeDevice()
+                      .then(() => device.refetch())
+                      .then(() => toast.success("Nano logs synchronized"))
+                      .catch(() =>
+                        toast.error(
+                          "The Nano is still busy. Tan Studio will retry automatically."
+                        )
+                      )
+                  }}
                 >
-                  {demoDevice ? "Import 1 new log" : "Nothing to import"}
+                  {state?.syncState === "syncing"
+                    ? "Importing…"
+                    : state?.busy
+                      ? "Waiting for Nano"
+                      : "Synchronize logs"}
                 </Button>
               </div>
             </section>

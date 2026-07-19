@@ -2,14 +2,18 @@ import { Hono } from "hono"
 import { QueryRoastLibrary } from "@tan-studio/application"
 import type { CompanionDatabase } from "./db/database"
 import type { CompanionEnv } from "./api/env"
-import { apiErrorHandler, apiNotFoundHandler } from "./api/problem"
+import { ApiError, apiErrorHandler, apiNotFoundHandler } from "./api/problem"
 import { securityMiddleware, type SecurityOptions } from "./api/security"
 import { CatalogRepository } from "./repositories/catalog-repository"
+import { BrewRepository } from "./repositories/brew-repository"
 import { RoastRepository } from "./repositories/roast-repository"
+import { LabelRepository } from "./repositories/label-repository"
 import { CursorService } from "./services/cursor"
 import { RoastLibraryQueryService } from "./services/roast-library-query"
 import { registerCatalogRoutes } from "./routes/catalog-routes"
+import { registerBrewRoutes } from "./routes/brew-routes"
 import { registerRoastRoutes } from "./routes/roast-routes"
+import { registerLabelRoutes } from "./routes/label-routes"
 import type { DeviceManagerPort } from "./device/device-manager"
 
 export type CompanionAppOptions = {
@@ -25,7 +29,9 @@ export function createCompanionApp(options: CompanionAppOptions) {
   const sessionId = options.sessionId ?? Bun.randomUUIDv7()
   const cursors = new CursorService(sessionId, options.security.launchToken)
   const catalogRepository = new CatalogRepository(options.database)
+  const brewRepository = new BrewRepository(options.database)
   const roastRepository = new RoastRepository(options.database)
+  const labelRepository = new LabelRepository(options.database)
   const roastLibraryAdapter = new RoastLibraryQueryService(
     options.database,
     cursors
@@ -40,8 +46,14 @@ export function createCompanionApp(options: CompanionAppOptions) {
       firmware: null,
       protocol: null,
       packetLimitBytes: null,
+      busy: null,
       profileCount: null,
       logCount: null,
+      syncState: "idle" as const,
+      importedLogCount: 0,
+      updatedLogCount: 0,
+      importWarningCount: 0,
+      lastSyncedAt: null,
       readOnly: true as const,
     }
 
@@ -125,7 +137,46 @@ export function createCompanionApp(options: CompanionAppOptions) {
     return c.json(options.deviceManager.snapshot())
   })
 
+  app.post("/api/v1/device/synchronize", async (c) => {
+    if (!options.deviceManager) {
+      return c.json(
+        {
+          type: "about:blank",
+          title: "Device adapter unavailable",
+          status: 501,
+          detail: "The USB device adapter is not installed.",
+          code: "device_adapter_unavailable",
+          correlationId: c.get("correlationId"),
+          retryable: false,
+        },
+        501
+      )
+    }
+    try {
+      await options.deviceManager.synchronize()
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message === "device_busy" ||
+          error.message === "sassi_outcome_103")
+      ) {
+        throw new ApiError({
+          status: 423,
+          code: "device_busy",
+          title: "Roaster filesystem busy",
+          detail:
+            "The Nano is connected but has temporarily locked its filesystem. Synchronization will resume when it reports not busy.",
+          retryable: true,
+        })
+      }
+      throw error
+    }
+    return c.json(options.deviceManager.snapshot())
+  })
+
   registerCatalogRoutes(app, catalogRepository, cursors)
+  registerBrewRoutes(app, brewRepository)
+  registerLabelRoutes(app, labelRepository)
   registerRoastRoutes(app, roastRepository, roastLibrary)
 
   app.onError(apiErrorHandler)

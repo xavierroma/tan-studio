@@ -2,6 +2,8 @@ export type RoastStatus = "tasted" | "needs-tasting" | "ready" | "imported"
 
 export type RoastSummary = {
   id: string
+  number: number
+  nativeLogNumber: number | null
   roastedAt: string
   coffeeName: string
   providerName: string
@@ -20,7 +22,7 @@ export type RoastSummary = {
   status: RoastStatus
   result: "completed" | "stopped" | "imported"
   developmentPercent: number
-  lossPercent: number
+  lossPercent: number | null
   durationSeconds: number
 }
 
@@ -50,14 +52,39 @@ export type CoffeeLot = {
 export type ChartPoint = {
   elapsedMs: number
   temperatureC: number
+  spotTemperatureC?: number | null
+  meanTemperatureC?: number | null
   profileC: number | null
   rorCPerMin: number | null
+  profileRorCPerMin?: number | null
+  desiredRorCPerMin?: number | null
+  powerKw?: number | null
+  actualFanRpm?: number | null
+  values?: Record<string, number>
+}
+
+export type ChartChannel = {
+  key: string
+  name: string
+  rawName: string
+  sourceIndex: number
+  offsetMs: number
+  unit: "celsius" | "celsius_per_minute" | "kilowatts" | "rpm" | "unitless"
+  hiddenByDefault: boolean
+  reusePreviousScale: boolean
+  specialProcessing: boolean
 }
 
 export type RoastDetail = RoastSummary & {
+  revision: number
+  coffeeId: string | null
   greenWeightGrams: number
-  roastedWeightGrams: number
+  roastedWeightGrams: number | null
   profileDescription: string
+  channels: ChartChannel[]
+  cooldownSeconds: number
+  nativeMetadata: Record<string, string>
+  importWarningCount: number
   nextAction: string
   conclusion: string
   events: Array<{
@@ -68,6 +95,15 @@ export type RoastDetail = RoastSummary & {
     kind: "device" | "manual" | "annotation"
   }>
   chart: ChartPoint[]
+}
+
+export type CoffeeIdentity = {
+  id: string
+  number: number
+  name: string
+  country: string | null
+  region: string | null
+  process: string | null
 }
 
 export type AdapterState = "ready" | "degraded" | "unavailable" | "failed"
@@ -81,7 +117,61 @@ export type DeviceState = {
   firmware: string | null
   protocol: string | null
   packetLimitBytes: number | null
+  busy: boolean | null
   profileCount: number | null
   logCount: number | null
+  syncState: "idle" | "syncing" | "ready" | "failed"
+  importedLogCount: number
+  updatedLogCount: number
+  importWarningCount: number
+  lastSyncedAt: string | null
   readOnly: boolean
+}
+
+export type UserPreferences = {
+  revision: number
+  defaultRoasterName: string
+  defaultGrinderName: string
+  defaultGrinderSetting: string
+  defaultKettleName: string
+  defaultWaterName: string
+  defaultBrewMethod: string
+  defaultCoffeeMassMg: number
+  defaultWaterMassMg: number
+  defaultWaterTemperatureMilliC: number
+}
+
+export type Brew = {
+  id: string
+  number: number
+  revision: number
+  roastNumber: number
+  coffeeName: string | null
+  brewedAt: string
+  method: string
+  grinderName: string
+  grinderSetting: string
+  kettleName: string
+  waterName: string
+  coffeeMassMg: number
+  waterMassMg: number
+  ratio: number
+  waterTemperatureMilliC: number | null
+  bloomWaterMassMg: number | null
+  bloomDurationMs: number | null
+  brewDurationMs: number | null
+  scoreBasisPoints: number | null
+  descriptors: string[]
+  tastingNotes: string
+  notes: string
+}
+
+export type LabelRecord = {
+  id: string
+  number: number
+  roastNumber: number
+  qrPayload: string
+  copies: number
+  status: "generated" | "submitted" | "spooled" | "failed" | "unknown"
+  createdAt: string
 }

@@ -8,7 +8,10 @@ import {
 
 export const RoastFieldSchema = z.enum([
   "roastId",
+  "roastNumber",
+  "nativeLogNumber",
   "roastedAt",
+  "durationMs",
   "coffeeId",
   "coffeeName",
   "providerId",
@@ -71,7 +74,10 @@ const enumFields = new Set<RoastField>([
 ])
 const booleanFields = new Set<RoastField>(["needsTasting"])
 const orderedFields = new Set<RoastField>([
+  "roastNumber",
+  "nativeLogNumber",
   "roastedAt",
+  "durationMs",
   "profileRevisionNumber",
   "roastLevelThousandths",
   "greenInputMassMg",
@@ -86,6 +92,8 @@ const setFields = new Set<RoastField>([
   "tags",
 ])
 const nullableFields = new Set<RoastField>([
+  "nativeLogNumber",
+  "durationMs",
   "coffeeId",
   "coffeeName",
   "providerId",
@@ -357,6 +365,9 @@ export const GroupValueFieldSchema = z.enum([
   "readyPlanStatus",
 ])
 export const GroupNumericFieldSchema = z.enum([
+  "roastNumber",
+  "nativeLogNumber",
+  "durationMs",
   "profileRevisionNumber",
   "roastLevelThousandths",
   "greenInputMassMg",
@@ -367,7 +378,10 @@ export const GroupNumericFieldSchema = z.enum([
 ])
 export const SortableFieldSchema = z.enum([
   "roastId",
+  "roastNumber",
+  "nativeLogNumber",
   "roastedAt",
+  "durationMs",
   "coffeeId",
   "coffeeName",
   "providerId",
@@ -397,7 +411,10 @@ export const SortableFieldSchema = z.enum([
   "readyPlanStatus",
 ])
 export const AggregatableFieldSchema = z.enum([
+  "roastNumber",
+  "nativeLogNumber",
   "roastedAt",
+  "durationMs",
   "coffeeId",
   "providerId",
   "purchaseId",

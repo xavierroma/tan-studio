@@ -15,7 +15,9 @@ Public corroboration:
 - RP2040 provides USB 1.1 full-speed device support: [RP2040 specifications](https://www.raspberrypi.com/products/rp2040/specifications/).
 - Kaffelogic's Connect guide describes built-in storage reached through Studio: [Connect guide](https://webservices.kaffelogic.com/downloads/manuals/connect%20manual%20insert.pdf).
 
-The roaster was unavailable during the initial pass. A later IORegistry inspection verified its RP2040 CDC ACM interfaces while Studio owned the serial port. After Studio exited, `/dev/cu.usbmodem2101` and `/dev/tty.usbmodem2101` were unowned, and a read-only, nonblocking open of the callout node captured repeated SASSI type-2 connection requests. The first capture wrote no application bytes or modem-control operations. A later bounded hardware-in-the-loop run used the implemented serial adapter at Studio's settings, received and validated type 2, sent type 3, validated the matching type-4 acknowledgement, then sent type-13 reads for operational status (code 9) and system information (code 3). The Nano returned type-14 responses and the system payload yielded firmware `7.20.6`. This verifies discovery, negotiation, and those two information reads. Filesystem transfers, live-roast traffic, and every mutating command remain disabled and uncaptured.
+The roaster was unavailable during the initial pass. A later IORegistry inspection verified its RP2040 CDC ACM interfaces while Studio owned the serial port. After Studio exited, `/dev/cu.usbmodem2101` and `/dev/tty.usbmodem2101` were unowned, and a read-only, nonblocking open of the callout node captured repeated SASSI type-2 connection requests. The first capture wrote no application bytes or modem-control operations. A later bounded hardware-in-the-loop run used the implemented serial adapter at Studio's settings, received and validated type 2, sent type 3, validated the matching type-4 acknowledgement, then sent type-13 reads for operational status (code 9) and system information (code 3). The Nano returned type-14 responses and the system payload yielded firmware `7.20.6`.
+
+The same session sent the read-only type-5 inventory request for `kaffelogic/roast-logs`. The attached Nano returned a final type-6 response with lower outcome `103` (`busy`) and sequence `0`. Its operational status concurrently reported `sassi_file_lock=7`. Static inspection of Studio confirms that Studio also defers filesystem synchronization until this field becomes `0`. Tan Studio therefore remains connected, reports the busy state, and automatically retries synchronization after a later not-busy type-30 status notification. This verifies the request/error path without inventing a command or bypassing the device lock. A successful directory payload and complete type-8 file transfer still require a capture while the Nano reports an unlocked filesystem. Live-roast traffic and every mutating command remain disabled and uncaptured.
 
 ## 2. USB serial transport
 
@@ -117,7 +119,7 @@ YYYYMMDDdHHMMSS
 
 ### 3.2 Minimum read-only connection sequence
 
-An initial compatibility client must stage this sequence by evidence. Steps 1-6 and the bounded information reads in step 7 are implemented and verified against the attached Nano. Filesystem and live behavior in steps 7-9 remain disabled until captured and converted into redacted fixtures:
+An initial compatibility client must stage this sequence by evidence. Steps 1-7 and the busy filesystem response in step 8 are implemented and verified against the attached Nano. The successful directory/file payload path remains fixture-tested but awaits an unlocked hardware capture; live behavior remains capture-gated:
 
 1. Select the CDC port whose USB VID/PID is `0x2e8a:0x000a`.
 2. Open it at 115200 baud, assert DTR, and buffer bytes until `\r`.
@@ -125,8 +127,8 @@ An initial compatibility client must stage this sequence by evidence. Steps 1-6 
 4. For the first type-2 connection request, parse the candidate CRC seed from its payload and use that seed to validate the same frame. Reject it if the computed CRC does not match.
 5. Validate manufacturer domain, supported Nano model, SASSI version, limits, and required capabilities. VID/PID alone identifies a candidate RP2040 CDC device, not a trusted Kaffelogic target.
 6. Reply as host platform 10 with capability 256, SASSI version 1, and UTC time; require a matching type-4 acknowledgement before reporting connected.
-7. Request operational status code 9 and system information code 3 serially. System information currently supplies the displayed firmware. Filesystem and technical reads, directory listing, and file pulls remain capability-disabled.
-8. Continue consuming type-30 status and acknowledge every type-32 incremental-file chunk with type 1 while busy, but defer ordinary folder synchronization until the device reports not busy.
+7. Request operational status code 9 and system information code 3 serially. System information currently supplies the displayed firmware; operational status supplies `sassi_file_lock` and the current stage.
+8. When `sassi_file_lock` is `0`, list the profile and roast-log directories with type 5, then pull changed files with type 7. If the device returns outcome `103` or reports a nonzero file lock, expose `busy`, keep the connection open, and defer synchronization until a later not-busy type-30 status. Continue consuming type-30 status and acknowledge every type-32 incremental-file chunk with type 1 while busy.
 9. On disconnect, keep all complete frames and partial live-log state, then restart negotiation on the next port open.
 
 Frame decoding should be incremental: a serial read can contain half a frame or several frames. Never assume one read equals one packet, and cap the pre-terminator buffer at the negotiated maximum plus a small framing allowance.
@@ -199,6 +201,8 @@ Known lower outcome codes:
 | 53 | Cannot delete | 54 | Cannot create directory |
 | 100 | Name too long | 101 | Data sequence error |
 | 102 | Timeout | 103 | Busy |
+
+The attached Nano produced a valid final busy response shaped as `path`, `231` (`0x80 | 103`), format `1`, sequence `0`, and an empty data field. Sequence `0` is therefore valid for a terminal transfer error that contains no data; successful transfer chunks still begin at sequence `1`.
 
 #### 3.4.2 ACK and timeout state machine
 

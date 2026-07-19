@@ -72,7 +72,7 @@ describe("security and bootstrap", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(await response.json()).toMatchObject({
       apiVersion: "v1",
-      schemaVersion: 1,
+      schemaVersion: 2,
       recoveryState: "ready",
       features: { catalog: true, roastLibrary: true, deviceConnection: false },
       adapters: { database: { state: "ready" } },
@@ -90,8 +90,14 @@ describe("security and bootstrap", () => {
       firmware: null,
       protocol: null,
       packetLimitBytes: null,
+      busy: null,
       profileCount: null,
       logCount: null,
+      syncState: "idle",
+      importedLogCount: 0,
+      updatedLogCount: 0,
+      importWarningCount: 0,
+      lastSyncedAt: null,
       readOnly: true,
     })
   })
@@ -123,6 +129,95 @@ describe("security and bootstrap", () => {
     expect(response.headers.get("access-control-allow-headers")).toContain(
       "Idempotency-Key"
     )
+  })
+})
+
+describe("brew workflow and personal defaults", () => {
+  test("creates short-numbered brews from the user's V60 defaults", async () => {
+    const preferencesResponse = await request("/api/v1/preferences")
+    expect(preferencesResponse.status).toBe(200)
+    expect(await preferencesResponse.json()).toMatchObject({
+      revision: 1,
+      defaultRoasterName: "Kaffelogic Nano 7",
+      defaultBrewMethod: "V60",
+      defaultCoffeeMassMg: 15_000,
+      defaultWaterMassMg: 250_000,
+      defaultWaterTemperatureMilliC: 93_000,
+    })
+
+    const firstResponse = await request("/api/v1/brews", {
+      method: "POST",
+      body: JSON.stringify({
+        roastNumber: 1,
+        tastingNotes: "Jasmine and stone fruit",
+      }),
+    })
+    expect(firstResponse.status).toBe(201)
+    expect(firstResponse.headers.get("location")).toBe("/api/v1/brews/1")
+    expect(await firstResponse.json()).toMatchObject({
+      serialNumber: 1,
+      roast: { serialNumber: 1 },
+      method: "V60",
+      coffeeMassMg: 15_000,
+      waterMassMg: 250_000,
+      waterTemperatureMilliC: 93_000,
+      ratio: 250 / 15,
+      tastingNotes: "Jasmine and stone fruit",
+    })
+
+    const updateResponse = await request("/api/v1/preferences", {
+      method: "PATCH",
+      headers: { "If-Match": '"revision:1"' },
+      body: JSON.stringify({
+        defaultGrinderName: "My grinder",
+        defaultGrinderSetting: "5.2",
+        defaultKettleName: "My kettle",
+        defaultWaterName: "Filtered water",
+        defaultWaterTemperatureMilliC: 92_000,
+      }),
+    })
+    expect(updateResponse.status).toBe(200)
+    expect(updateResponse.headers.get("etag")).toBe('"revision:2"')
+
+    const secondResponse = await request("/api/v1/brews", {
+      method: "POST",
+      body: JSON.stringify({ roastNumber: 1 }),
+    })
+    expect(await secondResponse.json()).toMatchObject({
+      serialNumber: 2,
+      grinderName: "My grinder",
+      grinderSetting: "5.2",
+      kettleName: "My kettle",
+      waterName: "Filtered water",
+      waterTemperatureMilliC: 92_000,
+    })
+
+    const listResponse = await request("/api/v1/brews?roastNumber=1")
+    const list = await listResponse.json()
+    expect(
+      list.items.map((brew: { serialNumber: number }) => brew.serialNumber)
+    ).toEqual([2, 1])
+  })
+})
+
+describe("roast-linked labels", () => {
+  test("generates a short QR identity linked to the roast", async () => {
+    const response = await request("/api/v1/labels", {
+      method: "POST",
+      body: JSON.stringify({ roastNumber: 1, copies: 2 }),
+    })
+    expect(response.status).toBe(201)
+    expect(response.headers.get("location")).toBe("/api/v1/labels/1")
+    expect(await response.json()).toMatchObject({
+      serialNumber: 1,
+      roastNumber: 1,
+      qrPayload: "tan:roast:1",
+      copies: 2,
+      status: "generated",
+    })
+
+    const list = await request("/api/v1/labels?roastNumber=1")
+    expect((await list.json()).items).toHaveLength(1)
   })
 })
 
@@ -283,6 +378,28 @@ describe("catalog resources", () => {
 })
 
 describe("roast library and log review", () => {
+  test("links an imported roast to a short-numbered catalog coffee", async () => {
+    const coffeesResponse = await request("/api/v1/coffees?search=Guji")
+    const coffee = (await coffeesResponse.json()).items[0]
+    const detailResponse = await request("/api/v1/roasts/1")
+    const detail = await detailResponse.json()
+
+    const response = await request("/api/v1/roasts/1/coffee", {
+      method: "PATCH",
+      headers: { "If-Match": `"revision:${detail.revision}"` },
+      body: JSON.stringify({ coffeeNumber: coffee.serialNumber }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("etag")).toBe(
+      `"revision:${detail.revision + 1}"`
+    )
+    expect((await response.json()).resource).toMatchObject({
+      serialNumber: 1,
+      lineage: { coffee: { id: coffee.id, displayName: "Guji Shakiso" } },
+    })
+  })
+
   test("filters, sorts and paginates the roast library", async () => {
     const query = {
       viewVersion: 1,
@@ -450,5 +567,8 @@ test("migrations are repeatable and hash-verified", async () => {
   const migrations = database
     .query("SELECT version, name FROM schema_migrations")
     .all()
-  expect(migrations).toEqual([{ version: 1, name: "initial" }])
+  expect(migrations).toEqual([
+    { version: 1, name: "initial" },
+    { version: 2, name: "roast_brew_workflow" },
+  ])
 })

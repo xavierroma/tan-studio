@@ -1,9 +1,17 @@
 import type { CompanionDatabase } from "../db/database"
+import { withImmediateTransaction } from "../db/database"
 import { isoInstant } from "../api/http"
-import { ApiError, notFound } from "../api/problem"
+import { ApiError, notFound, revisionConflict } from "../api/problem"
 
 type DetailRow = {
   id: string
+  serial_number: number | null
+  native_log_number: number | null
+  roast_duration_ms: number | null
+  cooldown_end_ms: number | null
+  source_file_id: string | null
+  native_metadata_json: string
+  import_warnings_json: string
   revision: number
   roasted_at_ms: number
   source_timezone: string
@@ -74,6 +82,17 @@ type SeriesRow = {
   temperature_milli_c: number
   profile_temperature_milli_c: number | null
   ror_milli_c_per_min: number | null
+  spot_temperature_milli_c: number | null
+  mean_temperature_milli_c: number | null
+  profile_ror_milli_c_per_min: number | null
+  desired_ror_milli_c_per_min: number | null
+  power_milli_kw: number | null
+  motor_voltage_trace_milli: number | null
+  kp_milli: number | null
+  ki_milli: number | null
+  kd_milli: number | null
+  actual_fan_rpm: number | null
+  values_json: string
 }
 
 const detailSql = `
@@ -103,9 +122,10 @@ const detailSql = `
 export class RoastRepository {
   constructor(readonly database: CompanionDatabase) {}
 
-  getDetail(id: string) {
+  getDetail(reference: string) {
+    const id = this.#resolveRoastId(reference)
     const row = this.database.query(detailSql).get(id) as DetailRow | null
-    if (!row) throw notFound("roast", id)
+    if (!row) throw notFound("roast", reference)
     const events = this.database
       .query(
         "SELECT * FROM roast_events WHERE roast_id = ? ORDER BY elapsed_ms, id"
@@ -120,6 +140,8 @@ export class RoastRepository {
     return {
       kind: "roast" as const,
       id: row.id,
+      serialNumber: row.serial_number,
+      nativeLogNumber: row.native_log_number,
       revision: row.revision,
       greenLotId: row.green_lot_id,
       coffeeId: row.coffee_id,
@@ -134,6 +156,11 @@ export class RoastRepository {
       result: row.result,
       status: row.status,
       notes: row.notes,
+      durationMs: row.roast_duration_ms,
+      cooldownEndMs: row.cooldown_end_ms,
+      nativeMetadata: JSON.parse(row.native_metadata_json) as unknown,
+      importWarnings: JSON.parse(row.import_warnings_json) as unknown,
+      sourceFileId: row.source_file_id,
       promotedTastingId: row.tasting_id,
       lineage: {
         coffee: row.coffee_id
@@ -209,7 +236,7 @@ export class RoastRepository {
   }
 
   getSeries(
-    id: string,
+    reference: string,
     options: {
       streamVersion: number
       fromElapsedMs: number
@@ -219,6 +246,7 @@ export class RoastRepository {
       channels?: string
     }
   ) {
+    const id = this.#resolveRoastId(reference)
     const stream = this.database
       .query("SELECT * FROM roast_sample_streams WHERE roast_id = ?")
       .get(id) as {
@@ -257,8 +285,19 @@ export class RoastRepository {
     )
     const allowedChannels = new Set([
       "temperature",
+      "spotTemperature",
+      "meanTemperature",
       "profileTemperature",
+      "profileRor",
       "ror",
+      "desiredRor",
+      "power",
+      "motorVoltageTrace",
+      "kp",
+      "ki",
+      "kd",
+      "actualFanRpm",
+      "native",
     ])
     for (const channel of channelSet) {
       if (!allowedChannels.has(channel)) {
@@ -309,13 +348,136 @@ export class RoastRepository {
         ...(channelSet.has("temperature")
           ? { temperatureMilliC: row.temperature_milli_c }
           : {}),
+        ...(channelSet.has("spotTemperature")
+          ? { spotTemperatureMilliC: row.spot_temperature_milli_c }
+          : {}),
+        ...(channelSet.has("meanTemperature")
+          ? { meanTemperatureMilliC: row.mean_temperature_milli_c }
+          : {}),
         ...(channelSet.has("profileTemperature")
           ? { profileTemperatureMilliC: row.profile_temperature_milli_c }
           : {}),
         ...(channelSet.has("ror")
           ? { rorMilliCPerMin: row.ror_milli_c_per_min }
           : {}),
+        ...(channelSet.has("profileRor")
+          ? { profileRorMilliCPerMin: row.profile_ror_milli_c_per_min }
+          : {}),
+        ...(channelSet.has("desiredRor")
+          ? { desiredRorMilliCPerMin: row.desired_ror_milli_c_per_min }
+          : {}),
+        ...(channelSet.has("power")
+          ? { powerMilliKw: row.power_milli_kw }
+          : {}),
+        ...(channelSet.has("motorVoltageTrace")
+          ? { motorVoltageTraceMilli: row.motor_voltage_trace_milli }
+          : {}),
+        ...(channelSet.has("kp") ? { kpMilli: row.kp_milli } : {}),
+        ...(channelSet.has("ki") ? { kiMilli: row.ki_milli } : {}),
+        ...(channelSet.has("kd") ? { kdMilli: row.kd_milli } : {}),
+        ...(channelSet.has("actualFanRpm")
+          ? { actualFanRpm: row.actual_fan_rpm }
+          : {}),
+        ...(channelSet.has("native")
+          ? { values: JSON.parse(row.values_json) as unknown }
+          : {}),
       })),
     }
+  }
+
+  assignCoffee(
+    reference: string,
+    expectedRevision: number,
+    coffeeNumber: number | null
+  ) {
+    const id = this.#resolveRoastId(reference)
+    const current = this.database
+      .query("SELECT revision FROM roasts WHERE id = ?")
+      .get(id) as { revision: number } | null
+    if (!current) throw notFound("roast", reference)
+    if (current.revision !== expectedRevision) {
+      throw revisionConflict(
+        `"revision:${current.revision}"`,
+        `"revision:${expectedRevision}"`
+      )
+    }
+
+    const coffee =
+      coffeeNumber == null
+        ? null
+        : (this.database
+            .query(
+              `SELECT id, display_name, country_code, region, farm_producer,
+                      process, varieties_json
+                 FROM coffee_identities
+                WHERE serial_number = ? AND archived_at_ms IS NULL`
+            )
+            .get(coffeeNumber) as {
+            id: string
+            display_name: string
+            country_code: string | null
+            region: string | null
+            farm_producer: string | null
+            process: string | null
+            varieties_json: string
+          } | null)
+    if (coffeeNumber != null && !coffee) {
+      throw notFound("coffee", String(coffeeNumber))
+    }
+
+    const now = Date.now()
+    withImmediateTransaction(this.database, () => {
+      this.database
+        .query(
+          `UPDATE roasts
+              SET coffee_id = ?, green_lot_id = NULL, updated_at_ms = ?, revision = revision + 1
+            WHERE id = ?`
+        )
+        .run(coffee?.id ?? null, now, id)
+      this.database
+        .query(
+          `UPDATE roast_library_rows
+              SET coffee_id = ?, coffee_name = ?, country_code = ?, region = ?,
+                  farm_producer = ?, process = ?, varieties_json = ?,
+                  green_lot_id = NULL, lot_code = NULL,
+                  provider_id = NULL, provider_name = NULL,
+                  purchase_id = NULL, purchase_reference = NULL,
+                  revision = revision + 1
+            WHERE roast_id = ?`
+        )
+        .run(
+          coffee?.id ?? null,
+          coffee?.display_name ?? null,
+          coffee?.country_code ?? null,
+          coffee?.region ?? null,
+          coffee?.farm_producer ?? null,
+          coffee?.process ?? null,
+          coffee?.varieties_json ?? "[]",
+          id
+        )
+      this.database
+        .query("DELETE FROM roast_library_fts WHERE roast_id = ?")
+        .run(id)
+      this.database
+        .query(
+          `INSERT INTO roast_library_fts
+           (roast_id, coffee_name, provider_name, farm_producer, process, tasting_notes, tasting_conclusion)
+           SELECT roast_id, coffee_name, provider_name, farm_producer, process, tasting_notes, tasting_conclusion
+             FROM roast_library_rows WHERE roast_id = ?`
+        )
+        .run(id)
+    })
+    return this.getDetail(id)
+  }
+
+  #resolveRoastId(reference: string): string {
+    if (/^[1-9][0-9]{0,8}$/u.test(reference)) {
+      const row = this.database
+        .query("SELECT id FROM roasts WHERE serial_number = ?")
+        .get(Number(reference)) as { id: string } | null
+      if (!row) throw notFound("roast", reference)
+      return row.id
+    }
+    return reference
   }
 }

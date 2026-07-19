@@ -1,5 +1,6 @@
 import { CryptoHasher } from "bun"
 import initialMigrationSql from "../../migrations/0001_initial.sql" with { type: "text" }
+import roastBrewWorkflowMigrationSql from "../../migrations/0002_roast_brew_workflow.sql" with { type: "text" }
 import type { CompanionDatabase } from "./database"
 import { openDatabase, withImmediateTransaction } from "./database"
 
@@ -8,6 +9,11 @@ const migrations = [
     version: 1,
     name: "initial",
     sql: initialMigrationSql,
+  },
+  {
+    version: 2,
+    name: "roast_brew_workflow",
+    sql: roastBrewWorkflowMigrationSql,
   },
 ] as const
 

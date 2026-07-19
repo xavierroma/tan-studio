@@ -8,7 +8,11 @@ import type {
   SassiDecoderOptions,
   Type14InfoResponse,
   Type2ConnectionRequest,
+  Type30StatusNotification,
+  Type32IncrementalFileChunk,
   Type4TimeSyncAcknowledgement,
+  Type6DirectoryListChunk,
+  Type8FileChunk,
 } from "./types"
 
 const FRAME_TERMINATOR = 0x0d
@@ -305,7 +309,10 @@ export function decodeSassiFrame(
         parsedKnown.value.kind === "connection_request"
           ? redactType2Fields(fields)
           : fields,
-      evidence: "live_verified",
+      evidence:
+        type === 6 || type === 8 || type === 30 || type === 32
+          ? "static_inferred"
+          : "live_verified",
       parsed: parsedKnown.value,
       diagnostics: [],
       diagnosticFrame:
@@ -345,7 +352,11 @@ type KnownParseResult =
       value:
         | Type2ConnectionRequest
         | Type4TimeSyncAcknowledgement
+        | Type6DirectoryListChunk
+        | Type8FileChunk
         | Type14InfoResponse
+        | Type30StatusNotification
+        | Type32IncrementalFileChunk
     }
   | { ok: false; error: SassiCodecFailure }
 
@@ -366,6 +377,8 @@ function parseKnownMessage(
           ),
         }
   }
+  if (type === 6) return parseTransferChunk(type, fields, "directory")
+  if (type === 8) return parseTransferChunk(type, fields, "file")
   if (type === 14) {
     if (fields.length !== 2) {
       return {
@@ -393,7 +406,100 @@ function parseKnownMessage(
           ),
         }
   }
+  if (type === 30) {
+    if (fields.length !== 2) {
+      return invalidKnown(type, fields, "data and info-code fields")
+    }
+    const [data, codeText] = fields
+    const infoCode = parseDecimalField(codeText, "info code", 0xffff)
+    return data !== undefined && infoCode !== undefined
+      ? {
+          ok: true,
+          value: { kind: "status_notification", data, infoCode },
+        }
+      : invalidKnown(type, fields, "a valid info code")
+  }
+  if (type === 32) return parseTransferChunk(type, fields, "incremental")
   return undefined
+}
+
+function parseTransferChunk(
+  type: 6 | 8 | 32,
+  fields: readonly string[],
+  transfer: "directory" | "file" | "incremental"
+): KnownParseResult {
+  if (fields.length !== 5) {
+    return invalidKnown(type, fields, "five transfer fields")
+  }
+  const [path, outcomeText, third, sequenceText, base64Data] = fields
+  const combinedOutcome = parseDecimalField(outcomeText, "outcome", 0xff)
+  // Error responses use sequence zero and an empty data field. Successful
+  // streams still begin at one and are enforced by the session actor.
+  const sequence = parseDecimalField(sequenceText, "sequence", 0xffff_ffff, 0)
+  if (
+    path === undefined ||
+    third === undefined ||
+    base64Data === undefined ||
+    combinedOutcome === undefined ||
+    sequence === undefined ||
+    !isBase64(base64Data)
+  ) {
+    return invalidKnown(type, fields, "valid transfer fields")
+  }
+  const final = (combinedOutcome & 0x80) !== 0
+  const outcome = combinedOutcome & 0x7f
+  if (transfer === "directory") {
+    const format = parseDecimalField(third, "directory format", 0xffff)
+    return format === undefined
+      ? invalidKnown(type, fields, "a valid directory format")
+      : {
+          ok: true,
+          value: {
+            kind: "directory_list_chunk",
+            path,
+            outcome,
+            final,
+            format,
+            sequence,
+            base64Data,
+          },
+        }
+  }
+  const value = {
+    path,
+    outcome,
+    final,
+    modifiedAt: third,
+    sequence,
+    base64Data,
+  }
+  return transfer === "file"
+    ? { ok: true, value: { kind: "file_chunk", ...value } }
+    : { ok: true, value: { kind: "incremental_file_chunk", ...value } }
+}
+
+function invalidKnown(
+  type: number,
+  fields: readonly string[],
+  expected: string
+): KnownParseResult {
+  return {
+    ok: false,
+    error: failure(
+      "invalid_field",
+      `SASSI type ${type} must contain ${expected}`,
+      genericDiagnostic(type, fields.length, false)
+    ),
+  }
+}
+
+function isBase64(value: string): boolean {
+  return (
+    value.length % 4 === 0 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(
+      value
+    )
+  )
 }
 
 function parseType2(fields: readonly string[]): Type2ParseResult {

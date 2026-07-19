@@ -106,13 +106,14 @@ describe("Nano read-only SASSI session", () => {
       encodeSassiFrame({
         type: 14,
         elapsedMs: statusRequest.elapsedMs,
-        fields: ["stage:0;time:0.000000;level:2.000000", "9"],
+        fields: ["stage:0;time:0.000000;level:2.000000;sassi_file_lock:0", "9"],
         crcSeed: seed,
       }),
       3
     )
     await tick()
     expect(session.snapshot.operationalStatusReceived).toBe(true)
+    expect(session.snapshot.busy).toBe(false)
 
     const systemRequest = decode(transport.writes[2], seed)
     expect(systemRequest).toMatchObject({ type: 13, fields: ["", "3"] })
@@ -127,8 +128,123 @@ describe("Nano read-only SASSI session", () => {
     )
     await tick()
     expect(session.snapshot.firmware).toBe("7.20.6")
+
+    const directoryPromise = session.listDirectory("kaffelogic/roast-logs")
+    await tick()
+    expect(decode(transport.writes[3], seed)).toMatchObject({
+      type: 5,
+      fields: ["kaffelogic/roast-logs", "", "1"],
+    })
+    const directoryText =
+      " \tlog0001.klog\t202607186184617\t42\r>\tarchive\t202607186184700\t0\r"
+    const directoryBytes = new TextEncoder().encode(directoryText)
+    transport.emit(
+      encodeSassiFrame({
+        type: 6,
+        elapsedMs: 20,
+        fields: [
+          "kaffelogic/roast-logs",
+          "0",
+          "1",
+          "1",
+          Buffer.from(directoryBytes.subarray(0, 24)).toString("base64"),
+        ],
+        crcSeed: seed,
+      }),
+      5
+    )
+    await tick()
+    expect(decode(transport.writes[4], seed).type).toBe(1)
+    transport.emit(
+      encodeSassiFrame({
+        type: 6,
+        elapsedMs: 21,
+        fields: [
+          "kaffelogic/roast-logs",
+          "128",
+          "1",
+          "2",
+          Buffer.from(directoryBytes.subarray(24)).toString("base64"),
+        ],
+        crcSeed: seed,
+      }),
+      6
+    )
+    await expect(directoryPromise).resolves.toEqual([
+      {
+        kind: "file",
+        name: "log0001.klog",
+        path: "kaffelogic/roast-logs/log0001.klog",
+        modifiedAt: "202607186184617",
+        sizeBytes: 42,
+      },
+      {
+        kind: "directory",
+        name: "archive",
+        path: "kaffelogic/roast-logs/archive",
+        modifiedAt: "202607186184700",
+        sizeBytes: 0,
+      },
+    ])
+
+    const filePromise = session.readFile("kaffelogic/roast-logs/log0001.klog")
+    await tick()
+    expect(decode(transport.writes[5], seed).type).toBe(7)
+    const fileBytes = new TextEncoder().encode(
+      "profile_short_name:Test\n\ntime\t=temp\n0\t20\n"
+    )
+    transport.emit(
+      encodeSassiFrame({
+        type: 8,
+        elapsedMs: 22,
+        fields: [
+          "kaffelogic/roast-logs/log0001.klog",
+          "128",
+          "202607186184617",
+          "1",
+          Buffer.from(fileBytes).toString("base64"),
+        ],
+        crcSeed: seed,
+      }),
+      7
+    )
+    await expect(filePromise).resolves.toEqual({
+      path: "kaffelogic/roast-logs/log0001.klog",
+      modifiedAt: "202607186184617",
+      bytes: fileBytes,
+    })
+
+    const busyDirectory = session.listDirectory("kaffelogic/roast-logs")
+    await tick()
+    transport.emit(
+      encodeSassiFrame({
+        type: 6,
+        elapsedMs: 23,
+        fields: ["kaffelogic/roast-logs", "231", "1", "0", ""],
+        crcSeed: seed,
+      }),
+      8
+    )
+    await expect(busyDirectory).rejects.toThrow("sassi_outcome_103")
+    expect(session.snapshot).toMatchObject({
+      connection: "connected",
+      busy: true,
+    })
+
+    transport.emit(
+      encodeSassiFrame({
+        type: 30,
+        elapsedMs: 24,
+        fields: ["", "7"],
+        crcSeed: seed,
+      }),
+      9
+    )
+    await tick()
+    expect(session.snapshot.busy).toBe(false)
+
     expect(transport.writes.map((frame) => decode(frame, seed).type)).toEqual([
-      3, 13, 13,
+      3, 13, 13, 5, 1, 7, 5,
     ])
     expect(JSON.stringify(snapshots)).not.toContain("TS00000001")
     await session.dispose()

@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test"
 
 import {
   decodeSassiFrame,
+  encodeAcknowledgementFrame,
+  encodeDirectoryListFrame,
+  encodeFileRequestFrame,
   encodeInfoRequestFrame,
   encodeSassiFrame,
   encodeTimeSyncFrame,
@@ -33,6 +36,33 @@ describe("SASSI outbound encoding", () => {
     })
     expect(new TextDecoder().decode(frame)).toMatch(
       /^KL\*13\|88b1e\|\|9\|[0-9a-f]{4}\r$/
+    )
+  })
+
+  test("encodes read-only filesystem inventory and pull requests", () => {
+    const directory = encodeDirectoryListFrame({
+      elapsedMs: 42,
+      crcSeed: 0x81f2,
+      path: "kaffelogic/roast-logs",
+    })
+    const file = encodeFileRequestFrame({
+      elapsedMs: 43,
+      crcSeed: 0x81f2,
+      path: "kaffelogic/roast-logs/log0001.klog",
+    })
+    const acknowledgement = encodeAcknowledgementFrame({
+      elapsedMs: 44,
+      crcSeed: 0x81f2,
+    })
+
+    expect(new TextDecoder().decode(directory)).toMatch(
+      /^KL\*5\|2a\|kaffelogic\/roast-logs\|\|1\|[0-9a-f]{4}\r$/
+    )
+    expect(new TextDecoder().decode(file)).toMatch(
+      /^KL\*7\|2b\|kaffelogic\/roast-logs\/log0001\.klog\|[0-9a-f]{4}\r$/
+    )
+    expect(new TextDecoder().decode(acknowledgement)).toMatch(
+      /^KL\*1\|2c\|[0-9a-f]{4}\r$/
     )
   })
 
