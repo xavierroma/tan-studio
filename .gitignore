@@ -17,3 +17,7 @@ apps/web/test-results/
 .tan-studio/
 apps/desktop/src-tauri/target/
 apps/serial-bridge/target/
+firmware/**/build/
+firmware/**/managed_components/
+firmware/**/sdkconfig*
+!firmware/**/sdkconfig.defaults

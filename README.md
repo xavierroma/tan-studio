@@ -24,6 +24,7 @@ See the current [product requirements](docs/03-product-requirements-document.md)
 apps/web       React 19, Vite 8, TanStack Router/Query, ECharts, shadcn/Base UI
 apps/service   Rust Axum/OpenAPI API, SQLite, KLOG/KPRO, SASSI and USB session
 apps/desktop   Tauri 2 shell and Rust sidecar packaging
+firmware/usb-role-probe  passive ESP32-S3 accessory-topology validator
 packages/ui    shadcn base-nova components and Bali/coffee semantic tokens
 packages/printing-adapters  physical label document and deterministic SVG/QR
 ```
@@ -62,6 +63,20 @@ bun run contract:generate
 The Rust service discovers the Kaffelogic RP2040 CDC device (`VID 0x2e8a`, `PID 0x000a`), negotiates SASSI, lists profile/log directories, downloads files, validates them, and imports them transactionally. Users never enter a `/dev` path.
 
 Read-only discovery and file synchronization are implemented. Unverified profile/device write commands are absent.
+
+## Wireless bridge hardware gate
+
+Before production Tan Bridge firmware is enabled, validate that the Nano powers
+and enumerates an ESP32-S3 USB device with the passive role probe:
+
+```sh
+./script/build_usb_role_probe.sh
+```
+
+The probe is reproducibly built with pinned ESP-IDF and TinyUSB versions, stores
+no raw roaster data, and implements no roaster command. See its
+[test procedure](firmware/usb-role-probe/README.md) and the
+[hardware decision](docs/06-wireless-bridge-and-agent-interface.md).
 
 ## macOS executable
 

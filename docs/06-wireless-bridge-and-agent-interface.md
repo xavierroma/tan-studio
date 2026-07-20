@@ -85,25 +85,71 @@ These cannot be responsibly filled in from product photographs. They require an 
 | Candidate | Prototype fit | Product fit | Main trade-off |
 | --- | --- | --- | --- |
 | **M5Stack AtomS3 Lite C124** | **Selected** | **Strong** | Enclosed single-cable ESP32-S3 device; no PSRAM and a published 0–40 °C operating range. |
-| Seeed XIAO ESP32S3 | Strong fallback | Strong after enclosure | More RAM and an external antenna, but it is a bare board requiring an enclosure. |
+| Seeed XIAO ESP32S3 Plus 102010671 | Strong fallback | Strong after enclosure | 16 MB flash, 8 MB PSRAM, and an external antenna, but it is a bare board and current direct stock ships from Seeed's China warehouse. |
+| Adafruit QT Py ESP32-S3 5426 | Strong supply fallback | Strong after enclosure | Excellent US availability and documentation; 8 MB flash but no PSRAM. |
+| Unexpected Maker TinyS3[D] 6401 | Strong RF fallback | Strong after enclosure | 8 MB flash/PSRAM and selectable onboard/u.FL antenna; larger and more expensive than needed. |
+| Adafruit ESP32-S3 Reverse TFT Feather | **Existing validation board** | Poor final dongle | Same native USB peripheral proves the topology now, but its screen and Feather footprint are unnecessary. |
 | Raspberry Pi Zero 2 W | Useful diagnostic fallback | Poor final dongle | Linux makes tracing easy, but it needs separate power, microSD, and a larger enclosure. |
 | Raspberry Pi Pico 2 W | Plausible alternative | Possible | Native USB host/device and Wi-Fi fit the bridge, but ESP-IDF currently offers more direct CDC examples. |
 
 ### 3.1 Purchase
 
-Buy:
+The recommended first purchase is deliberately supplier-diverse while keeping
+one firmware architecture. Buy these five boards:
 
-1. two [M5Stack AtomS3 Lite ESP32-S3 development kits](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit), SKU C124—one working bridge and one recovery/development spare;
-2. one short, certified USB 2.0 USB-C-to-USB-C cable with data conductors, ideally 150–300 mm;
-3. for bring-up only, an inline USB-C meter that reports VBUS voltage/current and preserves CC plus USB 2.0 data.
+1. two [M5Stack AtomS3 Lite C124 boards from DigiKey](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/C124/18070571)—one working bridge and one recovery/development spare;
+2. one [Adafruit QT Py ESP32-S3, product 5426](https://www.adafruit.com/product/5426)—the best US-stock bare-board fallback;
+3. one [Unexpected Maker TinyS3[D], product 6401](https://www.adafruit.com/product/6401)—the RF fallback with both onboard and u.FL antenna choices;
+4. one [Seeed XIAO ESP32-S3 Plus, SKU 102010671](https://www.seeedstudio.com/Seeed-Studio-XIAO-ESP32S3-Plus-p-6361.html)—the 16 MB flash/external-antenna fallback.
+
+Also buy one short, certified USB 2.0 USB-C-to-USB-C cable with data conductors,
+ideally 150–300 mm, plus a bring-up-only inline USB-C meter that reports VBUS
+voltage/current while preserving CC and USB 2.0 data.
 
 Only one Atom and one cable remain attached in normal operation. No programmer is required: initial firmware uses the same USB-C bootloader, and later releases use signed OTA with USB recovery.
 
-The Seeed [XIAO ESP32S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) is the fallback if the integrated Atom antenna is inadequate near the roaster. It supplies 8 MB flash, 8 MB PSRAM, and an external 2.4 GHz antenna in a smaller bare board, but loses the Atom's finished enclosure, status button/LED ergonomics, and mechanical simplicity.
+Stock checked on 2026-07-19: DigiKey listed more than 4,700 AtomS3 Lite C124 units at US$8; Adafruit listed 70 QT Py 5426 boards at US$12.50 and the TinyS3[D] at US$21.50 in stock; Seeed listed the XIAO ESP32-S3 Plus at US$7.90 from its China warehouse. Stock is not a technical property and must be rechecked at checkout.
+
+All four candidate designs use the ESP32-S3 native full-speed USB peripheral on
+GPIO19/GPIO20 and run the same ESP-IDF/TinyUSB application layer. Board support
+is limited to flash/antenna/indicator configuration, not a protocol fork. The
+Atom remains the expected product because it already has an enclosure, button,
+indicator, protected USB input, and the smallest operational footprint. The
+other boards are supply, RF, and memory fallbacks—not five parallel products.
 
 Do not buy an Atom Lite based on the older ESP32, an AtomS3 screen model, a USB host FeatherWing, a generic UART-to-Wi-Fi adapter, or a driver-based USB device server. The exact selected part is **AtomS3 Lite / C124**.
 
-### 3.2 Verified AtomS3 Lite fit
+### 3.2 USB-role probe before production firmware
+
+The repository contains a reproducible, passive
+[`usb-role-probe`](../firmware/usb-role-probe/README.md) for the existing
+Adafruit ESP32-S3 Reverse TFT Feather. It builds with a digest-pinned ESP-IDF
+5.5.5 container and `esp_tinyusb` 2.2.1. It presents a CDC-ACM device, persists
+attach/line-state/RX counters and SASSI type/length metadata, and has no roaster
+command or echo path. It never stores raw frames or the Nano serial number.
+
+This is the purchase gate:
+
+1. flash the existing Feather from the Mac;
+2. connect its native USB-C port to the powered Nano for 30 seconds through the
+   CC/data-preserving meter;
+3. reconnect it to the Mac and read the persisted previous session;
+4. require USB attach plus received SASSI traffic before treating any
+   device/sink ESP32-S3 board as electrically validated.
+
+The same probe image can run on every board in the purchase list. If the Feather
+does not receive VBUS, enumerate, and see SASSI traffic, buying another
+device/sink ESP32-S3 board cannot fix the topology; the design must instead add
+a measured host/source power stage or use an externally powered host prototype.
+
+The Nano currently failed to enumerate on the Mac with the attached connection
+even though previous direct sessions worked. This is consistent with a roaster
+that is not powered on, a power-only cable, or the Nano generation's documented
+USB-C cable sensitivity; it is not evidence for or against accessory mode.
+Direct-Mac tests must use the supplied USB-A-to-C data cable or another
+connection already proven to create the Nano CDC device.
+
+### 3.3 Verified AtomS3 Lite fit
 
 The [M5Stack product documentation](https://docs.m5stack.com/en/core/AtomS3%20Lite) and published [schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/471/Sch_M5_AtomS3_v1.0.pdf) establish:
 
@@ -135,7 +181,7 @@ crash/recovery reserve               remainder
 
 The exact partition CSV is fixed only after the firmware and TLS footprint are measured. A KLOG larger than available spool capacity is streamed and content-addressed in chunks; retention gaps are explicit rather than silently dropping data.
 
-### 3.3 Alternatives not selected
+### 3.4 Alternatives not selected
 
 The [Raspberry Pi Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/) has a 1 GHz quad-core Cortex-A53, 512 MB RAM, 2.4 GHz Wi-Fi, and micro-USB OTG. It remains useful if Linux tracing is required, but it does not meet the single-cable, Nano-powered product requirement and introduces microSD power-loss risk.
 
@@ -143,7 +189,7 @@ The [ESP32-S3](https://documentation.espressif.com/esp32-s3_datasheet_en.pdf) in
 
 The [Raspberry Pi Pico 2](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) family is a credible MCU alternative with native USB host/device support; the Pico 2 W adds 2.4 GHz Wi-Fi. It remains a fallback until the USB-role experiment and a small CDC proof compare its implementation cost with ESP-IDF.
 
-### 3.4 Prototype power rule
+### 3.5 Prototype power rule
 
 The Atom is electrically a USB-C sink and cannot back-power the Nano through its connector. Initial Nano attachment still uses an inline meter and a current-limited/protected test path because the Nano source capacity is undocumented. USB-C cables and adapters must not be modified casually: CC resistors determine roles, and removing only VBUS can change attachment behavior.
 
