@@ -18,7 +18,7 @@ import {
 import type { ComponentType } from "react"
 
 const navigation = [
-  { label: "Roast", to: "/live", icon: FlameIcon },
+  { label: "Roast", to: "/roast", icon: FlameIcon },
   { label: "Roasts", to: "/roasts", icon: BookOpenTextIcon },
   { label: "Profiles", to: "/profiles", icon: ChartNoAxesCombinedIcon },
   { label: "Coffees", to: "/coffees", icon: CoffeeIcon },
@@ -74,13 +74,10 @@ export function AppShell() {
             to="/roasts"
             search={{
               q: undefined,
-              group: undefined,
-              sort: undefined,
-              date: undefined,
-              provider: undefined,
-              process: undefined,
-              minScore: undefined,
               status: undefined,
+              profileId: undefined,
+              coffeeId: undefined,
+              view: undefined,
             }}
             className="mt-4 flex flex-col items-center gap-2"
             aria-label="Tan Studio home"

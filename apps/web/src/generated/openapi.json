@@ -1,74 +1,35 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Tan Studio Service API",
-    "description": "Versioned local API shared by the Tan Studio macOS and Raspberry Pi clients. The Rust service is the source of truth for this document.",
+    "title": "Tan Studio API",
+    "description": "The local-first, LLM-friendly API for profiles, coffees, roasts, brews, notes, labels and settings. Short integer IDs are stable user references.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
     },
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
-    "/api/v1/acquisitions": {
-      "post": {
-        "tags": [
-          "catalog"
-        ],
-        "operationId": "acquisitions_create",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcquisitionCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AcquisitionResource"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/brews": {
       "get": {
         "tags": [
           "brews"
         ],
-        "operationId": "brews_list",
+        "operationId": "listBrews",
         "parameters": [
           {
-            "name": "roastNumber",
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
             "in": "query",
             "required": false,
             "schema": {
@@ -77,6 +38,64 @@
                 "null"
               ],
               "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -97,7 +116,7 @@
         "tags": [
           "brews"
         ],
-        "operationId": "brews_create",
+        "operationId": "createBrew",
         "requestBody": {
           "content": {
             "application/json": {
@@ -118,23 +137,34 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/v1/brews/{reference}": {
+    "/api/v1/brews/{id}": {
       "get": {
         "tags": [
           "brews"
         ],
-        "operationId": "brews_get",
+        "operationId": "getBrew",
         "parameters": [
           {
-            "name": "reference",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -150,26 +180,74 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/coffees": {
-      "get": {
+      },
+      "patch": {
         "tags": [
-          "catalog"
+          "brews"
         ],
-        "operationId": "coffees_list",
+        "operationId": "updateBrew",
         "parameters": [
           {
-            "name": "first",
-            "in": "query",
-            "required": false,
+            "name": "id",
+            "in": "path",
+            "required": true,
             "schema": {
               "type": "integer",
               "format": "int64"
             }
           },
           {
-            "name": "after",
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrewPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrewResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "listCoffees",
+        "parameters": [
+          {
+            "name": "q",
             "in": "query",
             "required": false,
             "schema": {
@@ -180,7 +258,43 @@
             }
           },
           {
-            "name": "search",
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
             "in": "query",
             "required": false,
             "schema": {
@@ -191,11 +305,26 @@
             }
           },
           {
-            "name": "includeArchived",
+            "name": "resourceId",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "boolean"
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -214,9 +343,9 @@
       },
       "post": {
         "tags": [
-          "catalog"
+          "coffees"
         ],
-        "operationId": "coffees_create",
+        "operationId": "createCoffee",
         "requestBody": {
           "content": {
             "application/json": {
@@ -233,7 +362,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationCoffee"
+                  "$ref": "#/components/schemas/CoffeeResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -244,16 +383,17 @@
     "/api/v1/coffees/{id}": {
       "get": {
         "tags": [
-          "catalog"
+          "coffees"
         ],
-        "operationId": "coffees_get",
+        "operationId": "getCoffee",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -267,31 +407,13 @@
                 }
               }
             }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "catalog"
-        ],
-        "operationId": "coffees_delete",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationCoffee"
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -300,13 +422,22 @@
       },
       "patch": {
         "tags": [
-          "catalog"
+          "coffees"
         ],
-        "operationId": "coffees_patch",
+        "operationId": "updateCoffee",
         "parameters": [
           {
             "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string"
@@ -329,7 +460,79 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationCoffee"
+                  "$ref": "#/components/schemas/CoffeeResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees/{id}/context": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "getCoffeeContext",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees/{id}/roasts": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "listCoffeeRoasts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
                 }
               }
             }
@@ -432,10 +635,21 @@
         "tags": [
           "labels"
         ],
-        "operationId": "labels_list",
+        "operationId": "listLabels",
         "parameters": [
           {
-            "name": "roastNumber",
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
             "in": "query",
             "required": false,
             "schema": {
@@ -444,6 +658,64 @@
                 "null"
               ],
               "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         ],
@@ -464,7 +736,7 @@
         "tags": [
           "labels"
         ],
-        "operationId": "labels_create",
+        "operationId": "createLabel",
         "requestBody": {
           "content": {
             "application/json": {
@@ -489,19 +761,20 @@
         }
       }
     },
-    "/api/v1/labels/{reference}": {
+    "/api/v1/labels/{id}": {
       "get": {
         "tags": [
           "labels"
         ],
-        "operationId": "labels_get",
+        "operationId": "getLabel",
         "parameters": [
           {
-            "name": "reference",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -519,24 +792,62 @@
         }
       }
     },
-    "/api/v1/lots": {
+    "/api/v1/notes": {
       "get": {
         "tags": [
-          "catalog"
+          "notes"
         ],
-        "operationId": "lots_list",
+        "operationId": "listNotes",
         "parameters": [
           {
-            "name": "first",
+            "name": "q",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64"
             }
           },
           {
-            "name": "after",
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
             "in": "query",
             "required": false,
             "schema": {
@@ -547,7 +858,19 @@
             }
           },
           {
-            "name": "search",
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
             "in": "query",
             "required": false,
             "schema": {
@@ -555,14 +878,6 @@
                 "string",
                 "null"
               ]
-            }
-          },
-          {
-            "name": "includeArchived",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean"
             }
           }
         ],
@@ -572,7 +887,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LotPage"
+                  "$ref": "#/components/schemas/NotePage"
                 }
               }
             }
@@ -581,14 +896,14 @@
       },
       "post": {
         "tags": [
-          "catalog"
+          "notes"
         ],
-        "operationId": "lots_create",
+        "operationId": "createNote",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LotCreate"
+                "$ref": "#/components/schemas/NoteCreate"
               }
             }
           },
@@ -600,7 +915,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationLot"
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -608,19 +933,20 @@
         }
       }
     },
-    "/api/v1/lots/{id}": {
+    "/api/v1/notes/{id}": {
       "get": {
         "tags": [
-          "catalog"
+          "notes"
         ],
-        "operationId": "lots_get",
+        "operationId": "getNote",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -630,7 +956,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LotResource"
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "deleteNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -639,13 +1005,22 @@
       },
       "patch": {
         "tags": [
-          "catalog"
+          "notes"
         ],
-        "operationId": "lots_patch",
+        "operationId": "updateNote",
         "parameters": [
           {
             "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string"
@@ -656,7 +1031,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LotPatch"
+                "$ref": "#/components/schemas/NotePatch"
               }
             }
           },
@@ -668,7 +1043,76 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationLot"
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{id}/links": {
+      "put": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "replaceNoteLinks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteLinksPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -681,10 +1125,10 @@
         "tags": [
           "contract"
         ],
-        "operationId": "openapi_get",
+        "operationId": "getOpenApi",
         "responses": {
           "200": {
-            "description": "OpenAPI 3.1 contract",
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {}
@@ -694,97 +1138,19 @@
         }
       }
     },
-    "/api/v1/preferences": {
+    "/api/v1/pantry": {
       "get": {
         "tags": [
-          "brews"
+          "roasts"
         ],
-        "operationId": "preferences_get",
+        "operationId": "getPantry",
         "responses": {
           "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PreferencesResource"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "brews"
-        ],
-        "operationId": "preferences_patch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreferencesPatch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreferencesResource"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/print-jobs": {
-      "post": {
-        "tags": [
-          "labels"
-        ],
-        "operationId": "print_jobs_create",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PrintJobCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PrintJobResource"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
+                  "$ref": "#/components/schemas/PantryResource"
                 }
               }
             }
@@ -797,7 +1163,90 @@
         "tags": [
           "profiles"
         ],
-        "operationId": "profiles_list",
+        "operationId": "listProfiles",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -809,7 +1258,7 @@
               }
             }
           },
-          "500": {
+          "401": {
             "description": "",
             "content": {
               "application/json": {
@@ -820,78 +1269,17 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/providers": {
-      "get": {
-        "tags": [
-          "catalog"
-        ],
-        "operationId": "providers_list",
-        "parameters": [
-          {
-            "name": "first",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          {
-            "name": "search",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          {
-            "name": "includeArchived",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProviderPage"
-                }
-              }
-            }
-          }
-        }
       },
       "post": {
         "tags": [
-          "catalog"
+          "profiles"
         ],
-        "operationId": "providers_create",
+        "operationId": "createProfile",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProviderCreate"
+                "$ref": "#/components/schemas/ProfileCreate"
               }
             }
           },
@@ -903,7 +1291,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationProvider"
+                  "$ref": "#/components/schemas/ProfileResource"
                 }
               }
             }
@@ -921,19 +1309,20 @@
         }
       }
     },
-    "/api/v1/providers/{id}": {
+    "/api/v1/profiles/{id}": {
       "get": {
         "tags": [
-          "catalog"
+          "profiles"
         ],
-        "operationId": "providers_get",
+        "operationId": "getProfile",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -943,7 +1332,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProviderResource"
+                  "$ref": "#/components/schemas/ProfileResource"
                 }
               }
             }
@@ -960,53 +1349,24 @@
           }
         }
       },
-      "delete": {
+      "patch": {
         "tags": [
-          "catalog"
+          "profiles"
         ],
-        "operationId": "providers_delete",
+        "operationId": "updateProfile",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationProvider"
-                }
-              }
+              "type": "integer",
+              "format": "int64"
             }
           },
-          "412": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "catalog"
-        ],
-        "operationId": "providers_patch",
-        "parameters": [
           {
-            "name": "id",
-            "in": "path",
+            "name": "If-Match",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string"
@@ -1017,7 +1377,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ProviderPatch"
+                "$ref": "#/components/schemas/ProfilePatch"
               }
             }
           },
@@ -1029,7 +1389,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceMutationProvider"
+                  "$ref": "#/components/schemas/ProfileResource"
                 }
               }
             }
@@ -1047,29 +1407,233 @@
         }
       }
     },
-    "/api/v1/roast-library/query": {
+    "/api/v1/profiles/{id}/children": {
+      "post": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "createChildProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/context": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "getProfileContext",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/roasts": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "listProfileRoasts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "listRoasts",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "roasts"
         ],
-        "operationId": "roast_library_query",
+        "operationId": "createRoast",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RoastLibraryQuery"
+                "$ref": "#/components/schemas/RoastCreate"
               }
             }
           },
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoastLibraryResult"
+                  "$ref": "#/components/schemas/RoastResource"
                 }
               }
             }
@@ -1087,19 +1651,20 @@
         }
       }
     },
-    "/api/v1/roasts/{reference}": {
+    "/api/v1/roasts/{id}": {
       "get": {
         "tags": [
           "roasts"
         ],
-        "operationId": "roast_get",
+        "operationId": "getRoast",
         "parameters": [
           {
-            "name": "reference",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
             }
           }
         ],
@@ -1109,7 +1674,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoastDetail"
+                  "$ref": "#/components/schemas/RoastResource"
                 }
               }
             }
@@ -1125,18 +1690,25 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/roasts/{reference}/coffee": {
+      },
       "patch": {
         "tags": [
           "roasts"
         ],
-        "operationId": "roast_assign_coffee",
+        "operationId": "updateRoast",
         "parameters": [
           {
-            "name": "reference",
+            "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string"
@@ -1147,7 +1719,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RoastCoffeePatch"
+                "$ref": "#/components/schemas/RoastPatch"
               }
             }
           },
@@ -1159,7 +1731,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RoastMutation"
+                  "$ref": "#/components/schemas/RoastResource"
                 }
               }
             }
@@ -1177,19 +1749,51 @@
         }
       }
     },
-    "/api/v1/roasts/{reference}/series": {
+    "/api/v1/roasts/{id}/context": {
       "get": {
         "tags": [
           "roasts"
         ],
-        "operationId": "roast_series",
+        "operationId": "getRoastContext",
         "parameters": [
           {
-            "name": "reference",
+            "name": "id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts/{id}/series": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "getRoastSeries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
             }
           },
           {
@@ -1206,30 +1810,15 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
+              "type": [
+                "integer",
+                "null"
+              ],
               "format": "int64"
             }
           },
           {
             "name": "toElapsedMs",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          {
-            "name": "maxPoints",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "throughSampleSeq",
             "in": "query",
             "required": false,
             "schema": {
@@ -1241,14 +1830,15 @@
             }
           },
           {
-            "name": "channels",
+            "name": "maxPoints",
             "in": "query",
             "required": false,
             "schema": {
               "type": [
-                "string",
+                "integer",
                 "null"
-              ]
+              ],
+              "minimum": 0
             }
           }
         ],
@@ -1264,6 +1854,74 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "updateSettings",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResource"
+                }
+              }
+            }
+          },
+          "412": {
             "description": "",
             "content": {
               "application/json": {
@@ -1309,77 +1967,6 @@
   },
   "components": {
     "schemas": {
-      "AcquisitionCreate": {
-        "type": "object",
-        "required": [
-          "providerName",
-          "coffeeName",
-          "receivedMassMg",
-          "receivedAt",
-          "sourceTimezone"
-        ],
-        "properties": {
-          "coffeeName": {
-            "type": "string"
-          },
-          "costPerKgMinor": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "currencyCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "providerName": {
-            "type": "string"
-          },
-          "receivedAt": {
-            "type": "string"
-          },
-          "receivedMassMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "sourceTimezone": {
-            "type": "string"
-          },
-          "supplierReference": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "AcquisitionResource": {
-        "type": "object",
-        "required": [
-          "kind",
-          "providerCreated",
-          "coffeeCreated",
-          "lot"
-        ],
-        "properties": {
-          "coffeeCreated": {
-            "type": "boolean"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "lot": {
-            "$ref": "#/components/schemas/LotResource"
-          },
-          "providerCreated": {
-            "type": "boolean"
-          }
-        }
-      },
       "AdapterSet": {
         "type": "object",
         "required": [
@@ -1457,30 +2044,9 @@
       "BrewCreate": {
         "type": "object",
         "required": [
-          "roastNumber"
+          "roastId"
         ],
         "properties": {
-          "bloomDurationMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "bloomWaterMassMg": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "brewDurationMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
           "brewedAt": {
             "type": [
               "string",
@@ -1494,13 +2060,7 @@
             ],
             "format": "int64"
           },
-          "descriptors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "grinderName": {
+          "grinder": {
             "type": [
               "string",
               "null"
@@ -1512,7 +2072,7 @@
               "null"
             ]
           },
-          "kettleName": {
+          "kettle": {
             "type": [
               "string",
               "null"
@@ -1524,21 +2084,22 @@
               "null"
             ]
           },
-          "notes": {
+          "note": {
             "type": [
               "string",
               "null"
             ]
           },
-          "roastNumber": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "scoreBasisPoints": {
+          "ratingBasisPoints": {
             "type": [
               "integer",
               "null"
             ],
+            "format": "int64"
+          },
+          "recipe": {},
+          "roastId": {
+            "type": "integer",
             "format": "int64"
           },
           "sourceTimezone": {
@@ -1547,7 +2108,7 @@
               "null"
             ]
           },
-          "tastingNotes": {
+          "water": {
             "type": [
               "string",
               "null"
@@ -1559,12 +2120,6 @@
               "null"
             ],
             "format": "int64"
-          },
-          "waterName": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "waterTemperatureMilliC": {
             "type": [
@@ -1590,52 +2145,85 @@
           }
         }
       },
+      "BrewPatch": {
+        "type": "object",
+        "properties": {
+          "coffeeMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "grinder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grinderSetting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kettle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipe": {},
+          "water": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waterMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "waterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "BrewResource": {
         "type": "object",
         "required": [
-          "kind",
           "id",
-          "serialNumber",
-          "revision",
-          "roast",
+          "roastId",
           "brewedAt",
           "sourceTimezone",
           "method",
-          "grinderName",
+          "grinder",
           "grinderSetting",
-          "kettleName",
-          "waterName",
+          "kettle",
+          "water",
           "coffeeMassMg",
           "waterMassMg",
-          "ratio",
-          "descriptors",
-          "tastingNotes",
+          "recipe",
           "notes",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "revision"
         ],
         "properties": {
-          "bloomDurationMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "bloomWaterMassMg": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "brewDurationMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
           "brewedAt": {
             "type": "string"
           },
@@ -1646,70 +2234,49 @@
           "createdAt": {
             "type": "string"
           },
-          "descriptors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "grinderName": {
+          "grinder": {
             "type": "string"
           },
           "grinderSetting": {
             "type": "string"
           },
           "id": {
-            "type": "string"
+            "type": "integer",
+            "format": "int64"
           },
-          "kettleName": {
-            "type": "string"
-          },
-          "kind": {
+          "kettle": {
             "type": "string"
           },
           "method": {
             "type": "string"
           },
           "notes": {
-            "type": "string"
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteResource"
+            }
           },
-          "ratio": {
-            "type": "number",
-            "format": "double"
-          },
+          "recipe": {},
           "revision": {
             "type": "integer",
             "format": "int64"
           },
-          "roast": {
-            "$ref": "#/components/schemas/RoastReference"
-          },
-          "scoreBasisPoints": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "serialNumber": {
+          "roastId": {
             "type": "integer",
             "format": "int64"
           },
           "sourceTimezone": {
             "type": "string"
           },
-          "tastingNotes": {
+          "updatedAt": {
             "type": "string"
           },
-          "updatedAt": {
+          "water": {
             "type": "string"
           },
           "waterMassMg": {
             "type": "integer",
             "format": "int64"
-          },
-          "waterName": {
-            "type": "string"
           },
           "waterTemperatureMilliC": {
             "type": [
@@ -1723,73 +2290,92 @@
       "CoffeeCreate": {
         "type": "object",
         "required": [
-          "displayName"
+          "name"
         ],
         "properties": {
-          "altitudeMaxMetres": {
+          "altitudeMaxM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "altitudeMinMetres": {
+          "altitudeMinM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "countryCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayName": {
+          "country": {
             "type": "string"
           },
-          "farmProducer": {
+          "currencyCode": {
             "type": [
               "string",
               "null"
             ]
           },
-          "harvestLabel": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "farm": {
+            "type": "string"
           },
-          "notes": {
+          "harvest": {
+            "type": "string"
+          },
+          "metadata": {},
+          "name": {
+            "type": "string"
+          },
+          "priceMinor": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64"
           },
           "process": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerProductId": {
+            "type": "string"
+          },
+          "providerUrl": {
+            "type": "string"
+          },
+          "purchaseReference": {
+            "type": "string"
+          },
+          "purchasedAt": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "purchasedMassMg": {
+            "type": "integer",
+            "format": "int64"
           },
           "region": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
-          "stationCooperative": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "remainingMassMg": {
+            "type": "integer",
+            "format": "int64"
           },
-          "varieties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "storageLocation": {
+            "type": "string"
+          },
+          "variety": {
+            "type": "string"
+          },
+          "washingStation": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -1797,8 +2383,7 @@
       "CoffeePage": {
         "type": "object",
         "required": [
-          "items",
-          "pageInfo"
+          "items"
         ],
         "properties": {
           "items": {
@@ -1806,58 +2391,63 @@
             "items": {
               "$ref": "#/components/schemas/CoffeeResource"
             }
-          },
-          "pageInfo": {
-            "$ref": "#/components/schemas/PageInfo"
           }
         }
       },
       "CoffeePatch": {
         "type": "object",
         "properties": {
-          "altitudeMaxMetres": {
+          "altitudeMaxM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "altitudeMinMetres": {
+          "altitudeMinM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "countryCode": {
+          "country": {
             "type": [
               "string",
               "null"
             ]
           },
-          "displayName": {
+          "currencyCode": {
             "type": [
               "string",
               "null"
             ]
           },
-          "farmProducer": {
+          "farm": {
             "type": [
               "string",
               "null"
             ]
           },
-          "harvestLabel": {
+          "harvest": {
             "type": [
               "string",
               "null"
             ]
           },
-          "notes": {
+          "metadata": {},
+          "name": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "priceMinor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "process": {
             "type": [
@@ -1865,26 +2455,79 @@
               "null"
             ]
           },
+          "producer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerProductId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchaseReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "region": {
             "type": [
               "string",
               "null"
             ]
           },
-          "stationCooperative": {
+          "remainingMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "storageLocation": {
             "type": [
               "string",
               "null"
             ]
           },
-          "varieties": {
+          "variety": {
             "type": [
-              "array",
+              "string",
               "null"
-            ],
-            "items": {
-              "type": "string"
-            }
+            ]
+          },
+          "washingStation": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
@@ -1892,108 +2535,192 @@
       "CoffeeResource": {
         "type": "object",
         "required": [
-          "kind",
           "id",
-          "revision",
-          "displayName",
-          "varieties",
+          "name",
+          "provider",
+          "providerUrl",
+          "providerProductId",
+          "purchaseReference",
+          "purchasedMassMg",
+          "remainingMassMg",
+          "country",
+          "region",
+          "farm",
+          "producer",
+          "washingStation",
+          "process",
+          "variety",
+          "harvest",
+          "storageLocation",
+          "metadata",
+          "roastCount",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "revision"
         ],
         "properties": {
-          "altitudeMaxMetres": {
+          "altitudeMaxM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "altitudeMinMetres": {
+          "altitudeMinM": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "archivedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "countryCode": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "country": {
+            "type": "string"
           },
           "createdAt": {
             "type": "string"
           },
-          "displayName": {
+          "currencyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "farm": {
             "type": "string"
           },
-          "farmProducer": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "harvestLabel": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "harvest": {
+            "type": "string"
           },
           "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata": {},
+          "name": {
             "type": "string"
           },
-          "kind": {
-            "type": "string"
-          },
-          "notes": {
+          "priceMinor": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64"
           },
           "process": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerProductId": {
+            "type": "string"
+          },
+          "providerUrl": {
+            "type": "string"
+          },
+          "purchaseReference": {
+            "type": "string"
+          },
+          "purchasedAt": {
             "type": [
               "string",
               "null"
             ]
           },
+          "purchasedMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
           "region": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
+          },
+          "remainingMassMg": {
+            "type": "integer",
+            "format": "int64"
           },
           "revision": {
             "type": "integer",
             "format": "int64"
           },
-          "serialNumber": {
-            "type": [
-              "integer",
-              "null"
-            ],
+          "roastCount": {
+            "type": "integer",
             "format": "int64"
           },
-          "stationCooperative": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "storageLocation": {
+            "type": "string"
           },
           "updatedAt": {
             "type": "string"
           },
-          "varieties": {
+          "variety": {
+            "type": "string"
+          },
+          "washingStation": {
+            "type": "string"
+          }
+        }
+      },
+      "ContextResource": {
+        "type": "object",
+        "required": [
+          "brews",
+          "notes"
+        ],
+        "properties": {
+          "brews": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/BrewResource"
             }
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CoffeeResource"
+              }
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteResource"
+            }
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProfileResource"
+              }
+            ]
+          },
+          "rest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RestWindow"
+              }
+            ]
+          },
+          "roast": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoastResource"
+              }
+            ]
           }
         }
       },
@@ -2122,23 +2849,6 @@
           }
         }
       },
-      "FanProfileCurvePoint": {
-        "type": "object",
-        "required": [
-          "elapsedMs",
-          "fanRpm"
-        ],
-        "properties": {
-          "elapsedMs": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "fanRpm": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "FeatureSet": {
         "type": "object",
         "required": [
@@ -2201,70 +2911,36 @@
           }
         }
       },
-      "GroupKey": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "kind"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "value"
-                ]
-              },
-              "value": {}
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "startInclusive",
-              "endExclusive",
-              "kind"
-            ],
-            "properties": {
-              "endExclusive": {},
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "range"
-                ]
-              },
-              "startInclusive": {}
-            }
-          }
-        ]
-      },
-      "GroupPathEntry": {
-        "type": "object",
-        "required": [
-          "field",
-          "key"
-        ],
-        "properties": {
-          "field": {
-            "type": "string"
-          },
-          "key": {
-            "$ref": "#/components/schemas/GroupKey"
-          }
-        }
-      },
       "LabelCreate": {
         "type": "object",
         "required": [
-          "roastNumber"
+          "roastId"
         ],
         "properties": {
+          "content": {},
           "copies": {
             "type": "integer",
             "format": "int64"
           },
-          "roastNumber": {
+          "heightMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "printer": {
+            "type": "string"
+          },
+          "roastId": {
             "type": "integer",
+            "format": "int64"
+          },
+          "widthMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64"
           }
         },
@@ -2287,15 +2963,14 @@
       "LabelResource": {
         "type": "object",
         "required": [
-          "kind",
           "id",
-          "serialNumber",
           "roastId",
-          "roastNumber",
-          "qrPayload",
           "copies",
+          "content",
+          "printer",
           "status",
-          "createdAt"
+          "createdAt",
+          "updatedAt"
         ],
         "properties": {
           "artifactSha256": {
@@ -2304,6 +2979,7 @@
               "null"
             ]
           },
+          "content": {},
           "copies": {
             "type": "integer",
             "format": "int64"
@@ -2311,472 +2987,234 @@
           "createdAt": {
             "type": "string"
           },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "qrPayload": {
-            "type": "string"
-          },
-          "roastId": {
-            "type": "string"
-          },
-          "roastNumber": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "serialNumber": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "status": {
-            "type": "string"
-          }
-        }
-      },
-      "LotCreate": {
-        "type": "object",
-        "required": [
-          "purchaseLineId",
-          "internalCode",
-          "receivedMassMg",
-          "receivedAt",
-          "sourceTimezone"
-        ],
-        "properties": {
-          "internalCode": {
-            "type": "string"
-          },
-          "onHandMassMg": {
+          "heightMicrometers": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "purchaseLineId": {
-            "type": "string"
-          },
-          "receivedAt": {
-            "type": "string"
-          },
-          "receivedMassMg": {
+          "id": {
             "type": "integer",
             "format": "int64"
           },
-          "sourceTimezone": {
+          "printer": {
             "type": "string"
           },
-          "state": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
           },
-          "storageLocation": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "status": {
+            "type": "string"
           },
-          "storageNotes": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "updatedAt": {
+            "type": "string"
           },
-          "supplierCode": {
+          "widthMicrometers": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "NoteCreate": {
+        "type": "object",
+        "required": [
+          "body",
+          "links"
+        ],
+        "properties": {
+          "attributes": {},
+          "body": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source": {
+            "type": "string"
           }
         },
         "additionalProperties": false
       },
-      "LotPage": {
+      "NoteLink": {
         "type": "object",
         "required": [
-          "items",
-          "pageInfo"
+          "resourceType",
+          "resourceId"
+        ],
+        "properties": {
+          "resourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resourceType": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NoteLinksPut": {
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotePage": {
+        "type": "object",
+        "required": [
+          "items"
         ],
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/LotResource"
+              "$ref": "#/components/schemas/NoteResource"
             }
-          },
-          "pageInfo": {
-            "$ref": "#/components/schemas/PageInfo"
           }
         }
       },
-      "LotPatch": {
+      "NotePatch": {
         "type": "object",
         "properties": {
-          "internalCode": {
+          "attributes": {},
+          "body": {
             "type": [
               "string",
               "null"
             ]
           },
-          "state": {
+          "kind": {
             "type": [
               "string",
               "null"
             ]
           },
-          "storageLocation": {
+          "ratingBasisPoints": {
             "type": [
-              "string",
+              "integer",
               "null"
-            ]
-          },
-          "storageNotes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "supplierCode": {
-            "type": [
-              "string",
-              "null"
-            ]
+            ],
+            "format": "int64"
           }
         },
         "additionalProperties": false
       },
-      "LotReference": {
+      "NoteResource": {
         "type": "object",
         "required": [
           "id",
-          "displayName"
-        ],
-        "properties": {
-          "displayName": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      },
-      "LotResource": {
-        "type": "object",
-        "required": [
           "kind",
-          "id",
-          "revision",
-          "purchaseLineId",
-          "coffeeId",
-          "internalCode",
-          "receivedMassMg",
-          "onHandMassMg",
-          "balanceMg",
-          "receivedAt",
-          "sourceTimezone",
-          "storageNotes",
-          "state",
-          "coffee",
-          "purchase",
-          "provider",
-          "summary",
+          "body",
+          "attributes",
+          "source",
+          "links",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "revision"
         ],
         "properties": {
-          "archivedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "balanceMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "coffee": {
-            "$ref": "#/components/schemas/LotReference"
-          },
-          "coffeeId": {
+          "attributes": {},
+          "body": {
             "type": "string"
           },
           "createdAt": {
             "type": "string"
           },
           "id": {
-            "type": "string"
-          },
-          "internalCode": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "onHandMassMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "provider": {
-            "$ref": "#/components/schemas/LotReference"
-          },
-          "purchase": {
-            "$ref": "#/components/schemas/PurchaseReference"
-          },
-          "purchaseLineId": {
-            "type": "string"
-          },
-          "receivedAt": {
-            "type": "string"
-          },
-          "receivedMassMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "revision": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "sourceTimezone": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string"
-          },
-          "storageLocation": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "storageNotes": {
-            "type": "string"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/LotSummary"
-          },
-          "supplierCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "LotSummary": {
-        "type": "object",
-        "required": [
-          "roastCount"
-        ],
-        "properties": {
-          "latestScoreBasisPoints": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "roastCount": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "PageInfo": {
-        "type": "object",
-        "required": [
-          "hasNextPage"
-        ],
-        "properties": {
-          "endCursor": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "hasNextPage": {
-            "type": "boolean"
-          }
-        }
-      },
-      "PreferencesPatch": {
-        "type": "object",
-        "properties": {
-          "defaultBrewMethod": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultCoffeeMassMg": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "defaultGrinderName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultGrinderSetting": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultKettleName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultRoasterName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultWaterMassMg": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "defaultWaterName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultWaterTemperatureMilliC": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          }
-        },
-        "additionalProperties": false
-      },
-      "PreferencesResource": {
-        "type": "object",
-        "required": [
-          "kind",
-          "revision",
-          "defaultRoasterName",
-          "defaultGrinderName",
-          "defaultGrinderSetting",
-          "defaultKettleName",
-          "defaultWaterName",
-          "defaultBrewMethod",
-          "defaultCoffeeMassMg",
-          "defaultWaterMassMg",
-          "defaultWaterTemperatureMilliC",
-          "updatedAt"
-        ],
-        "properties": {
-          "defaultBrewMethod": {
-            "type": "string"
-          },
-          "defaultCoffeeMassMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "defaultGrinderName": {
-            "type": "string"
-          },
-          "defaultGrinderSetting": {
-            "type": "string"
-          },
-          "defaultKettleName": {
-            "type": "string"
-          },
-          "defaultRoasterName": {
-            "type": "string"
-          },
-          "defaultWaterMassMg": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "defaultWaterName": {
-            "type": "string"
-          },
-          "defaultWaterTemperatureMilliC": {
             "type": "integer",
             "format": "int64"
           },
           "kind": {
             "type": "string"
           },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "revision": {
             "type": "integer",
             "format": "int64"
+          },
+          "source": {
+            "type": "string"
           },
           "updatedAt": {
             "type": "string"
           }
         }
       },
-      "PrintJobCreate": {
+      "PantryResource": {
         "type": "object",
         "required": [
-          "printerId",
-          "widthMm",
-          "heightMm",
-          "copies",
-          "artifact"
+          "items"
         ],
         "properties": {
-          "artifact": {
-            "type": "string"
-          },
-          "copies": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PantryRoast"
+            }
+          }
+        }
+      },
+      "PantryRoast": {
+        "type": "object",
+        "required": [
+          "roast",
+          "estimatedRemainingMassMg",
+          "rest"
+        ],
+        "properties": {
+          "estimatedRemainingMassMg": {
             "type": "integer",
             "format": "int64"
           },
-          "heightMm": {
-            "type": "number",
-            "format": "double"
-          },
-          "printerId": {
-            "type": "string"
-          },
-          "roastId": {
+          "latestTasting": {
             "type": [
               "string",
               "null"
             ]
           },
-          "widthMm": {
-            "type": "number",
-            "format": "double"
-          }
-        },
-        "additionalProperties": false
-      },
-      "PrintJobResource": {
-        "type": "object",
-        "required": [
-          "id",
-          "status"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
+          "rest": {
+            "$ref": "#/components/schemas/RestWindow"
           },
-          "status": {
-            "type": "string"
+          "roast": {
+            "$ref": "#/components/schemas/RoastResource"
           }
         }
       },
@@ -2830,6 +3268,46 @@
           }
         }
       },
+      "ProfileCreate": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "designer": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profile": {},
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "ProfilePage": {
         "type": "object",
         "required": [
@@ -2839,62 +3317,169 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProfileResource"
+              "$ref": "#/components/schemas/ProfileSummary"
             }
           }
         }
       },
+      "ProfilePatch": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "designer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profile": {},
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "ProfileResource": {
         "type": "object",
         "required": [
-          "kind",
           "id",
-          "profileId",
-          "revisionNumber",
-          "fileName",
-          "displayName",
-          "designer",
+          "name",
           "description",
-          "schemaVersion",
-          "roastLevelsMilliC",
-          "roastCurve",
-          "fanCurve",
-          "sourceHash",
-          "warnings"
+          "designer",
+          "origin",
+          "profile",
+          "roastCount",
+          "childCount",
+          "createdAt",
+          "updatedAt",
+          "revision"
         ],
         "properties": {
+          "childCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
           "designer": {
             "type": "string"
           },
-          "displayName": {
-            "type": "string"
-          },
-          "fanCurve": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FanProfileCurvePoint"
-            }
-          },
-          "fileName": {
-            "type": "string"
-          },
           "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
             "type": "string"
           },
-          "kind": {
+          "origin": {
             "type": "string"
           },
-          "profileId": {
-            "type": "string"
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
-          "profileModifiedAt": {
+          "profile": {},
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceHash": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "origin",
+          "roastCount",
+          "childCount",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "childCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "recommendedLevelThousandths": {
             "type": [
@@ -2910,232 +3495,11 @@
             ],
             "format": "int64"
           },
-          "revisionNumber": {
+          "revision": {
             "type": "integer",
             "format": "int64"
           },
-          "roastCurve": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoastProfileCurvePoint"
-            }
-          },
-          "roastLevelsMilliC": {
-            "type": "array",
-            "items": {
-              "type": "integer",
-              "format": "int64"
-            }
-          },
-          "schemaVersion": {
-            "type": "string"
-          },
-          "sourceHash": {
-            "type": "string"
-          },
-          "sourceModifiedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ProviderContact": {
-        "type": "object",
-        "properties": {
-          "email": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "phone": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "websiteUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "ProviderCreate": {
-        "type": "object",
-        "required": [
-          "displayName"
-        ],
-        "properties": {
-          "aliases": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "contact": {
-            "$ref": "#/components/schemas/ProviderContact"
-          },
-          "defaultCurrencyCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "referenceNotes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "ProviderPage": {
-        "type": "object",
-        "required": [
-          "items",
-          "pageInfo"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProviderResource"
-            }
-          },
-          "pageInfo": {
-            "$ref": "#/components/schemas/PageInfo"
-          }
-        }
-      },
-      "ProviderPatch": {
-        "type": "object",
-        "properties": {
-          "aliases": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "contact": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ProviderContact"
-              }
-            ]
-          },
-          "defaultCurrencyCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "referenceNotes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "ProviderResource": {
-        "type": "object",
-        "required": [
-          "kind",
-          "id",
-          "revision",
-          "displayName",
-          "aliases",
-          "contact",
-          "createdAt",
-          "updatedAt"
-        ],
-        "properties": {
-          "aliases": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "archivedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "contact": {
-            "$ref": "#/components/schemas/ProviderContact"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "defaultCurrencyCode": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "displayName": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "referenceNotes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "revision": {
+          "roastCount": {
             "type": "integer",
             "format": "int64"
           },
@@ -3144,182 +3508,69 @@
           }
         }
       },
-      "PurchaseReference": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "supplierReference": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
-      "ResourceMutationCoffee": {
-        "type": "object",
-        "required": [
-          "resource"
-        ],
-        "properties": {
-          "resource": {
-            "$ref": "#/components/schemas/CoffeeResource"
-          }
-        }
-      },
-      "ResourceMutationLot": {
-        "type": "object",
-        "required": [
-          "resource"
-        ],
-        "properties": {
-          "resource": {
-            "$ref": "#/components/schemas/LotResource"
-          }
-        }
-      },
-      "ResourceMutationProvider": {
-        "type": "object",
-        "required": [
-          "resource"
-        ],
-        "properties": {
-          "resource": {
-            "$ref": "#/components/schemas/ProviderResource"
-          }
-        }
-      },
-      "RoastAnnotation": {
+      "ResourceReference": {
         "type": "object",
         "required": [
           "id",
-          "revision",
-          "type",
-          "text",
-          "createdAt",
-          "updatedAt"
+          "name"
         ],
         "properties": {
-          "createdAt": {
-            "type": "string"
-          },
-          "elapsedMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
           "id": {
-            "type": "string"
-          },
-          "revision": {
             "type": "integer",
             "format": "int64"
           },
-          "temperatureMilliC": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "text": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "updatedAt": {
+          "name": {
             "type": "string"
           }
         }
       },
-      "RoastCoffeePatch": {
-        "type": "object",
-        "properties": {
-          "coffeeNumber": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          }
-        },
-        "additionalProperties": false
-      },
-      "RoastDetail": {
+      "RestWindow": {
         "type": "object",
         "required": [
-          "kind",
-          "id",
-          "revision",
-          "roastedAtSource",
-          "sourceTimezone",
-          "result",
-          "status",
-          "notes",
-          "nativeMetadata",
-          "importWarnings",
-          "lineage",
-          "events",
-          "annotations",
-          "createdAt",
-          "updatedAt"
+          "ageDays",
+          "restDays",
+          "peakDays",
+          "state",
+          "suggestedFrom",
+          "suggestedUntil"
         ],
         "properties": {
-          "annotations": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoastAnnotation"
-            }
+          "ageDays": {
+            "type": "integer",
+            "format": "int64"
           },
+          "peakDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "restDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "suggestedFrom": {
+            "type": "string"
+          },
+          "suggestedUntil": {
+            "type": "string"
+          }
+        }
+      },
+      "RoastCreate": {
+        "type": "object",
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "adjustments": {},
           "coffeeId": {
             "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cooldownEndMs": {
-            "type": [
               "integer",
               "null"
             ],
             "format": "int64"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "developmentBasisPoints": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "durationMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "endReason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "events": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoastEvent"
-            }
           },
           "greenInputMassMg": {
             "type": [
@@ -3328,137 +3579,20 @@
             ],
             "format": "int64"
           },
-          "greenLotId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string"
-          },
-          "importWarnings": {
-            "type": "array",
-            "items": {}
-          },
-          "kind": {
-            "type": "string"
-          },
-          "lineage": {
-            "$ref": "#/components/schemas/RoastLineage"
-          },
-          "nativeLogNumber": {
+          "levelThousandths": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
           },
-          "nativeMetadata": {
-            "type": "object",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "notes": {
-            "type": "string"
-          },
-          "profile": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoastProfileReference"
-              }
-            ]
-          },
-          "profileRevisionId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "promotedTasting": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoastTasting"
-              }
-            ]
-          },
-          "promotedTastingId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "result": {
-            "type": "string"
-          },
-          "revision": {
+          "profileId": {
             "type": "integer",
             "format": "int64"
           },
-          "roastLevelThousandths": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "roastedAt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "roastedAtSource": {
-            "type": "string"
-          },
-          "roastedYieldMassMg": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "sampleStream": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RoastSampleStream"
-              }
-            ]
-          },
-          "serialNumber": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "sourceFileId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "sourceTimezone": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
+          "roasterParameters": {}
+        },
+        "additionalProperties": false
       },
       "RoastEvent": {
         "type": "object",
@@ -3466,13 +3600,9 @@
           "id",
           "kind",
           "elapsedMs",
-          "source",
-          "createdAt"
+          "source"
         ],
         "properties": {
-          "createdAt": {
-            "type": "string"
-          },
           "elapsedMs": {
             "type": "integer",
             "format": "int64"
@@ -3495,376 +3625,361 @@
           }
         }
       },
-      "RoastLibraryGroup": {
+      "RoastPage": {
         "type": "object",
         "required": [
-          "path",
-          "key",
-          "label",
-          "count",
-          "aggregates"
+          "items"
         ],
         "properties": {
-          "aggregates": {
-            "type": "object",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "count": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "key": {
-            "$ref": "#/components/schemas/GroupKey"
-          },
-          "label": {
-            "type": "string"
-          },
-          "path": {
+          "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/GroupPathEntry"
+              "$ref": "#/components/schemas/RoastSummary"
             }
           }
         }
       },
-      "RoastLibraryQuery": {
+      "RoastPatch": {
         "type": "object",
-        "required": [
-          "viewVersion",
-          "filters",
-          "columns",
-          "page"
-        ],
         "properties": {
-          "aggregates": {
-            "type": "array",
-            "items": {}
-          },
-          "columns": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "filters": {},
-          "groupPath": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GroupPathEntry"
-            }
-          },
-          "groups": {
-            "type": "array",
-            "items": {}
-          },
-          "page": {
-            "$ref": "#/components/schemas/RoastPageRequest"
-          },
-          "sorts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RoastSort"
-            }
-          },
-          "viewVersion": {
-            "type": "integer",
+          "adjustments": {},
+          "coffeeId": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64"
+          },
+          "developmentBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedYieldMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "roasterParameters": {},
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false
       },
-      "RoastLibraryResult": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "scope",
-              "rows",
-              "aggregates",
-              "pageInfo",
-              "kind"
-            ],
-            "properties": {
-              "aggregates": {
-                "type": "object",
-                "additionalProperties": {},
-                "propertyNames": {
-                  "type": "string"
-                }
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "rows"
-                ]
-              },
-              "pageInfo": {
-                "$ref": "#/components/schemas/PageInfo"
-              },
-              "rows": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RoastLibraryRow"
-                }
-              },
-              "scope": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/GroupPathEntry"
-                }
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "scope",
-              "groups",
-              "pageInfo",
-              "kind"
-            ],
-            "properties": {
-              "groups": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/RoastLibraryGroup"
-                }
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "groups"
-                ]
-              },
-              "pageInfo": {
-                "$ref": "#/components/schemas/PageInfo"
-              },
-              "scope": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/GroupPathEntry"
-                }
-              }
-            }
-          }
-        ]
-      },
-      "RoastLibraryRow": {
+      "RoastResource": {
         "type": "object",
         "required": [
-          "roastId",
-          "revision",
-          "values"
+          "id",
+          "roastedAtSource",
+          "sourceTimezone",
+          "status",
+          "result",
+          "endReason",
+          "profileSnapshot",
+          "adjustments",
+          "roasterParameters",
+          "nativeMetadata",
+          "importWarnings",
+          "events",
+          "brewCount",
+          "noteCount",
+          "labelCount",
+          "createdAt",
+          "updatedAt",
+          "revision"
         ],
         "properties": {
+          "adjustments": {},
+          "brewCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "developmentBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "endReason": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoastEvent"
+            }
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importWarnings": {
+            "type": "array",
+            "items": {}
+          },
+          "labelCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "nativeLogNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "nativeMetadata": {},
+          "noteCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "profileSnapshot": {},
+          "result": {
+            "type": "string"
+          },
           "revision": {
             "type": "integer",
             "format": "int64"
           },
-          "roastId": {
+          "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedAtSource": {
             "type": "string"
           },
-          "values": {
-            "type": "object",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "RoastLineage": {
-        "type": "object",
-        "required": [
-          "origin"
-        ],
-        "properties": {
-          "coffee": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "lot": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "origin": {
-            "type": "object",
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "provider": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "purchase": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "RoastMutation": {
-        "type": "object",
-        "required": [
-          "resource"
-        ],
-        "properties": {
-          "resource": {
-            "$ref": "#/components/schemas/RoastDetail"
-          }
-        }
-      },
-      "RoastPageRequest": {
-        "type": "object",
-        "required": [
-          "first"
-        ],
-        "properties": {
-          "after": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "first": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "RoastProfileCurvePoint": {
-        "type": "object",
-        "required": [
-          "elapsedMs",
-          "temperatureMilliC"
-        ],
-        "properties": {
-          "elapsedMs": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "temperatureMilliC": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "RoastProfileReference": {
-        "type": "object",
-        "required": [
-          "revisionId"
-        ],
-        "properties": {
-          "displayName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "revisionId": {
-            "type": "string"
-          },
-          "revisionNumber": {
+          "roastedYieldMassMg": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
+          },
+          "roasterParameters": {},
+          "sampleStream": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SampleStreamResource"
+              }
+            ]
+          },
+          "sourceTimezone": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         }
       },
-      "RoastReference": {
+      "RoastSummary": {
         "type": "object",
         "required": [
           "id",
-          "serialNumber"
+          "roastedAtSource",
+          "status",
+          "result",
+          "brewCount",
+          "noteCount",
+          "labelCount",
+          "revision"
         ],
         "properties": {
-          "coffeeName": {
+          "brewCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "labelCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "noteCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "result": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastedAt": {
             "type": [
               "string",
               "null"
             ]
           },
-          "id": {
+          "roastedAtSource": {
             "type": "string"
           },
-          "serialNumber": {
-            "type": "integer",
+          "roastedYieldMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
-      "RoastSampleStream": {
+      "SampleStreamResource": {
         "type": "object",
         "required": [
           "streamVersion",
-          "channels"
+          "rowCount",
+          "firstElapsedMs",
+          "lastElapsedMs",
+          "reconciliationState"
         ],
         "properties": {
-          "channels": {
-            "type": "array",
-            "items": {}
-          },
           "firstElapsedMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "lastElapsedMs": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "reconciliationState": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "rowCount": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int64"
           },
           "streamVersion": {
@@ -3873,76 +3988,13 @@
           }
         }
       },
-      "RoastSort": {
-        "type": "object",
-        "required": [
-          "field",
-          "direction"
-        ],
-        "properties": {
-          "direction": {
-            "type": "string"
-          },
-          "field": {
-            "type": "string"
-          },
-          "nulls": {
-            "type": "string"
-          }
-        }
-      },
-      "RoastTasting": {
-        "type": "object",
-        "required": [
-          "id",
-          "tastedAt",
-          "descriptors"
-        ],
-        "properties": {
-          "conclusion": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "descriptors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "nextAction": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "notes": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scoreBasisPoints": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "tastedAt": {
-            "type": "string"
-          }
-        }
-      },
       "SeriesPoint": {
         "type": "object",
         "required": [
           "sampleSeq",
-          "elapsedMs"
+          "elapsedMs",
+          "temperatureMilliC",
+          "native"
         ],
         "properties": {
           "actualFanRpm": {
@@ -3963,27 +4015,6 @@
             "type": "integer",
             "format": "int64"
           },
-          "kdMilli": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "kiMilli": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "kpMilli": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
           "meanTemperatureMilliC": {
             "type": [
               "integer",
@@ -3991,13 +4022,7 @@
             ],
             "format": "int64"
           },
-          "motorVoltageTraceMilli": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
+          "native": {},
           "powerMilliKw": {
             "type": [
               "integer",
@@ -4038,21 +4063,8 @@
             "format": "int64"
           },
           "temperatureMilliC": {
-            "type": [
-              "integer",
-              "null"
-            ],
+            "type": "integer",
             "format": "int64"
-          },
-          "values": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {},
-            "propertyNames": {
-              "type": "string"
-            }
           }
         }
       },
@@ -4061,41 +4073,188 @@
         "required": [
           "roastId",
           "streamVersion",
-          "reconciliationState",
-          "sourceRowCount",
-          "downsampled",
           "points"
         ],
         "properties": {
-          "downsampled": {
-            "type": "boolean"
-          },
           "points": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SeriesPoint"
             }
           },
-          "reconciliationState": {
-            "type": "string"
-          },
           "roastId": {
-            "type": "string"
-          },
-          "sourceRowCount": {
             "type": "integer",
-            "minimum": 0
+            "format": "int64"
           },
           "streamVersion": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "defaultBrewMethod": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
-          "throughSampleSeq": {
+          "defaultCoffeeMassMg": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64"
+          },
+          "defaultGrinder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultGrinderSetting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultKettle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultLabelHeightMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultLabelWidthMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultPeakDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultRestDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultRoaster": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultWater": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultWaterMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultWaterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettingsResource": {
+        "type": "object",
+        "required": [
+          "defaultRoaster",
+          "defaultGrinder",
+          "defaultGrinderSetting",
+          "defaultKettle",
+          "defaultWater",
+          "defaultBrewMethod",
+          "defaultCoffeeMassMg",
+          "defaultWaterMassMg",
+          "defaultWaterTemperatureMilliC",
+          "defaultRestDays",
+          "defaultPeakDays",
+          "defaultLabelWidthMicrometers",
+          "defaultLabelHeightMicrometers",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "defaultBrewMethod": {
+            "type": "string"
+          },
+          "defaultCoffeeMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultGrinder": {
+            "type": "string"
+          },
+          "defaultGrinderSetting": {
+            "type": "string"
+          },
+          "defaultKettle": {
+            "type": "string"
+          },
+          "defaultLabelHeightMicrometers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultLabelWidthMicrometers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultPeakDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultRestDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultRoaster": {
+            "type": "string"
+          },
+          "defaultWater": {
+            "type": "string"
+          },
+          "defaultWaterMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultWaterTemperatureMilliC": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         }
       },
@@ -4129,16 +4288,22 @@
       "name": "profiles"
     },
     {
-      "name": "catalog"
+      "name": "coffees"
+    },
+    {
+      "name": "roasts"
     },
     {
       "name": "brews"
     },
     {
+      "name": "notes"
+    },
+    {
       "name": "labels"
     },
     {
-      "name": "roasts"
+      "name": "settings"
     },
     {
       "name": "contract"

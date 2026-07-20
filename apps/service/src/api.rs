@@ -9,7 +9,7 @@ use axum::{
     http::{header, HeaderMap, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -33,11 +33,11 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ApiState {
-    config: Arc<ServiceConfig>,
-    database: Database,
-    device: Arc<NanoDeviceManager>,
-    session_id: String,
-    cursor_key: Arc<[u8]>,
+    pub(crate) config: Arc<ServiceConfig>,
+    pub(crate) database: Database,
+    pub(crate) device: Arc<NanoDeviceManager>,
+    pub(crate) session_id: String,
+    pub(crate) cursor_key: Arc<[u8]>,
 }
 
 impl ApiState {
@@ -61,39 +61,85 @@ impl ApiState {
 pub fn build_router(state: ApiState) -> Router {
     let api = Router::new()
         .route("/system/bootstrap", get(system_bootstrap))
-        .route("/openapi.json", get(openapi_get))
+        .route("/openapi.json", get(crate::core_api::openapi_get))
         .route("/device", get(device_get))
         .route("/device/refresh", post(device_refresh))
         .route("/device/synchronize", post(device_synchronize))
-        .route("/profiles", get(profiles_list))
-        .route("/providers", get(providers_list).post(providers_create))
         .route(
-            "/providers/{id}",
-            get(providers_get)
-                .patch(providers_patch)
-                .delete(providers_delete),
+            "/profiles",
+            get(crate::core_api::profiles_list).post(crate::core_api::profiles_create),
         )
-        .route("/coffees", get(coffees_list).post(coffees_create))
+        .route(
+            "/profiles/{id}",
+            get(crate::core_api::profiles_get).patch(crate::core_api::profiles_patch),
+        )
+        .route(
+            "/profiles/{id}/children",
+            post(crate::core_api::profiles_create_child),
+        )
+        .route(
+            "/profiles/{id}/roasts",
+            get(crate::core_api::profiles_roasts),
+        )
+        .route(
+            "/profiles/{id}/context",
+            get(crate::core_api::profiles_context),
+        )
+        .route(
+            "/coffees",
+            get(crate::core_api::coffees_list).post(crate::core_api::coffees_create),
+        )
         .route(
             "/coffees/{id}",
-            get(coffees_get).patch(coffees_patch).delete(coffees_delete),
+            get(crate::core_api::coffees_get).patch(crate::core_api::coffees_patch),
         )
-        .route("/lots", get(lots_list).post(lots_create))
-        .route("/lots/{id}", get(lots_get).patch(lots_patch))
-        .route("/acquisitions", post(acquisitions_create))
+        .route("/coffees/{id}/roasts", get(crate::core_api::coffees_roasts))
         .route(
-            "/preferences",
-            get(preferences_get).patch(preferences_patch),
+            "/coffees/{id}/context",
+            get(crate::core_api::coffees_context),
         )
-        .route("/brews", get(brews_list).post(brews_create))
-        .route("/brews/{reference}", get(brews_get))
-        .route("/labels", get(labels_list).post(labels_create))
-        .route("/labels/{reference}", get(labels_get))
-        .route("/print-jobs", post(print_jobs_create))
-        .route("/roast-library/query", post(roast_library_query))
-        .route("/roasts/{reference}", get(roast_get))
-        .route("/roasts/{reference}/coffee", patch(roast_assign_coffee))
-        .route("/roasts/{reference}/series", get(roast_series))
+        .route(
+            "/roasts",
+            get(crate::core_api::roasts_list).post(crate::core_api::roasts_create),
+        )
+        .route(
+            "/roasts/{id}",
+            get(crate::core_api::roasts_get).patch(crate::core_api::roasts_patch),
+        )
+        .route("/roasts/{id}/series", get(crate::core_api::roasts_series))
+        .route("/roasts/{id}/context", get(crate::core_api::roasts_context))
+        .route("/pantry", get(crate::core_api::pantry_get))
+        .route(
+            "/brews",
+            get(crate::core_api::brews_list).post(crate::core_api::brews_create),
+        )
+        .route(
+            "/brews/{id}",
+            get(crate::core_api::brews_get).patch(crate::core_api::brews_patch),
+        )
+        .route(
+            "/notes",
+            get(crate::core_api::notes_list).post(crate::core_api::notes_create),
+        )
+        .route(
+            "/notes/{id}",
+            get(crate::core_api::notes_get)
+                .patch(crate::core_api::notes_patch)
+                .delete(crate::core_api::notes_delete),
+        )
+        .route(
+            "/notes/{id}/links",
+            axum::routing::put(crate::core_api::notes_put_links),
+        )
+        .route(
+            "/labels",
+            get(crate::core_api::labels_list).post(crate::core_api::labels_create),
+        )
+        .route("/labels/{id}", get(crate::core_api::labels_get))
+        .route(
+            "/settings",
+            get(crate::core_api::settings_get).patch(crate::core_api::settings_patch),
+        )
         .fallback(api_not_found)
         .layer(middleware::from_fn_with_state(state.clone(), api_security));
 
@@ -201,7 +247,7 @@ async fn api_security(
         );
         response.headers_mut().insert(
             header::ACCESS_CONTROL_ALLOW_METHODS,
-            header::HeaderValue::from_static("GET, POST, PATCH, DELETE, OPTIONS"),
+            header::HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
         );
         return response;
     }
@@ -328,7 +374,7 @@ pub async fn system_bootstrap(State(state): State<ApiState>) -> ApiResult<Json<B
             roast_detail: true,
             series_json: true,
             device_connection: true,
-            profile_editing: false,
+            profile_editing: true,
             printing: false,
             ai_proposals: false,
             remote_monitoring: false,
@@ -2590,6 +2636,10 @@ fn nullable_json(value: Option<String>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::to_bytes, http::Request};
+    use serde_json::Value;
+    use tempfile::tempdir;
+    use tower::ServiceExt;
 
     #[test]
     fn filter_sql_uses_only_allowlisted_columns() {
@@ -2617,5 +2667,230 @@ mod tests {
             value: Some(json!(1)),
         };
         assert!(compile_filter(&filter, &mut params, 0).is_err());
+    }
+
+    async fn api_request(
+        app: &Router,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        revision: Option<i64>,
+    ) -> (StatusCode, Value) {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "127.0.0.1:4317")
+            .header(header::ORIGIN, "http://127.0.0.1:1420")
+            .header(header::AUTHORIZATION, "Bearer test-contract-token")
+            .header("x-tan-studio-client", "tan-studio-browser-dev");
+        if body.is_some() {
+            request = request.header(header::CONTENT_TYPE, "application/json");
+        }
+        if let Some(revision) = revision {
+            request = request.header(header::IF_MATCH, format!("\"revision:{revision}\""));
+        }
+        let response = app
+            .clone()
+            .oneshot(
+                request
+                    .body(
+                        body.map(|value| Body::from(value.to_string()))
+                            .unwrap_or_else(Body::empty),
+                    )
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 2 * 1024 * 1024)
+            .await
+            .unwrap();
+        let payload = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        };
+        (status, payload)
+    }
+
+    #[tokio::test]
+    async fn core_api_persists_the_complete_roast_to_brew_workflow() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let config = ServiceConfig {
+            mode: LaunchMode::Desktop,
+            bind_host: "127.0.0.1".into(),
+            port: 4317,
+            database_path: directory.path().join("studio.sqlite"),
+            web_root: None,
+            launch_token: "test-contract-token".into(),
+            allowed_origins: vec!["http://127.0.0.1:1420".into()],
+            allowed_hosts: vec![],
+            allowed_client_ids: vec!["tan-studio-browser-dev".into()],
+            allow_originless_requests: false,
+            application_version: "test".into(),
+            development: true,
+        };
+        let app = build_router(ApiState::new(config, database.clone(), device.clone()).unwrap());
+
+        let (status, profile) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/profiles",
+            Some(json!({
+                "parentProfileId": null,
+                "name": "Test profile",
+                "recommendedLevelThousandths": 2800,
+                "referenceLoadMg": 100000,
+                "profile": {"temperaturePoints": []}
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{profile}");
+        let profile_id = profile["id"].as_i64().unwrap();
+
+        let (status, coffee) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/coffees",
+            Some(json!({
+                "name": "Test coffee",
+                "provider": "Test provider",
+                "purchasedMassMg": 500000,
+                "remainingMassMg": 500000,
+                "country": "Kenya"
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{coffee}");
+        let coffee_id = coffee["id"].as_i64().unwrap();
+
+        let (status, roast) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/roasts",
+            Some(json!({
+                "profileId": profile_id,
+                "coffeeId": coffee_id,
+                "levelThousandths": 3100,
+                "greenInputMassMg": 100000,
+                "adjustments": {"boost": 0.2}
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{roast}");
+        let roast_id = roast["id"].as_i64().unwrap();
+        let (status, duplicate) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/roasts",
+            Some(json!({"profileId": profile_id})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{duplicate}");
+        assert_eq!(duplicate["code"], "active_roast_exists");
+
+        let (status, brew) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/brews",
+            Some(json!({
+                "roastId": roast_id,
+                "method": "V60",
+                "grinder": "Test grinder",
+                "grinderSetting": "5.4.1",
+                "coffeeMassMg": 16000,
+                "waterMassMg": 250000,
+                "waterTemperatureMilliC": 96000,
+                "note": "Bright citrus and a clean finish",
+                "ratingBasisPoints": 8700
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{brew}");
+        let brew_id = brew["id"].as_i64().unwrap();
+        assert_eq!(brew["notes"][0]["links"][0]["resourceType"], "brew");
+
+        let (status, note) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/notes",
+            Some(json!({
+                "kind": "recommendation",
+                "body": "Reduce the boost for the next roast.",
+                "source": "agent",
+                "links": [
+                    {"resourceType": "profile", "resourceId": profile_id},
+                    {"resourceType": "coffee", "resourceId": coffee_id},
+                    {"resourceType": "roast", "resourceId": roast_id},
+                    {"resourceType": "brew", "resourceId": brew_id}
+                ]
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{note}");
+        assert_eq!(note["links"].as_array().unwrap().len(), 4);
+
+        let (status, label) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/labels",
+            Some(json!({
+                "roastId": roast_id,
+                "copies": 1,
+                "widthMicrometers": 50000,
+                "heightMicrometers": 30000,
+                "content": {"qrPayload": format!("tan:roast:{roast_id}")}
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{label}");
+        assert_eq!(label["status"], "generated");
+
+        let (status, context) = api_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/roasts/{roast_id}/context"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{context}");
+        assert_eq!(context["brews"].as_array().unwrap().len(), 1);
+        assert_eq!(context["notes"].as_array().unwrap().len(), 2);
+
+        let roast_revision = context["roast"]["revision"].as_i64().unwrap();
+        let (status, _) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({"status": "completed", "roastedYieldMassMg": 85000})),
+            Some(roast_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, stale) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({"result": "success"})),
+            Some(roast_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{stale}");
+
+        let (status, pantry) = api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{pantry}");
+        assert_eq!(pantry["items"][0]["estimatedRemainingMassMg"], 69000);
+        assert!(database.quick_check().unwrap());
+        device.stop();
     }
 }

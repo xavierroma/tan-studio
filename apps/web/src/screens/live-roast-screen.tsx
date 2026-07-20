@@ -1,290 +1,370 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button } from "@tan-studio/ui/components/button"
+import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
   Field,
   FieldDescription,
+  FieldGroup,
   FieldLabel,
 } from "@tan-studio/ui/components/field"
-import { Textarea } from "@tan-studio/ui/components/textarea"
-import { toast } from "sonner"
+import { Input } from "@tan-studio/ui/components/input"
 import {
-  BellRingIcon,
-  BookmarkPlusIcon,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@tan-studio/ui/components/select"
+import { Textarea } from "@tan-studio/ui/components/textarea"
+import {
   CableIcon,
-  CircleDotDashedIcon,
-  EyeIcon,
-  FlagIcon,
+  FlameIcon,
+  RefreshCwIcon,
+  SaveIcon,
   ShieldCheckIcon,
-  TriangleAlertIcon,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import type { FormEvent } from "react"
+import { useEffect } from "react"
+import { toast } from "sonner"
 
-import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
-import { RoastChart } from "@/components/roast-chart"
-import { getDeviceState, getRoast, isDemoResult, queryKeys } from "@/lib/api"
-import { formatElapsed } from "@/lib/format"
-import { useWorkspaceStore } from "@/stores/workspace-store"
-
-const sampleRoastId = "0197f1d2-9000-7000-8000-000000000001"
+import {
+  createNote,
+  createRoast,
+  getDevice,
+  listCoffees,
+  listProfiles,
+  listRoasts,
+  queryKeys,
+  synchronizeDevice,
+  updateRoast,
+} from "@/lib/api"
 
 export function LiveRoastScreen() {
+  const search = useSearch({ from: "/roast" })
+  const navigate = useNavigate({ from: "/roast" })
+  const queryClient = useQueryClient()
   const device = useQuery({
     queryKey: queryKeys.device(),
-    queryFn: getDeviceState,
+    queryFn: ({ signal }) => getDevice(signal),
+    refetchInterval: 5_000,
   })
-  const demoLive =
-    isDemoResult(device.data) && device.data.data.available === true
-  const roast = useQuery({
-    queryKey: queryKeys.roast(sampleRoastId),
-    queryFn: () => getRoast(sampleRoastId),
-    enabled: demoLive,
+  const profiles = useQuery({
+    queryKey: queryKeys.profiles(),
+    queryFn: ({ signal }) => listProfiles(undefined, signal),
   })
-  const [elapsedMs, setElapsedMs] = useState(384_000)
-  const liveNote = useWorkspaceStore((state) => state.liveNote)
-  const setLiveNote = useWorkspaceStore((state) => state.setLiveNote)
-
+  const coffees = useQuery({
+    queryKey: queryKeys.coffees(),
+    queryFn: ({ signal }) => listCoffees(undefined, signal),
+  })
+  const planned = useQuery({
+    queryKey: queryKeys.roasts({ status: "planned" }),
+    queryFn: ({ signal }) => listRoasts({ status: "planned" }, signal),
+  })
+  const activeRoast = planned.data?.[0]
+  const selectedProfile =
+    profiles.data?.find((profile) => profile.id === search.profileId) ??
+    profiles.data?.[0]
   useEffect(() => {
-    if (!demoLive) return
-    const timer = window.setInterval(
-      () => setElapsedMs((value) => Math.min(value + 1_000, 521_000)),
-      1_000
-    )
-    return () => window.clearInterval(timer)
-  }, [demoLive])
+    if (selectedProfile && search.profileId !== selectedProfile.id) {
+      void navigate({
+        search: { profileId: selectedProfile.id, coffeeId: search.coffeeId },
+        replace: true,
+      })
+    }
+  }, [navigate, search.coffeeId, search.profileId, selectedProfile])
+  const prepare = useMutation({
+    mutationFn: async (input: {
+      level: number
+      load: number
+      note: string
+    }) => {
+      const roast = await createRoast({
+        profileId: selectedProfile!.id,
+        coffeeId: search.coffeeId ?? null,
+        levelThousandths: Math.round(input.level * 1_000),
+        greenInputMassMg: Math.round(input.load * 1_000),
+        adjustments: { levelThousandths: Math.round(input.level * 1_000) },
+        roasterParameters: {},
+      })
+      if (input.note.trim())
+        await createNote({
+          kind: "recommendation",
+          body: input.note.trim(),
+          source: "user",
+          attributes: { phase: "preRoast" },
+          links: [
+            { resourceType: "roast", resourceId: roast.id },
+            { resourceType: "profile", resourceId: selectedProfile!.id },
+          ],
+        })
+      return roast
+    },
+    onSuccess: (roast) => {
+      toast.success(`Roast #${roast.id} prepared`)
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      void navigate({
+        to: "/roasts/$roastId",
+        params: { roastId: String(roast.id) },
+      })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const sync = useMutation({
+    mutationFn: synchronizeDevice,
+    onSuccess: () => {
+      toast.success("Nano synchronization started")
+      void queryClient.invalidateQueries({ queryKey: queryKeys.device() })
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const discard = useMutation({
+    mutationFn: () =>
+      updateRoast(activeRoast!.id, activeRoast!.revision, {
+        status: "interrupted",
+        result: "aborted",
+      }),
+    onSuccess: () => {
+      toast.success("Prepared roast discarded")
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
 
-  const visiblePoints = useMemo(
-    () =>
-      roast.data?.data.chart.filter((point) => point.elapsedMs <= elapsedMs) ??
-      [],
-    [elapsedMs, roast.data?.data.chart]
-  )
-  const current = visiblePoints.at(-1)
-
-  if (device.isPending) {
-    return (
-      <div className="text-muted-foreground flex min-h-screen items-center justify-center text-sm">
-        Checking live-monitoring capabilities…
-      </div>
-    )
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    prepare.mutate({
+      level: Number(form.get("level")),
+      load: Number(form.get("load")),
+      note: String(form.get("note") ?? ""),
+    })
   }
-
-  if (!demoLive) {
-    const state = device.data?.data
-    const reason = device.isError
-      ? "The local companion could not be reached. No roast or device state has been assumed."
-      : state?.available
-        ? "The USB adapter is available, but no verified live telemetry stream is active."
-        : `The USB adapter is unavailable${state?.reason ? ` (${state.reason})` : ""}.`
-    return (
-      <div className="min-h-screen">
-        <PageHeader
-          eyebrow="Nano 7 · capability check"
-          title="Live roast"
-          description="Live telemetry appears only when a verified device stream is active"
-          actions={
-            <Button variant="outline" onClick={() => void device.refetch()}>
-              <CableIcon data-icon="inline-start" />
-              Check again
-            </Button>
-          }
-        />
-        <div className="px-5 py-6 sm:px-7">
-          <Alert className="bg-warning max-w-3xl">
-            <TriangleAlertIcon />
-            <AlertTitle>Live monitoring unavailable</AlertTitle>
-            <AlertDescription>{reason}</AlertDescription>
-          </Alert>
-        </div>
-      </div>
-    )
-  }
+  const connected = device.data?.connection === "connected"
 
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow="Development simulation · no physical roaster"
-        title="Live roast"
-        description="Ethiopia Hamasho · Washed floral · gentle finish · revision 8"
+        title="Prepare a roast"
+        description="Choose the profile and coffee now. Tan Studio creates the roast record before the Nano starts, then attaches the device log after synchronization."
         actions={
-          <>
-            <Badge variant="info">
-              <CableIcon data-icon="inline-start" />
-              {device.data?.data.connection ?? "connecting"}
-            </Badge>
-            <Button
-              variant="outline"
-              onClick={() => toast.success("Live notifications enabled")}
-            >
-              <BellRingIcon data-icon="inline-start" />
-              Notify me
-            </Button>
-          </>
+          <Badge variant={connected ? "success" : "warning"}>
+            <CableIcon data-icon="inline-start" />
+            {connected
+              ? `${device.data?.model ?? "Nano"} connected`
+              : "Nano disconnected"}
+          </Badge>
         }
       />
-
-      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <main className="min-w-0">
-          <section
-            className="bg-card grid grid-cols-2 gap-x-5 gap-y-6 rounded-xl border p-5 sm:grid-cols-4 lg:grid-cols-6"
-            aria-label="Live telemetry"
-          >
-            <Metric label="Elapsed" value={formatElapsed(elapsedMs)} emphasis />
-            <Metric
-              label="Bean temp"
-              value={`${current?.temperatureC.toFixed(1) ?? "—"}°`}
-              detail="Celsius"
-              emphasis
-            />
-            <Metric
-              label="Target"
-              value={`${current?.profileC == null ? "—" : current.profileC.toFixed(1)}°`}
-              detail="Profile revision 8"
-            />
-            <Metric
-              label="Rate of rise"
-              value={`${current?.rorCPerMin == null ? "—" : current.rorCPerMin.toFixed(1)}°`}
-              detail="per minute"
-            />
-            <Metric label="Power" value="72%" detail="Device reported" />
-            <Metric
-              label="Stage"
-              value="Maillard"
-              detail="First crack predicted 7:29"
-            />
-          </section>
-
-          <section
-            className="bg-card mt-6 overflow-hidden rounded-xl border"
-            aria-labelledby="live-chart-heading"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
-              <div>
-                <h2 id="live-chart-heading" className="font-semibold">
-                  Live telemetry
-                </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Bounded in-memory view · durable device fragments retained
-                  locally
+      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,44rem)_minmax(18rem,1fr)]">
+        <div className="flex flex-col gap-5">
+          {activeRoast ? (
+            <Alert className="bg-info">
+              <FlameIcon />
+              <AlertTitle>
+                Roast #{activeRoast.id} is already prepared
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  Its profile, coffee, load, and adjustments are durable in the
+                  backend.
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    to="/roasts/$roastId"
+                    params={{ roastId: String(activeRoast.id) }}
+                    className={buttonVariants({ size: "sm" })}
+                  >
+                    Resume roast
+                  </Link>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={discard.isPending}
+                    onClick={() => discard.mutate()}
+                  >
+                    Discard plan
+                  </Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <form onSubmit={submit} className="bg-card rounded-xl border p-5">
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="roast-profile">Profile</FieldLabel>
+                <Select
+                  value={
+                    selectedProfile ? String(selectedProfile.id) : undefined
+                  }
+                  onValueChange={(value) =>
+                    value &&
+                    void navigate({
+                      search: {
+                        profileId: Number(value),
+                        coffeeId: search.coffeeId,
+                      },
+                      replace: true,
+                    })
+                  }
+                >
+                  <SelectTrigger id="roast-profile" className="w-full">
+                    <SelectValue placeholder="Choose a profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {profiles.data?.map((profile) => (
+                        <SelectItem key={profile.id} value={String(profile.id)}>
+                          #{profile.id} · {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  The exact profile document is snapshotted onto this roast.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="roast-coffee">Green coffee</FieldLabel>
+                <Select
+                  value={search.coffeeId ? String(search.coffeeId) : "none"}
+                  onValueChange={(value) =>
+                    void navigate({
+                      search: {
+                        profileId: selectedProfile?.id,
+                        coffeeId: value === "none" ? undefined : Number(value),
+                      },
+                      replace: true,
+                    })
+                  }
+                >
+                  <SelectTrigger id="roast-coffee" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="none">Assign later</SelectItem>
+                      {coffees.data?.map((coffee) => (
+                        <SelectItem key={coffee.id} value={String(coffee.id)}>
+                          #{coffee.id} · {coffee.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field>
+                  <FieldLabel htmlFor="roast-level">Level</FieldLabel>
+                  <Input
+                    key={`level-${selectedProfile?.id}`}
+                    id="roast-level"
+                    name="level"
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    required
+                    defaultValue={
+                      (selectedProfile?.recommendedLevelThousandths ?? 2_500) /
+                      1_000
+                    }
+                  />
+                  <FieldDescription>
+                    Per-roast adjustment; the profile is not changed.
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="roast-load">Green load · g</FieldLabel>
+                  <Input
+                    key={`load-${selectedProfile?.id}`}
+                    id="roast-load"
+                    name="load"
+                    type="number"
+                    min="1"
+                    step="1"
+                    required
+                    defaultValue={
+                      (selectedProfile?.referenceLoadMg ?? 120_000) / 1_000
+                    }
+                  />
+                </Field>
               </div>
-              <Badge variant="success">
-                <CircleDotDashedIcon data-icon="inline-start" />
-                simulated · 1 Hz
-              </Badge>
-            </div>
-            <RoastChart points={visiblePoints} live height={465} />
-          </section>
+              <Field>
+                <FieldLabel htmlFor="roast-plan-note">
+                  Adjustment or intention
+                </FieldLabel>
+                <Textarea
+                  id="roast-plan-note"
+                  name="note"
+                  placeholder="Reduce the finish slightly; last cup tasted dry and roasty."
+                />
+                <FieldDescription>
+                  This becomes a note linked to both the roast and its profile,
+                  so an agent can use it later.
+                </FieldDescription>
+              </Field>
+              <Button
+                type="submit"
+                disabled={
+                  !selectedProfile || prepare.isPending || activeRoast != null
+                }
+              >
+                <SaveIcon data-icon="inline-start" />
+                Create roast record
+              </Button>
+            </FieldGroup>
+          </form>
+        </div>
 
-          <Alert className="bg-warning mt-6">
+        <aside className="flex flex-col gap-5">
+          <Alert className="bg-info">
             <ShieldCheckIcon />
-            <AlertTitle>Roast control stays on the physical Nano</AlertTitle>
+            <AlertTitle>The Nano remains in control</AlertTitle>
             <AlertDescription>
-              Tan Studio monitors, records and annotates this roast. Start, stop
-              and safety-critical control remain on the connected roaster with a
-              nearby operator.
+              Start and stop the roast on the physical machine. Tan Studio
+              records intent, synchronizes the finished KLOG, and visualizes the
+              result.
             </AlertDescription>
           </Alert>
-        </main>
-
-        <aside className="min-w-0">
-          <section
-            className="bg-card rounded-xl border p-5"
-            aria-labelledby="operator-heading"
-          >
-            <div className="flex items-center gap-3">
-              <span className="bg-info flex size-9 items-center justify-center rounded-full">
-                <EyeIcon className="size-4" />
-              </span>
-              <div>
-                <h2 id="operator-heading" className="font-semibold">
-                  Operator present
-                </h2>
-                <p className="text-muted-foreground text-xs">
-                  Confirmed on this Mac · 2 min ago
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 grid grid-cols-2 gap-4 border-t pt-5">
-              <Metric label="Load" value="100 g" />
-              <Metric label="Level" value="2.6" />
-            </div>
-          </section>
-
-          <section
-            className="bg-card mt-5 rounded-xl border p-5"
-            aria-labelledby="mark-events-heading"
-          >
-            <h2 id="mark-events-heading" className="font-semibold">
-              Mark an event
-            </h2>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Adds an operator event at the current time and temperature.
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                onClick={() =>
-                  toast.success(
-                    `Yellowing marked at ${formatElapsed(elapsedMs)}`
-                  )
-                }
-              >
-                Yellowing
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  toast.success(
-                    `First crack marked at ${formatElapsed(elapsedMs)}`
-                  )
-                }
-              >
-                <FlagIcon data-icon="inline-start" />
-                1st crack
-              </Button>
-            </div>
-          </section>
-
-          <section
-            className="bg-card mt-5 rounded-xl border p-5"
-            aria-labelledby="quick-note-heading"
-          >
-            <h2 id="quick-note-heading" className="font-semibold">
-              Quick note
-            </h2>
-            <Field className="mt-4">
-              <FieldLabel htmlFor="live-note">Observation</FieldLabel>
-              <Textarea
-                id="live-note"
-                value={liveNote}
-                onChange={(event) => setLiveNote(event.target.value)}
-                placeholder="Aroma, sound, smoke, color…"
-                rows={5}
-              />
-              <FieldDescription>
-                Anchored at {formatElapsed(elapsedMs)} and{" "}
-                {current?.temperatureC.toFixed(1) ?? "—"}°C.
-              </FieldDescription>
-            </Field>
+          <section className="bg-card rounded-xl border p-5">
+            <h2 className="font-semibold">After the roast</h2>
+            <ol className="text-muted-foreground mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm">
+              <li>Finish the roast on the Nano.</li>
+              <li>Synchronize its logs and profiles.</li>
+              <li>
+                Review the curve, add an observation, and create the jar label.
+              </li>
+            </ol>
             <Button
-              className="mt-4 w-full"
-              disabled={!liveNote.trim()}
-              onClick={() => {
-                toast.success("Live note saved")
-                setLiveNote("")
-              }}
+              className="mt-5 w-full"
+              variant="outline"
+              disabled={!connected || sync.isPending}
+              onClick={() => sync.mutate()}
             >
-              <BookmarkPlusIcon data-icon="inline-start" />
-              Save note
+              <RefreshCwIcon data-icon="inline-start" />
+              Synchronize Nano
             </Button>
           </section>
+          {!connected ? (
+            <Alert className="bg-warning">
+              <FlameIcon />
+              <AlertTitle>You can still prepare offline</AlertTitle>
+              <AlertDescription>
+                The planned roast is durable in the backend. Connect the Nano
+                before synchronizing the finished log.
+              </AlertDescription>
+            </Alert>
+          ) : null}
         </aside>
       </div>
     </div>

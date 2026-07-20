@@ -4,22 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/acquisitions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["acquisitions_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/brews": {
         parameters: {
             query?: never;
@@ -27,29 +11,29 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["brews_list"];
+        get: operations["listBrews"];
         put?: never;
-        post: operations["brews_create"];
+        post: operations["createBrew"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/brews/{reference}": {
+    "/api/v1/brews/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["brews_get"];
+        get: operations["getBrew"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["updateBrew"];
         trace?: never;
     };
     "/api/v1/coffees": {
@@ -59,9 +43,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["coffees_list"];
+        get: operations["listCoffees"];
         put?: never;
-        post: operations["coffees_create"];
+        post: operations["createCoffee"];
         delete?: never;
         options?: never;
         head?: never;
@@ -75,13 +59,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["coffees_get"];
+        get: operations["getCoffee"];
         put?: never;
         post?: never;
-        delete: operations["coffees_delete"];
+        delete?: never;
         options?: never;
         head?: never;
-        patch: operations["coffees_patch"];
+        patch: operations["updateCoffee"];
+        trace?: never;
+    };
+    "/api/v1/coffees/{id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getCoffeeContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/coffees/{id}/roasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCoffeeRoasts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/device": {
@@ -139,23 +155,23 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["labels_list"];
+        get: operations["listLabels"];
         put?: never;
-        post: operations["labels_create"];
+        post: operations["createLabel"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/labels/{reference}": {
+    "/api/v1/labels/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["labels_get"];
+        get: operations["getLabel"];
         put?: never;
         post?: never;
         delete?: never;
@@ -164,36 +180,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/lots": {
+    "/api/v1/notes": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["lots_list"];
+        get: operations["listNotes"];
         put?: never;
-        post: operations["lots_create"];
+        post: operations["createNote"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/lots/{id}": {
+    "/api/v1/notes/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["lots_get"];
+        get: operations["getNote"];
         put?: never;
+        post?: never;
+        delete: operations["deleteNote"];
+        options?: never;
+        head?: never;
+        patch: operations["updateNote"];
+        trace?: never;
+    };
+    "/api/v1/notes/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["replaceNoteLinks"];
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        patch: operations["lots_patch"];
+        patch?: never;
         trace?: never;
     };
     "/api/v1/openapi.json": {
@@ -203,7 +235,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["openapi_get"];
+        get: operations["getOpenApi"];
         put?: never;
         post?: never;
         delete?: never;
@@ -212,32 +244,16 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/preferences": {
+    "/api/v1/pantry": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["preferences_get"];
+        get: operations["getPantry"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["preferences_patch"];
-        trace?: never;
-    };
-    "/api/v1/print-jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["print_jobs_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -251,48 +267,32 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["profiles_list"];
+        get: operations["listProfiles"];
         put?: never;
-        post?: never;
+        post: operations["createProfile"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/providers": {
+    "/api/v1/profiles/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["providers_list"];
+        get: operations["getProfile"];
         put?: never;
-        post: operations["providers_create"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["updateProfile"];
         trace?: never;
     };
-    "/api/v1/providers/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["providers_get"];
-        put?: never;
-        post?: never;
-        delete: operations["providers_delete"];
-        options?: never;
-        head?: never;
-        patch: operations["providers_patch"];
-        trace?: never;
-    };
-    "/api/v1/roast-library/query": {
+    "/api/v1/profiles/{id}/children": {
         parameters: {
             query?: never;
             header?: never;
@@ -301,21 +301,21 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["roast_library_query"];
+        post: operations["createChildProfile"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/roasts/{reference}": {
+    "/api/v1/profiles/{id}/context": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["roast_get"];
+        get: operations["getProfileContext"];
         put?: never;
         post?: never;
         delete?: never;
@@ -324,36 +324,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/roasts/{reference}/coffee": {
+    "/api/v1/profiles/{id}/roasts": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["roast_assign_coffee"];
-        trace?: never;
-    };
-    "/api/v1/roasts/{reference}/series": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["roast_series"];
+        get: operations["listProfileRoasts"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roasts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRoasts"];
+        put?: never;
+        post: operations["createRoast"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roasts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRoast"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateRoast"];
+        trace?: never;
+    };
+    "/api/v1/roasts/{id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRoastContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roasts/{id}/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRoastSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateSettings"];
         trace?: never;
     };
     "/api/v1/system/bootstrap": {
@@ -376,24 +440,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        AcquisitionCreate: {
-            coffeeName: string;
-            /** Format: int64 */
-            costPerKgMinor?: number | null;
-            currencyCode?: string | null;
-            providerName: string;
-            receivedAt: string;
-            /** Format: int64 */
-            receivedMassMg: number;
-            sourceTimezone: string;
-            supplierReference?: string | null;
-        };
-        AcquisitionResource: {
-            coffeeCreated: boolean;
-            kind: string;
-            lot: components["schemas"]["LotResource"];
-            providerCreated: boolean;
-        };
         AdapterSet: {
             database: components["schemas"]["SimpleAdapter"];
             printing: components["schemas"]["SimpleAdapter"];
@@ -416,130 +462,173 @@ export interface components {
             };
         };
         BrewCreate: {
-            /** Format: int64 */
-            bloomDurationMs?: number | null;
-            /** Format: int64 */
-            bloomWaterMassMg?: number | null;
-            /** Format: int64 */
-            brewDurationMs?: number | null;
             brewedAt?: string | null;
             /** Format: int64 */
             coffeeMassMg?: number | null;
-            descriptors?: string[];
-            grinderName?: string | null;
+            grinder?: string | null;
             grinderSetting?: string | null;
-            kettleName?: string | null;
+            kettle?: string | null;
             method?: string | null;
-            notes?: string | null;
+            note?: string | null;
             /** Format: int64 */
-            roastNumber: number;
+            ratingBasisPoints?: number | null;
+            recipe?: unknown;
             /** Format: int64 */
-            scoreBasisPoints?: number | null;
+            roastId: number;
             sourceTimezone?: string | null;
-            tastingNotes?: string | null;
+            water?: string | null;
             /** Format: int64 */
             waterMassMg?: number | null;
-            waterName?: string | null;
             /** Format: int64 */
             waterTemperatureMilliC?: number | null;
         };
         BrewPage: {
             items: components["schemas"]["BrewResource"][];
         };
+        BrewPatch: {
+            /** Format: int64 */
+            coffeeMassMg?: number | null;
+            grinder?: string | null;
+            grinderSetting?: string | null;
+            kettle?: string | null;
+            method?: string | null;
+            recipe?: unknown;
+            water?: string | null;
+            /** Format: int64 */
+            waterMassMg?: number | null;
+            /** Format: int64 */
+            waterTemperatureMilliC?: number | null;
+        };
         BrewResource: {
-            /** Format: int64 */
-            bloomDurationMs?: number | null;
-            /** Format: int64 */
-            bloomWaterMassMg?: number | null;
-            /** Format: int64 */
-            brewDurationMs?: number | null;
             brewedAt: string;
             /** Format: int64 */
             coffeeMassMg: number;
             createdAt: string;
-            descriptors: string[];
-            grinderName: string;
+            grinder: string;
             grinderSetting: string;
-            id: string;
-            kettleName: string;
-            kind: string;
+            /** Format: int64 */
+            id: number;
+            kettle: string;
             method: string;
-            notes: string;
-            /** Format: double */
-            ratio: number;
+            notes: components["schemas"]["NoteResource"][];
+            recipe: unknown;
             /** Format: int64 */
             revision: number;
-            roast: components["schemas"]["RoastReference"];
             /** Format: int64 */
-            scoreBasisPoints?: number | null;
-            /** Format: int64 */
-            serialNumber: number;
+            roastId: number;
             sourceTimezone: string;
-            tastingNotes: string;
             updatedAt: string;
+            water: string;
             /** Format: int64 */
             waterMassMg: number;
-            waterName: string;
             /** Format: int64 */
             waterTemperatureMilliC?: number | null;
         };
         CoffeeCreate: {
             /** Format: int64 */
-            altitudeMaxMetres?: number | null;
+            altitudeMaxM?: number | null;
             /** Format: int64 */
-            altitudeMinMetres?: number | null;
-            countryCode?: string | null;
-            displayName: string;
-            farmProducer?: string | null;
-            harvestLabel?: string | null;
-            notes?: string | null;
-            process?: string | null;
-            region?: string | null;
-            stationCooperative?: string | null;
-            varieties?: string[];
+            altitudeMinM?: number | null;
+            country?: string;
+            currencyCode?: string | null;
+            farm?: string;
+            harvest?: string;
+            metadata?: unknown;
+            name: string;
+            /** Format: int64 */
+            priceMinor?: number | null;
+            process?: string;
+            producer?: string;
+            provider?: string;
+            providerProductId?: string;
+            providerUrl?: string;
+            purchaseReference?: string;
+            purchasedAt?: string | null;
+            /** Format: int64 */
+            purchasedMassMg?: number;
+            region?: string;
+            /** Format: int64 */
+            remainingMassMg?: number;
+            storageLocation?: string;
+            variety?: string;
+            washingStation?: string;
         };
         CoffeePage: {
             items: components["schemas"]["CoffeeResource"][];
-            pageInfo: components["schemas"]["PageInfo"];
         };
         CoffeePatch: {
             /** Format: int64 */
-            altitudeMaxMetres?: number | null;
+            altitudeMaxM?: number | null;
             /** Format: int64 */
-            altitudeMinMetres?: number | null;
-            countryCode?: string | null;
-            displayName?: string | null;
-            farmProducer?: string | null;
-            harvestLabel?: string | null;
-            notes?: string | null;
+            altitudeMinM?: number | null;
+            country?: string | null;
+            currencyCode?: string | null;
+            farm?: string | null;
+            harvest?: string | null;
+            metadata?: unknown;
+            name?: string | null;
+            /** Format: int64 */
+            priceMinor?: number | null;
             process?: string | null;
+            producer?: string | null;
+            provider?: string | null;
+            providerProductId?: string | null;
+            providerUrl?: string | null;
+            purchaseReference?: string | null;
+            purchasedAt?: string | null;
+            /** Format: int64 */
+            purchasedMassMg?: number | null;
             region?: string | null;
-            stationCooperative?: string | null;
-            varieties?: string[] | null;
+            /** Format: int64 */
+            remainingMassMg?: number | null;
+            storageLocation?: string | null;
+            variety?: string | null;
+            washingStation?: string | null;
         };
         CoffeeResource: {
             /** Format: int64 */
-            altitudeMaxMetres?: number | null;
+            altitudeMaxM?: number | null;
             /** Format: int64 */
-            altitudeMinMetres?: number | null;
-            archivedAt?: string | null;
-            countryCode?: string | null;
+            altitudeMinM?: number | null;
+            country: string;
             createdAt: string;
-            displayName: string;
-            farmProducer?: string | null;
-            harvestLabel?: string | null;
-            id: string;
-            kind: string;
-            notes?: string | null;
-            process?: string | null;
-            region?: string | null;
+            currencyCode?: string | null;
+            farm: string;
+            harvest: string;
+            /** Format: int64 */
+            id: number;
+            metadata: unknown;
+            name: string;
+            /** Format: int64 */
+            priceMinor?: number | null;
+            process: string;
+            producer: string;
+            provider: string;
+            providerProductId: string;
+            providerUrl: string;
+            purchaseReference: string;
+            purchasedAt?: string | null;
+            /** Format: int64 */
+            purchasedMassMg: number;
+            region: string;
+            /** Format: int64 */
+            remainingMassMg: number;
             /** Format: int64 */
             revision: number;
             /** Format: int64 */
-            serialNumber?: number | null;
-            stationCooperative?: string | null;
+            roastCount: number;
+            storageLocation: string;
             updatedAt: string;
-            varieties: string[];
+            variety: string;
+            washingStation: string;
+        };
+        ContextResource: {
+            brews: components["schemas"]["BrewResource"][];
+            coffee?: null | components["schemas"]["CoffeeResource"];
+            notes: components["schemas"]["NoteResource"][];
+            profile?: null | components["schemas"]["ProfileResource"];
+            rest?: null | components["schemas"]["RestWindow"];
+            roast?: null | components["schemas"]["RoastResource"];
         };
         DeviceSnapshot: {
             busy?: boolean | null;
@@ -573,12 +662,6 @@ export interface components {
             /** Format: int32 */
             updatedLogCount: number;
         };
-        FanProfileCurvePoint: {
-            /** Format: int64 */
-            elapsedMs: number;
-            /** Format: int64 */
-            fanRpm: number;
-        };
         FeatureSet: {
             aiProposals: boolean;
             catalog: boolean;
@@ -595,157 +678,90 @@ export interface components {
             message: string;
             path: string;
         };
-        GroupKey: {
-            /** @enum {string} */
-            kind: "value";
-            value?: unknown;
-        } | {
-            endExclusive: unknown;
-            /** @enum {string} */
-            kind: "range";
-            startInclusive: unknown;
-        };
-        GroupPathEntry: {
-            field: string;
-            key: components["schemas"]["GroupKey"];
-        };
         LabelCreate: {
+            content?: unknown;
             /** Format: int64 */
             copies?: number;
             /** Format: int64 */
-            roastNumber: number;
+            heightMicrometers?: number | null;
+            printer?: string;
+            /** Format: int64 */
+            roastId: number;
+            /** Format: int64 */
+            widthMicrometers?: number | null;
         };
         LabelPage: {
             items: components["schemas"]["LabelResource"][];
         };
         LabelResource: {
             artifactSha256?: string | null;
+            content: unknown;
             /** Format: int64 */
             copies: number;
             createdAt: string;
-            id: string;
-            kind: string;
-            qrPayload: string;
-            roastId: string;
             /** Format: int64 */
-            roastNumber: number;
+            heightMicrometers?: number | null;
             /** Format: int64 */
-            serialNumber: number;
+            id: number;
+            printer: string;
+            /** Format: int64 */
+            roastId: number;
             status: string;
-        };
-        LotCreate: {
-            internalCode: string;
+            updatedAt: string;
             /** Format: int64 */
-            onHandMassMg?: number | null;
-            purchaseLineId: string;
-            receivedAt: string;
+            widthMicrometers?: number | null;
+        };
+        NoteCreate: {
+            attributes?: unknown;
+            body: string;
+            kind?: string;
+            links: components["schemas"]["NoteLink"][];
             /** Format: int64 */
-            receivedMassMg: number;
-            sourceTimezone: string;
-            state?: string | null;
-            storageLocation?: string | null;
-            storageNotes?: string | null;
-            supplierCode?: string | null;
+            ratingBasisPoints?: number | null;
+            source?: string;
         };
-        LotPage: {
-            items: components["schemas"]["LotResource"][];
-            pageInfo: components["schemas"]["PageInfo"];
-        };
-        LotPatch: {
-            internalCode?: string | null;
-            state?: string | null;
-            storageLocation?: string | null;
-            storageNotes?: string | null;
-            supplierCode?: string | null;
-        };
-        LotReference: {
-            displayName: string;
-            id: string;
-        };
-        LotResource: {
-            archivedAt?: string | null;
+        NoteLink: {
             /** Format: int64 */
-            balanceMg: number;
-            coffee: components["schemas"]["LotReference"];
-            coffeeId: string;
+            resourceId: number;
+            resourceType: string;
+        };
+        NoteLinksPut: {
+            links: components["schemas"]["NoteLink"][];
+        };
+        NotePage: {
+            items: components["schemas"]["NoteResource"][];
+        };
+        NotePatch: {
+            attributes?: unknown;
+            body?: string | null;
+            kind?: string | null;
+            /** Format: int64 */
+            ratingBasisPoints?: number | null;
+        };
+        NoteResource: {
+            attributes: unknown;
+            body: string;
             createdAt: string;
-            id: string;
-            internalCode: string;
+            /** Format: int64 */
+            id: number;
             kind: string;
+            links: components["schemas"]["NoteLink"][];
             /** Format: int64 */
-            onHandMassMg: number;
-            provider: components["schemas"]["LotReference"];
-            purchase: components["schemas"]["PurchaseReference"];
-            purchaseLineId: string;
-            receivedAt: string;
-            /** Format: int64 */
-            receivedMassMg: number;
+            ratingBasisPoints?: number | null;
             /** Format: int64 */
             revision: number;
-            sourceTimezone: string;
-            state: string;
-            storageLocation?: string | null;
-            storageNotes: string;
-            summary: components["schemas"]["LotSummary"];
-            supplierCode?: string | null;
+            source: string;
             updatedAt: string;
         };
-        LotSummary: {
-            /** Format: int64 */
-            latestScoreBasisPoints?: number | null;
-            /** Format: int64 */
-            roastCount: number;
+        PantryResource: {
+            items: components["schemas"]["PantryRoast"][];
         };
-        PageInfo: {
-            endCursor?: string | null;
-            hasNextPage: boolean;
-        };
-        PreferencesPatch: {
-            defaultBrewMethod?: string | null;
+        PantryRoast: {
             /** Format: int64 */
-            defaultCoffeeMassMg?: number | null;
-            defaultGrinderName?: string | null;
-            defaultGrinderSetting?: string | null;
-            defaultKettleName?: string | null;
-            defaultRoasterName?: string | null;
-            /** Format: int64 */
-            defaultWaterMassMg?: number | null;
-            defaultWaterName?: string | null;
-            /** Format: int64 */
-            defaultWaterTemperatureMilliC?: number | null;
-        };
-        PreferencesResource: {
-            defaultBrewMethod: string;
-            /** Format: int64 */
-            defaultCoffeeMassMg: number;
-            defaultGrinderName: string;
-            defaultGrinderSetting: string;
-            defaultKettleName: string;
-            defaultRoasterName: string;
-            /** Format: int64 */
-            defaultWaterMassMg: number;
-            defaultWaterName: string;
-            /** Format: int64 */
-            defaultWaterTemperatureMilliC: number;
-            kind: string;
-            /** Format: int64 */
-            revision: number;
-            updatedAt: string;
-        };
-        PrintJobCreate: {
-            artifact: string;
-            /** Format: int64 */
-            copies: number;
-            /** Format: double */
-            heightMm: number;
-            printerId: string;
-            roastId?: string | null;
-            /** Format: double */
-            widthMm: number;
-        };
-        PrintJobResource: {
-            id: string;
-            status: string;
+            estimatedRemainingMassMg: number;
+            latestTasting?: string | null;
+            rest: components["schemas"]["RestWindow"];
+            roast: components["schemas"]["RoastResource"];
         };
         ProblemDetails: {
             code: string;
@@ -759,150 +775,105 @@ export interface components {
             title: string;
             type: string;
         };
+        ProfileCreate: {
+            description?: string;
+            designer?: string;
+            name: string;
+            /** Format: int64 */
+            parentProfileId?: number | null;
+            profile?: unknown;
+            /** Format: int64 */
+            recommendedLevelThousandths?: number | null;
+            /** Format: int64 */
+            referenceLoadMg?: number | null;
+        };
         ProfilePage: {
-            items: components["schemas"]["ProfileResource"][];
+            items: components["schemas"]["ProfileSummary"][];
+        };
+        ProfilePatch: {
+            description?: string | null;
+            designer?: string | null;
+            name?: string | null;
+            /** Format: int64 */
+            parentProfileId?: number | null;
+            profile?: unknown;
+            /** Format: int64 */
+            recommendedLevelThousandths?: number | null;
+            /** Format: int64 */
+            referenceLoadMg?: number | null;
         };
         ProfileResource: {
+            /** Format: int64 */
+            childCount: number;
+            createdAt: string;
             description: string;
             designer: string;
-            displayName: string;
-            fanCurve: components["schemas"]["FanProfileCurvePoint"][];
-            fileName: string;
-            id: string;
-            kind: string;
-            profileId: string;
-            profileModifiedAt?: string | null;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            origin: string;
+            /** Format: int64 */
+            parentProfileId?: number | null;
+            profile: unknown;
             /** Format: int64 */
             recommendedLevelThousandths?: number | null;
             /** Format: int64 */
             referenceLoadMg?: number | null;
             /** Format: int64 */
-            revisionNumber: number;
-            roastCurve: components["schemas"]["RoastProfileCurvePoint"][];
-            roastLevelsMilliC: number[];
-            schemaVersion: string;
-            sourceHash: string;
-            sourceModifiedAt?: string | null;
-            warnings: string[];
-        };
-        ProviderContact: {
-            email?: string | null;
-            phone?: string | null;
-            websiteUrl?: string | null;
-        };
-        ProviderCreate: {
-            aliases?: string[];
-            contact?: components["schemas"]["ProviderContact"];
-            defaultCurrencyCode?: string | null;
-            displayName: string;
-            notes?: string | null;
-            referenceNotes?: string | null;
-        };
-        ProviderPage: {
-            items: components["schemas"]["ProviderResource"][];
-            pageInfo: components["schemas"]["PageInfo"];
-        };
-        ProviderPatch: {
-            aliases?: string[] | null;
-            contact?: null | components["schemas"]["ProviderContact"];
-            defaultCurrencyCode?: string | null;
-            displayName?: string | null;
-            notes?: string | null;
-            referenceNotes?: string | null;
-        };
-        ProviderResource: {
-            aliases: string[];
-            archivedAt?: string | null;
-            contact: components["schemas"]["ProviderContact"];
-            createdAt: string;
-            defaultCurrencyCode?: string | null;
-            displayName: string;
-            id: string;
-            kind: string;
-            notes?: string | null;
-            referenceNotes?: string | null;
-            /** Format: int64 */
             revision: number;
+            /** Format: int64 */
+            roastCount: number;
+            sourceHash?: string | null;
             updatedAt: string;
         };
-        PurchaseReference: {
-            id: string;
-            supplierReference?: string | null;
-        };
-        ResourceMutationCoffee: {
-            resource: components["schemas"]["CoffeeResource"];
-        };
-        ResourceMutationLot: {
-            resource: components["schemas"]["LotResource"];
-        };
-        ResourceMutationProvider: {
-            resource: components["schemas"]["ProviderResource"];
-        };
-        RoastAnnotation: {
-            createdAt: string;
+        ProfileSummary: {
             /** Format: int64 */
-            elapsedMs?: number | null;
-            id: string;
+            childCount: number;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            origin: string;
+            /** Format: int64 */
+            parentProfileId?: number | null;
+            /** Format: int64 */
+            recommendedLevelThousandths?: number | null;
+            /** Format: int64 */
+            referenceLoadMg?: number | null;
             /** Format: int64 */
             revision: number;
             /** Format: int64 */
-            temperatureMilliC?: number | null;
-            text: string;
-            type: string;
+            roastCount: number;
             updatedAt: string;
         };
-        RoastCoffeePatch: {
+        ResourceReference: {
             /** Format: int64 */
-            coffeeNumber?: number | null;
+            id: number;
+            name: string;
         };
-        RoastDetail: {
-            annotations: components["schemas"]["RoastAnnotation"][];
-            coffeeId?: string | null;
+        RestWindow: {
             /** Format: int64 */
-            cooldownEndMs?: number | null;
-            createdAt: string;
+            ageDays: number;
             /** Format: int64 */
-            developmentBasisPoints?: number | null;
+            peakDays: number;
             /** Format: int64 */
-            durationMs?: number | null;
-            endReason?: string | null;
-            events: components["schemas"]["RoastEvent"][];
+            restDays: number;
+            state: string;
+            suggestedFrom: string;
+            suggestedUntil: string;
+        };
+        RoastCreate: {
+            adjustments?: unknown;
+            /** Format: int64 */
+            coffeeId?: number | null;
             /** Format: int64 */
             greenInputMassMg?: number | null;
-            greenLotId?: string | null;
-            id: string;
-            importWarnings: unknown[];
-            kind: string;
-            lineage: components["schemas"]["RoastLineage"];
             /** Format: int64 */
-            nativeLogNumber?: number | null;
-            nativeMetadata: {
-                [key: string]: unknown;
-            };
-            notes: string;
-            profile?: null | components["schemas"]["RoastProfileReference"];
-            profileRevisionId?: string | null;
-            promotedTasting?: null | components["schemas"]["RoastTasting"];
-            promotedTastingId?: string | null;
-            result: string;
+            levelThousandths?: number | null;
             /** Format: int64 */
-            revision: number;
-            /** Format: int64 */
-            roastLevelThousandths?: number | null;
-            roastedAt?: string | null;
-            roastedAtSource: string;
-            /** Format: int64 */
-            roastedYieldMassMg?: number | null;
-            sampleStream?: null | components["schemas"]["RoastSampleStream"];
-            /** Format: int64 */
-            serialNumber?: number | null;
-            sourceFileId?: string | null;
-            sourceTimezone: string;
-            status: string;
-            updatedAt: string;
+            profileId: number;
+            roasterParameters?: unknown;
         };
         RoastEvent: {
-            createdAt: string;
             /** Format: int64 */
             elapsedMs: number;
             id: string;
@@ -911,121 +882,104 @@ export interface components {
             /** Format: int64 */
             temperatureMilliC?: number | null;
         };
-        RoastLibraryGroup: {
-            aggregates: {
-                [key: string]: unknown;
-            };
+        RoastPage: {
+            items: components["schemas"]["RoastSummary"][];
+        };
+        RoastPatch: {
+            adjustments?: unknown;
             /** Format: int64 */
-            count: number;
-            key: components["schemas"]["GroupKey"];
-            label: string;
-            path: components["schemas"]["GroupPathEntry"][];
-        };
-        RoastLibraryQuery: {
-            aggregates?: unknown[];
-            columns: string[];
-            filters: unknown;
-            groupPath?: components["schemas"]["GroupPathEntry"][];
-            groups?: unknown[];
-            page: components["schemas"]["RoastPageRequest"];
-            sorts?: components["schemas"]["RoastSort"][];
+            coffeeId?: number | null;
             /** Format: int64 */
-            viewVersion: number;
+            developmentBasisPoints?: number | null;
+            /** Format: int64 */
+            greenInputMassMg?: number | null;
+            /** Format: int64 */
+            levelThousandths?: number | null;
+            /** Format: int64 */
+            profileId?: number | null;
+            result?: string | null;
+            /** Format: int64 */
+            roastedYieldMassMg?: number | null;
+            roasterParameters?: unknown;
+            status?: string | null;
         };
-        RoastLibraryResult: {
-            aggregates: {
-                [key: string]: unknown;
-            };
-            /** @enum {string} */
-            kind: "rows";
-            pageInfo: components["schemas"]["PageInfo"];
-            rows: components["schemas"]["RoastLibraryRow"][];
-            scope: components["schemas"]["GroupPathEntry"][];
-        } | {
-            groups: components["schemas"]["RoastLibraryGroup"][];
-            /** @enum {string} */
-            kind: "groups";
-            pageInfo: components["schemas"]["PageInfo"];
-            scope: components["schemas"]["GroupPathEntry"][];
-        };
-        RoastLibraryRow: {
+        RoastResource: {
+            adjustments: unknown;
+            /** Format: int64 */
+            brewCount: number;
+            coffee?: null | components["schemas"]["ResourceReference"];
+            createdAt: string;
+            /** Format: int64 */
+            developmentBasisPoints?: number | null;
+            /** Format: int64 */
+            durationMs?: number | null;
+            endReason: string;
+            events: components["schemas"]["RoastEvent"][];
+            /** Format: int64 */
+            greenInputMassMg?: number | null;
+            /** Format: int64 */
+            id: number;
+            importWarnings: unknown[];
+            /** Format: int64 */
+            labelCount: number;
+            /** Format: int64 */
+            levelThousandths?: number | null;
+            /** Format: int64 */
+            nativeLogNumber?: number | null;
+            nativeMetadata: unknown;
+            /** Format: int64 */
+            noteCount: number;
+            profile?: null | components["schemas"]["ResourceReference"];
+            profileSnapshot: unknown;
+            result: string;
             /** Format: int64 */
             revision: number;
-            roastId: string;
-            values: {
-                [key: string]: unknown;
-            };
+            roastedAt?: string | null;
+            roastedAtSource: string;
+            /** Format: int64 */
+            roastedYieldMassMg?: number | null;
+            roasterParameters: unknown;
+            sampleStream?: null | components["schemas"]["SampleStreamResource"];
+            sourceTimezone: string;
+            status: string;
+            updatedAt: string;
         };
-        RoastLineage: {
-            coffee?: {
-                [key: string]: unknown;
-            } | null;
-            lot?: {
-                [key: string]: unknown;
-            } | null;
-            origin: {
-                [key: string]: unknown;
-            };
-            provider?: {
-                [key: string]: unknown;
-            } | null;
-            purchase?: {
-                [key: string]: unknown;
-            } | null;
+        RoastSummary: {
+            /** Format: int64 */
+            brewCount: number;
+            coffee?: null | components["schemas"]["ResourceReference"];
+            /** Format: int64 */
+            durationMs?: number | null;
+            /** Format: int64 */
+            greenInputMassMg?: number | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            labelCount: number;
+            /** Format: int64 */
+            levelThousandths?: number | null;
+            /** Format: int64 */
+            noteCount: number;
+            profile?: null | components["schemas"]["ResourceReference"];
+            result: string;
+            /** Format: int64 */
+            revision: number;
+            roastedAt?: string | null;
+            roastedAtSource: string;
+            /** Format: int64 */
+            roastedYieldMassMg?: number | null;
+            status: string;
         };
-        RoastMutation: {
-            resource: components["schemas"]["RoastDetail"];
-        };
-        RoastPageRequest: {
-            after?: string | null;
+        SampleStreamResource: {
             /** Format: int64 */
-            first: number;
-        };
-        RoastProfileCurvePoint: {
+            firstElapsedMs: number;
             /** Format: int64 */
-            elapsedMs: number;
+            lastElapsedMs: number;
+            reconciliationState: string;
             /** Format: int64 */
-            temperatureMilliC: number;
-        };
-        RoastProfileReference: {
-            displayName?: string | null;
-            id?: string | null;
-            revisionId: string;
-            /** Format: int64 */
-            revisionNumber?: number | null;
-        };
-        RoastReference: {
-            coffeeName?: string | null;
-            id: string;
-            /** Format: int64 */
-            serialNumber: number;
-        };
-        RoastSampleStream: {
-            channels: unknown[];
-            /** Format: int64 */
-            firstElapsedMs?: number | null;
-            /** Format: int64 */
-            lastElapsedMs?: number | null;
-            reconciliationState?: string | null;
-            /** Format: int64 */
-            rowCount?: number | null;
+            rowCount: number;
             /** Format: int64 */
             streamVersion: number;
-        };
-        RoastSort: {
-            direction: string;
-            field: string;
-            nulls?: string;
-        };
-        RoastTasting: {
-            conclusion?: string | null;
-            descriptors: string[];
-            id: string;
-            nextAction?: string | null;
-            notes?: string | null;
-            /** Format: int64 */
-            scoreBasisPoints?: number | null;
-            tastedAt: string;
         };
         SeriesPoint: {
             /** Format: int64 */
@@ -1035,15 +989,8 @@ export interface components {
             /** Format: int64 */
             elapsedMs: number;
             /** Format: int64 */
-            kdMilli?: number | null;
-            /** Format: int64 */
-            kiMilli?: number | null;
-            /** Format: int64 */
-            kpMilli?: number | null;
-            /** Format: int64 */
             meanTemperatureMilliC?: number | null;
-            /** Format: int64 */
-            motorVoltageTraceMilli?: number | null;
+            native: unknown;
             /** Format: int64 */
             powerMilliKw?: number | null;
             /** Format: int64 */
@@ -1057,21 +1004,61 @@ export interface components {
             /** Format: int64 */
             spotTemperatureMilliC?: number | null;
             /** Format: int64 */
-            temperatureMilliC?: number | null;
-            values?: {
-                [key: string]: unknown;
-            } | null;
+            temperatureMilliC: number;
         };
         SeriesResponse: {
-            downsampled: boolean;
             points: components["schemas"]["SeriesPoint"][];
-            reconciliationState: string;
-            roastId: string;
-            sourceRowCount: number;
+            /** Format: int64 */
+            roastId: number;
             /** Format: int64 */
             streamVersion: number;
+        };
+        SettingsPatch: {
+            defaultBrewMethod?: string | null;
             /** Format: int64 */
-            throughSampleSeq?: number | null;
+            defaultCoffeeMassMg?: number | null;
+            defaultGrinder?: string | null;
+            defaultGrinderSetting?: string | null;
+            defaultKettle?: string | null;
+            /** Format: int64 */
+            defaultLabelHeightMicrometers?: number | null;
+            /** Format: int64 */
+            defaultLabelWidthMicrometers?: number | null;
+            /** Format: int64 */
+            defaultPeakDays?: number | null;
+            /** Format: int64 */
+            defaultRestDays?: number | null;
+            defaultRoaster?: string | null;
+            defaultWater?: string | null;
+            /** Format: int64 */
+            defaultWaterMassMg?: number | null;
+            /** Format: int64 */
+            defaultWaterTemperatureMilliC?: number | null;
+        };
+        SettingsResource: {
+            defaultBrewMethod: string;
+            /** Format: int64 */
+            defaultCoffeeMassMg: number;
+            defaultGrinder: string;
+            defaultGrinderSetting: string;
+            defaultKettle: string;
+            /** Format: int64 */
+            defaultLabelHeightMicrometers: number;
+            /** Format: int64 */
+            defaultLabelWidthMicrometers: number;
+            /** Format: int64 */
+            defaultPeakDays: number;
+            /** Format: int64 */
+            defaultRestDays: number;
+            defaultRoaster: string;
+            defaultWater: string;
+            /** Format: int64 */
+            defaultWaterMassMg: number;
+            /** Format: int64 */
+            defaultWaterTemperatureMilliC: number;
+            /** Format: int64 */
+            revision: number;
+            updatedAt: string;
         };
         SimpleAdapter: {
             reason?: string | null;
@@ -1086,49 +1073,16 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    acquisitions_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcquisitionCreate"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcquisitionResource"];
-                };
-            };
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-        };
-    };
-    brews_list: {
+    listBrews: {
         parameters: {
             query?: {
-                roastNumber?: number | null;
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
             };
             header?: never;
             path?: never;
@@ -1146,7 +1100,7 @@ export interface operations {
             };
         };
     };
-    brews_create: {
+    createBrew: {
         parameters: {
             query?: never;
             header?: never;
@@ -1167,14 +1121,22 @@ export interface operations {
                     "application/json": components["schemas"]["BrewResource"];
                 };
             };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
-    brews_get: {
+    getBrew: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                reference: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1190,13 +1152,51 @@ export interface operations {
             };
         };
     };
-    coffees_list: {
+    updateBrew: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrewPatch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrewResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    listCoffees: {
         parameters: {
             query?: {
-                first?: number;
-                after?: string | null;
-                search?: string | null;
-                includeArchived?: boolean;
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
             };
             header?: never;
             path?: never;
@@ -1214,7 +1214,7 @@ export interface operations {
             };
         };
     };
-    coffees_create: {
+    createCoffee: {
         parameters: {
             query?: never;
             header?: never;
@@ -1232,17 +1232,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationCoffee"];
+                    "application/json": components["schemas"]["CoffeeResource"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
     };
-    coffees_get: {
+    getCoffee: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1256,35 +1264,24 @@ export interface operations {
                     "application/json": components["schemas"]["CoffeeResource"];
                 };
             };
-        };
-    };
-    coffees_delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationCoffee"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
     };
-    coffees_patch: {
+    updateCoffee: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
-                id: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1299,7 +1296,57 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationCoffee"];
+                    "application/json": components["schemas"]["CoffeeResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getCoffeeContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextResource"];
+                };
+            };
+        };
+    };
+    listCoffeeRoasts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoastPage"];
                 };
             };
         };
@@ -1377,10 +1424,16 @@ export interface operations {
             };
         };
     };
-    labels_list: {
+    listLabels: {
         parameters: {
             query?: {
-                roastNumber?: number | null;
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
             };
             header?: never;
             path?: never;
@@ -1398,7 +1451,7 @@ export interface operations {
             };
         };
     };
-    labels_create: {
+    createLabel: {
         parameters: {
             query?: never;
             header?: never;
@@ -1421,12 +1474,12 @@ export interface operations {
             };
         };
     };
-    labels_get: {
+    getLabel: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                reference: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1442,13 +1495,16 @@ export interface operations {
             };
         };
     };
-    lots_list: {
+    listNotes: {
         parameters: {
             query?: {
-                first?: number;
-                after?: string | null;
-                search?: string | null;
-                includeArchived?: boolean;
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
             };
             header?: never;
             path?: never;
@@ -1461,12 +1517,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LotPage"];
+                    "application/json": components["schemas"]["NotePage"];
                 };
             };
         };
     };
-    lots_create: {
+    createNote: {
         parameters: {
             query?: never;
             header?: never;
@@ -1475,7 +1531,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LotCreate"];
+                "application/json": components["schemas"]["NoteCreate"];
             };
         };
         responses: {
@@ -1484,17 +1540,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationLot"];
+                    "application/json": components["schemas"]["NoteResource"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
     };
-    lots_get: {
+    getNote: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1505,23 +1569,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LotResource"];
+                    "application/json": components["schemas"]["NoteResource"];
                 };
             };
         };
     };
-    lots_patch: {
+    deleteNote: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
-                id: string;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    updateNote: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LotPatch"];
+                "application/json": components["schemas"]["NotePatch"];
             };
         };
         responses: {
@@ -1530,69 +1625,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationLot"];
-                };
-            };
-        };
-    };
-    openapi_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OpenAPI 3.1 contract */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    preferences_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferencesResource"];
-                };
-            };
-        };
-    };
-    preferences_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreferencesPatch"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferencesResource"];
+                    "application/json": components["schemas"]["NoteResource"];
                 };
             };
             412: {
@@ -1605,28 +1638,32 @@ export interface operations {
             };
         };
     };
-    print_jobs_create: {
+    replaceNoteLinks: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PrintJobCreate"];
+                "application/json": components["schemas"]["NoteLinksPut"];
             };
         };
         responses: {
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PrintJobResource"];
+                    "application/json": components["schemas"]["NoteResource"];
                 };
             };
-            501: {
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1636,9 +1673,55 @@ export interface operations {
             };
         };
     };
-    profiles_list: {
+    getOpenApi: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    getPantry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PantryResource"];
+                };
+            };
+        };
+    };
+    listProfiles: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1653,7 +1736,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProfilePage"];
                 };
             };
-            500: {
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1663,31 +1746,7 @@ export interface operations {
             };
         };
     };
-    providers_list: {
-        parameters: {
-            query?: {
-                first?: number;
-                after?: string | null;
-                search?: string | null;
-                includeArchived?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderPage"];
-                };
-            };
-        };
-    };
-    providers_create: {
+    createProfile: {
         parameters: {
             query?: never;
             header?: never;
@@ -1696,7 +1755,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProviderCreate"];
+                "application/json": components["schemas"]["ProfileCreate"];
             };
         };
         responses: {
@@ -1705,7 +1764,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationProvider"];
+                    "application/json": components["schemas"]["ProfileResource"];
                 };
             };
             422: {
@@ -1718,12 +1777,12 @@ export interface operations {
             };
         };
     };
-    providers_get: {
+    getProfile: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1734,7 +1793,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProviderResource"];
+                    "application/json": components["schemas"]["ProfileResource"];
                 };
             };
             404: {
@@ -1747,12 +1806,72 @@ export interface operations {
             };
         };
     };
-    providers_delete: {
+    updateProfile: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfilePatch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    createChildProfile: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileResource"];
+                };
+            };
+        };
+    };
+    getProfileContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
             };
             cookie?: never;
         };
@@ -1763,53 +1882,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationProvider"];
-                };
-            };
-            412: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ContextResource"];
                 };
             };
         };
     };
-    providers_patch: {
+    listProfileRoasts: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                id: string;
+                id: number;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ProviderPatch"];
-            };
-        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResourceMutationProvider"];
-                };
-            };
-            412: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["RoastPage"];
                 };
             };
         };
     };
-    roast_library_query: {
+    listRoasts: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoastPage"];
+                };
+            };
+        };
+    };
+    createRoast: {
         parameters: {
             query?: never;
             header?: never;
@@ -1818,16 +1944,16 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RoastLibraryQuery"];
+                "application/json": components["schemas"]["RoastCreate"];
             };
         };
         responses: {
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoastLibraryResult"];
+                    "application/json": components["schemas"]["RoastResource"];
                 };
             };
             422: {
@@ -1840,12 +1966,12 @@ export interface operations {
             };
         };
     };
-    roast_get: {
+    getRoast: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                reference: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1856,7 +1982,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoastDetail"];
+                    "application/json": components["schemas"]["RoastResource"];
                 };
             };
             404: {
@@ -1869,18 +1995,20 @@ export interface operations {
             };
         };
     };
-    roast_assign_coffee: {
+    updateRoast: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+            };
             path: {
-                reference: string;
+                id: number;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RoastCoffeePatch"];
+                "application/json": components["schemas"]["RoastPatch"];
             };
         };
         responses: {
@@ -1889,7 +2017,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoastMutation"];
+                    "application/json": components["schemas"]["RoastResource"];
                 };
             };
             412: {
@@ -1902,19 +2030,38 @@ export interface operations {
             };
         };
     };
-    roast_series: {
+    getRoastContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextResource"];
+                };
+            };
+        };
+    };
+    getRoastSeries: {
         parameters: {
             query: {
                 streamVersion: number;
-                fromElapsedMs?: number;
-                toElapsedMs?: number;
-                maxPoints?: number;
-                throughSampleSeq?: number | null;
-                channels?: string | null;
+                fromElapsedMs?: number | null;
+                toElapsedMs?: number | null;
+                maxPoints?: number | null;
             };
             header?: never;
             path: {
-                reference: string;
+                id: number;
             };
             cookie?: never;
         };
@@ -1929,6 +2076,58 @@ export interface operations {
                 };
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResource"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsPatch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResource"];
+                };
+            };
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };

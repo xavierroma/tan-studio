@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
@@ -8,442 +13,557 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@tan-studio/ui/components/field"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@tan-studio/ui/components/tabs"
-import { Textarea } from "@tan-studio/ui/components/textarea"
+import { Input } from "@tan-studio/ui/components/input"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
-import { toast } from "sonner"
+import { Separator } from "@tan-studio/ui/components/separator"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@tan-studio/ui/components/sheet"
+import { Skeleton } from "@tan-studio/ui/components/skeleton"
+import { Textarea } from "@tan-studio/ui/components/textarea"
 import {
   ArrowLeftIcon,
-  BookmarkPlusIcon,
-  GitCompareArrowsIcon,
   CoffeeIcon,
+  FileTextIcon,
+  PencilIcon,
   PrinterIcon,
   SaveIcon,
-  SparklesIcon,
 } from "lucide-react"
+import type { FormEvent } from "react"
 import { useState } from "react"
+import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import { RoastChart } from "@/components/roast-chart"
-import { StatusChip } from "@/components/status-chip"
 import {
-  assignRoastCoffee,
+  createNote,
   getRoast,
-  listCoffeeIdentities,
+  getRoastContext,
+  getRoastSeries,
+  listCoffees,
+  listProfiles,
   queryKeys,
+  updateRoast,
 } from "@/lib/api"
-import {
-  formatDuration,
-  formatElapsed,
-  formatRoastDate,
-  formatScore,
-} from "@/lib/format"
-import { useWorkspaceStore } from "@/stores/workspace-store"
+import type { ChartPoint } from "@/types"
+
+function chartPoints(
+  series: Awaited<ReturnType<typeof getRoastSeries>>
+): ChartPoint[] {
+  return (
+    series?.points.map((point) => ({
+      elapsedMs: point.elapsedMs,
+      temperatureC: point.temperatureMilliC / 1_000,
+      spotTemperatureC:
+        point.spotTemperatureMilliC == null
+          ? null
+          : point.spotTemperatureMilliC / 1_000,
+      meanTemperatureC:
+        point.meanTemperatureMilliC == null
+          ? null
+          : point.meanTemperatureMilliC / 1_000,
+      profileC:
+        point.profileTemperatureMilliC == null
+          ? null
+          : point.profileTemperatureMilliC / 1_000,
+      rorCPerMin:
+        point.rorMilliCPerMin == null ? null : point.rorMilliCPerMin / 1_000,
+      profileRorCPerMin:
+        point.profileRorMilliCPerMin == null
+          ? null
+          : point.profileRorMilliCPerMin / 1_000,
+      desiredRorCPerMin:
+        point.desiredRorMilliCPerMin == null
+          ? null
+          : point.desiredRorMilliCPerMin / 1_000,
+      powerKw: point.powerMilliKw == null ? null : point.powerMilliKw / 1_000,
+      actualFanRpm: point.actualFanRpm ?? null,
+    })) ?? []
+  )
+}
+
+function grams(value?: number | null) {
+  return value == null ? "—" : `${(value / 1_000).toLocaleString()} g`
+}
+function elapsed(value?: number | null) {
+  if (value == null) return "—"
+  const seconds = Math.round(value / 1_000)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+}
 
 export function RoastDetailScreen() {
-  const { roastId } = useParams({ strict: false }) as { roastId: string }
-  const { data, isPending, error } = useQuery({
+  const params = useParams({ from: "/roasts/$roastId" })
+  const roastId = Number(params.roastId)
+  const queryClient = useQueryClient()
+  const [editOpen, setEditOpen] = useState(false)
+  const [noteBody, setNoteBody] = useState("")
+  const roast = useQuery({
     queryKey: queryKeys.roast(roastId),
     queryFn: ({ signal }) => getRoast(roastId, signal),
   })
-  const addToComparison = useWorkspaceStore((state) => state.addToComparison)
-  const selected = useWorkspaceStore((state) =>
-    state.selectedRoastIds.includes(roastId)
-  )
-  const [note, setNote] = useState("")
-  const queryClient = useQueryClient()
+  const context = useQuery({
+    queryKey: queryKeys.roastContext(roastId),
+    queryFn: ({ signal }) => getRoastContext(roastId, signal),
+  })
+  const series = useQuery({
+    queryKey: queryKeys.series(
+      roastId,
+      roast.data?.sampleStream?.streamVersion
+    ),
+    queryFn: ({ signal }) => getRoastSeries(roast.data!, signal),
+    enabled: Boolean(roast.data?.sampleStream),
+  })
+  const profiles = useQuery({
+    queryKey: queryKeys.profiles(),
+    queryFn: ({ signal }) => listProfiles(undefined, signal),
+  })
   const coffees = useQuery({
-    queryKey: queryKeys.coffeeIdentities(),
-    queryFn: listCoffeeIdentities,
+    queryKey: queryKeys.coffees(),
+    queryFn: ({ signal }) => listCoffees(undefined, signal),
   })
-  const assignCoffee = useMutation({
-    mutationFn: (input: {
-      roastNumber: number
-      revision: number
-      coffeeNumber: number | null
-    }) =>
-      assignRoastCoffee(input.roastNumber, input.revision, input.coffeeNumber),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.roasts() }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.coffeeIdentities(),
-        }),
-      ])
-      toast.success("Coffee linked to this roast")
+
+  const noteMutation = useMutation({
+    mutationFn: createNote,
+    onSuccess: () => {
+      toast.success("Note saved")
+      setNoteBody("")
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.roastContext(roastId),
+      })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) })
     },
-    onError: (mutationError) => toast.error(mutationError.message),
+    onError: (error) => toast.error(error.message),
+  })
+  const editMutation = useMutation({
+    mutationFn: (input: Parameters<typeof updateRoast>[2]) =>
+      updateRoast(roastId, roast.data!.revision, input),
+    onSuccess: () => {
+      toast.success("Roast updated")
+      setEditOpen(false)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.roastContext(roastId),
+      })
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+    },
+    onError: (error) => toast.error(error.message),
   })
 
-  if (error) throw error
-
-  if (isPending || !data) {
+  if (roast.error) throw roast.error
+  if (context.error) throw context.error
+  if (roast.isPending || !roast.data)
     return (
-      <div className="text-muted-foreground flex min-h-screen items-center justify-center text-sm">
-        Loading roast…
+      <div className="p-7">
+        <Skeleton className="h-[38rem] rounded-xl" />
       </div>
     )
-  }
 
-  const roast = data.data
-  const roastedAt = formatRoastDate(roast.roastedAt)
+  const item = roast.data
+  const points = chartPoints(series.data ?? null)
+  const submitNote = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const body = noteBody.trim()
+    if (!body) return
+    noteMutation.mutate({
+      kind: String(form.get("kind") ?? "observation"),
+      body,
+      source: "user",
+      attributes: {},
+      links: [{ resourceType: "roast", resourceId: roastId }],
+    })
+  }
+  const submitEdit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const optionalNumber = (name: string) => {
+      const value = String(form.get(name) ?? "").trim()
+      return value === "" ? null : Number(value)
+    }
+    const profileId = optionalNumber("profileId")
+    const coffeeId = optionalNumber("coffeeId")
+    const level = optionalNumber("level")
+    const load = optionalNumber("load")
+    editMutation.mutate({
+      profileId: profileId && Number.isFinite(profileId) ? profileId : null,
+      coffeeId: coffeeId && Number.isFinite(coffeeId) ? coffeeId : null,
+      levelThousandths:
+        level != null && Number.isFinite(level)
+          ? Math.round(level * 1_000)
+          : null,
+      greenInputMassMg:
+        load != null && Number.isFinite(load) ? Math.round(load * 1_000) : null,
+    })
+  }
 
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow={`${roastedAt.date}${roastedAt.time ? ` · ${roastedAt.time}` : ""} · Native log ${roast.nativeLogNumber ?? "—"}`}
-        title={`Roast #${roast.number} · ${roast.coffeeName}`}
-        description={`${roast.providerName} · ${roast.country}, ${roast.region} · Lot ${roast.lotCode}`}
+        eyebrow={
+          item.roastedAt
+            ? new Intl.DateTimeFormat(undefined, {
+                dateStyle: "long",
+                timeStyle: "short",
+              }).format(new Date(item.roastedAt))
+            : "Date unavailable"
+        }
+        title={`Roast #${item.id}`}
+        description={`${item.coffee?.name ?? "Unassigned coffee"} · ${item.profile?.name ?? "No profile"}`}
         actions={
           <>
             <Link
               to="/roasts"
               search={{
                 q: undefined,
-                group: undefined,
-                sort: undefined,
-                date: undefined,
-                provider: undefined,
-                process: undefined,
-                minScore: undefined,
                 status: undefined,
+                profileId: undefined,
+                coffeeId: undefined,
+                view: undefined,
               }}
-              className={buttonVariants({ variant: "ghost" })}
+              className={buttonVariants({ variant: "outline" })}
             >
               <ArrowLeftIcon data-icon="inline-start" />
-              Notebook
+              Roasts
             </Link>
-            <Button variant="outline" onClick={() => addToComparison(roast.id)}>
-              <GitCompareArrowsIcon data-icon="inline-start" />
-              {selected ? "Selected" : "Compare"}
-            </Button>
-            <Link
-              to="/brews"
-              search={{ tab: undefined, roastNumber: roast.number }}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <CoffeeIcon data-icon="inline-start" />
-              Log brew
-            </Link>
-            <Link
-              to="/labels"
-              search={{ roastId: roast.number }}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <PrinterIcon data-icon="inline-start" />
-              Label
-            </Link>
+            <Sheet open={editOpen} onOpenChange={setEditOpen}>
+              <SheetTrigger
+                render={
+                  <Button variant="outline">
+                    <PencilIcon data-icon="inline-start" />
+                    Edit
+                  </Button>
+                }
+              />
+              <SheetContent>
+                <SheetHeader>
+                  <SheetTitle>Edit roast #{item.id}</SheetTitle>
+                  <SheetDescription>
+                    Only the details you change are written. The imported log
+                    and telemetry remain untouched.
+                  </SheetDescription>
+                </SheetHeader>
+                <form
+                  id="edit-roast-form"
+                  onSubmit={submitEdit}
+                  className="px-4"
+                >
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="profileId">Profile</FieldLabel>
+                      <Select
+                        name="profileId"
+                        defaultValue={String(item.profile?.id ?? "")}
+                      >
+                        <SelectTrigger id="profileId" className="w-full">
+                          <SelectValue placeholder="Select profile" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            {profiles.data?.map((profile) => (
+                              <SelectItem
+                                key={profile.id}
+                                value={String(profile.id)}
+                              >
+                                {profile.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="coffeeId">Coffee</FieldLabel>
+                      <Select
+                        name="coffeeId"
+                        defaultValue={String(item.coffee?.id ?? "none")}
+                      >
+                        <SelectTrigger id="coffeeId" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="none">Unassigned</SelectItem>
+                            {coffees.data?.map((coffee) => (
+                              <SelectItem
+                                key={coffee.id}
+                                value={String(coffee.id)}
+                              >
+                                {coffee.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field>
+                        <FieldLabel htmlFor="level">Level</FieldLabel>
+                        <Input
+                          id="level"
+                          name="level"
+                          type="number"
+                          min="0"
+                          max="10"
+                          step="0.1"
+                          defaultValue={
+                            item.levelThousandths == null
+                              ? ""
+                              : item.levelThousandths / 1_000
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="load">Green load · g</FieldLabel>
+                        <Input
+                          id="load"
+                          name="load"
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          defaultValue={
+                            item.greenInputMassMg == null
+                              ? ""
+                              : item.greenInputMassMg / 1_000
+                          }
+                        />
+                      </Field>
+                    </div>
+                  </FieldGroup>
+                </form>
+                <SheetFooter>
+                  <Button
+                    type="submit"
+                    form="edit-roast-form"
+                    disabled={editMutation.isPending}
+                  >
+                    <SaveIcon data-icon="inline-start" />
+                    Save roast
+                  </Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
           </>
         }
       />
 
-      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_21rem]">
         <main className="min-w-0">
-          <div className="mb-5 flex flex-wrap items-center gap-2">
-            <StatusChip status={roast.status} />
-            <Badge variant="outline">Raw .klog retained</Badge>
-            <Badge variant={roast.importWarningCount ? "warning" : "success"}>
-              {roast.importWarningCount
-                ? `${roast.importWarningCount} import warnings`
-                : "All native rows parsed"}
-            </Badge>
-            <Badge variant="info">
-              {data.source === "companion" ? "Local database" : "Sample log"}
-            </Badge>
-          </div>
+          <section
+            className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-3 lg:grid-cols-6"
+            aria-label="Roast summary"
+          >
+            <Metric
+              label="Level"
+              value={
+                item.levelThousandths == null
+                  ? "—"
+                  : (item.levelThousandths / 1_000).toFixed(1)
+              }
+            />
+            <Metric label="Green load" value={grams(item.greenInputMassMg)} />
+            <Metric label="Yield" value={grams(item.roastedYieldMassMg)} />
+            <Metric label="Duration" value={elapsed(item.durationMs)} />
+            <Metric label="Brews" value={String(item.brewCount)} />
+            <Metric label="Status" value={item.status} />
+          </section>
+
+          {item.status === "planned" ? (
+            <Alert className="bg-info mt-6">
+              <CoffeeIcon />
+              <AlertTitle>This roast is prepared</AlertTitle>
+              <AlertDescription>
+                Run it on the Nano, then synchronize. Tan Studio will attach the
+                next device log to roast #{item.id} and keep these coffee and
+                adjustment choices.
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           <section
-            className="bg-card overflow-hidden rounded-xl border"
-            aria-labelledby="roast-curve-heading"
+            className="bg-card mt-6 overflow-hidden rounded-xl border"
+            aria-labelledby="roast-chart-title"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
               <div>
-                <h2 id="roast-curve-heading" className="font-semibold">
+                <h2 id="roast-chart-title" className="font-semibold">
                   Roast curve
                 </h2>
                 <p className="text-muted-foreground mt-1 text-sm">
-                  Measured temperature, profile target and rate of rise · hover
-                  to inspect
+                  Temperature, profile, rate of rise, power, and fan data from
+                  the retained KLOG.
                 </p>
               </div>
               <Badge variant="secondary">
-                {roast.channels.length} native channels
+                {item.sampleStream?.rowCount.toLocaleString() ?? 0} samples
               </Badge>
             </div>
-            <RoastChart
-              key={roast.id}
-              points={roast.chart}
-              channels={roast.channels}
-              events={roast.events}
-              durationMs={roast.durationSeconds * 1_000}
-              cooldownEndMs={roast.cooldownSeconds * 1_000}
-              height={430}
-            />
+            {series.isPending ? (
+              <Skeleton className="m-5 h-96" />
+            ) : points.length > 0 ? (
+              <RoastChart points={points} height={440} showFanAxis />
+            ) : (
+              <p className="text-muted-foreground p-8 text-center text-sm">
+                Telemetry appears after the Nano log is synchronized.
+              </p>
+            )}
           </section>
 
-          <section
-            className="bg-card mt-6 rounded-xl border"
-            aria-labelledby="roast-events-heading"
-          >
-            <div className="border-b px-5 py-4">
-              <h2 id="roast-events-heading" className="font-semibold">
-                Events and annotations
-              </h2>
-              <p className="text-muted-foreground mt-1 text-sm">
-                Device events are preserved; your notes remain anchored to
-                elapsed time and temperature.
-              </p>
-            </div>
-            <div className="divide-y">
-              {roast.events.map((event) => (
-                <div
-                  key={event.id}
-                  className="grid grid-cols-[5.5rem_5.5rem_1fr_auto] items-center gap-3 px-5 py-3 text-sm"
-                >
-                  <span className="font-mono font-semibold tabular-nums">
-                    {formatElapsed(event.elapsedMs)}
-                  </span>
-                  <span className="text-muted-foreground font-mono tabular-nums">
-                    {event.temperatureC == null
-                      ? "—"
-                      : `${event.temperatureC.toFixed(1)}°C`}
-                  </span>
-                  <span>{event.label}</span>
-                  <Badge
-                    variant={
-                      event.kind === "annotation"
-                        ? "warning"
-                        : event.kind === "manual"
-                          ? "info"
-                          : "secondary"
-                    }
-                  >
-                    {event.kind}
+          {item.events.length > 0 ? (
+            <section className="bg-card mt-6 rounded-xl border p-5">
+              <h2 className="font-semibold">Device events</h2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {item.events.map((event) => (
+                  <Badge key={event.id} variant="outline">
+                    {event.kind.replaceAll("_", " ")} ·{" "}
+                    {elapsed(event.elapsedMs)}
                   </Badge>
-                </div>
-              ))}
-            </div>
-            <FieldGroup className="border-t p-5">
-              <Field>
-                <FieldLabel htmlFor="annotation">
-                  Add a note to this roast
-                </FieldLabel>
-                <Textarea
-                  id="annotation"
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder="What did you notice during or after the roast?"
-                />
-                <FieldDescription>
-                  A note added during live monitoring also records the current
-                  elapsed time and temperature.
-                </FieldDescription>
-              </Field>
-              <Button
-                className="self-start"
-                disabled={!note.trim()}
-                onClick={() => {
-                  toast.success("Annotation saved locally")
-                  setNote("")
-                }}
-              >
-                <BookmarkPlusIcon data-icon="inline-start" />
-                Add annotation
-              </Button>
-            </FieldGroup>
-          </section>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </main>
 
-        <aside className="min-w-0">
-          <section
-            className="bg-card rounded-xl border p-5"
-            aria-labelledby="roast-summary-heading"
-          >
-            <h2 id="roast-summary-heading" className="font-semibold">
-              Roast summary
-            </h2>
-            <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-6">
-              <Metric
-                label="Duration"
-                value={formatDuration(roast.durationSeconds)}
-              />
-              <Metric label="Level" value={roast.level.toFixed(1)} />
-              <Metric
-                label="Development"
-                value={`${roast.developmentPercent.toFixed(1)}%`}
-              />
-              <Metric
-                label="Weight loss"
-                value={
-                  roast.lossPercent == null
-                    ? "—"
-                    : `${roast.lossPercent.toFixed(1)}%`
-                }
-              />
-              <Metric
-                label="Green load"
-                value={`${roast.greenWeightGrams.toFixed(0)} g`}
-              />
-              <Metric
-                label="Roasted"
-                value={
-                  roast.roastedWeightGrams == null
-                    ? "—"
-                    : `${roast.roastedWeightGrams.toFixed(1)} g`
-                }
-              />
-            </div>
-            <Field className="mt-6 border-t pt-5">
-              <FieldLabel>Catalog coffee</FieldLabel>
-              <Select
-                value={String(
-                  coffees.data?.find((coffee) => coffee.id === roast.coffeeId)
-                    ?.number ?? 0
-                )}
-                onValueChange={(value) =>
-                  assignCoffee.mutate({
-                    roastNumber: roast.number,
-                    revision: roast.revision,
-                    coffeeNumber: value === "0" ? null : Number(value),
-                  })
-                }
-                disabled={coffees.isPending || assignCoffee.isPending}
+        <aside className="flex min-w-0 flex-col gap-5">
+          <section className="bg-card rounded-xl border p-5">
+            <h2 className="font-semibold">Next actions</h2>
+            <div className="mt-4 flex flex-col gap-2">
+              <Link
+                to="/brews"
+                search={{ roastId: item.id, tab: undefined }}
+                className={buttonVariants()}
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Link this roast to a coffee" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0">Uncataloged coffee</SelectItem>
-                  {(coffees.data ?? []).map((coffee) => (
-                    <SelectItem key={coffee.id} value={String(coffee.number)}>
-                      #{coffee.number} · {coffee.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FieldDescription>
-                All brews, labels and future tastings keep this roast link.
-              </FieldDescription>
-            </Field>
-            <div className="mt-6 border-t pt-5">
-              <p className="text-muted-foreground text-xs font-semibold tracking-[0.1em] uppercase">
-                Profile
-              </p>
-              <p className="mt-2 font-semibold">{roast.profileName}</p>
-              <p className="text-muted-foreground mt-1 text-sm">
-                Revision {roast.profileRevision}
-                {roast.profileDescription
-                  ? ` · ${roast.profileDescription}`
-                  : ""}
-              </p>
-              <Button
-                nativeButton={false}
-                variant="outline"
-                className="mt-4 w-full"
-                render={
-                  <Link
-                    to="/profiles"
-                    search={{ profile: undefined, proposalFrom: undefined }}
-                  />
-                }
+                <CoffeeIcon data-icon="inline-start" />
+                Log a brew
+              </Link>
+              <Link
+                to="/labels"
+                search={{ roastId: item.id }}
+                className={buttonVariants({ variant: "outline" })}
               >
-                Open profile revision
-              </Button>
-            </div>
-          </section>
-
-          <section
-            className="bg-card mt-5 rounded-xl border p-5"
-            aria-labelledby="tasting-heading"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 id="tasting-heading" className="font-semibold">
-                  Tasting
-                </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Promoted tasting summary
-                </p>
-              </div>
-              <span className="text-primary font-mono text-3xl font-semibold tabular-nums">
-                {formatScore(roast.score)}
-              </span>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {roast.descriptors.map((descriptor) => (
-                <Badge key={descriptor} variant="success">
-                  {descriptor}
-                </Badge>
-              ))}
-            </div>
-            <p className="mt-4 text-sm leading-relaxed">{roast.conclusion}</p>
-            <Tabs defaultValue="next" className="mt-5">
-              <TabsList variant="line">
-                <TabsTrigger value="next">Next roast</TabsTrigger>
-                <TabsTrigger value="notes">Notes</TabsTrigger>
-              </TabsList>
-              <TabsContent
-                value="next"
-                className="text-muted-foreground pt-3 text-sm leading-relaxed"
-              >
-                {roast.nextAction}
-              </TabsContent>
-              <TabsContent
-                value="notes"
-                className="text-muted-foreground pt-3 text-sm leading-relaxed"
-              >
-                {roast.tastingNotes || "No tasting notes yet."}
-              </TabsContent>
-            </Tabs>
-            <Button
-              variant="outline"
-              className="mt-5 w-full"
-              onClick={() => toast.info("Tasting editor opened")}
-            >
-              <SaveIcon data-icon="inline-start" />
-              Edit tasting
-            </Button>
-          </section>
-
-          <section
-            className="bg-info mt-5 rounded-xl border p-5"
-            aria-labelledby="profile-proposal-heading"
-          >
-            <SparklesIcon className="text-primary size-5" />
-            <h2 id="profile-proposal-heading" className="mt-3 font-semibold">
-              Turn learning into a revision
-            </h2>
-            <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-              Compare this roast with its lot history, then draft a reviewable
-              profile proposal. Nothing is sent to the roaster automatically.
-            </p>
-            <Button
-              nativeButton={false}
-              variant="outline"
-              className="bg-card mt-4 w-full"
-              render={
+                <PrinterIcon data-icon="inline-start" />
+                Create label
+              </Link>
+              {item.profile ? (
                 <Link
                   to="/profiles"
-                  search={{ profile: undefined, proposalFrom: roast.id }}
-                />
-              }
-            >
-              <SparklesIcon data-icon="inline-start" />
-              Draft proposal
-            </Button>
+                  search={{ profileId: item.profile.id }}
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  View profile
+                </Link>
+              ) : null}
+            </div>
+          </section>
+
+          {context.data?.rest ? (
+            <section className="bg-card rounded-xl border p-5">
+              <h2 className="font-semibold">Rest & peak</h2>
+              <div className="mt-3 flex items-center gap-2">
+                <Badge
+                  variant={
+                    context.data.rest.state === "peak"
+                      ? "success"
+                      : context.data.rest.state === "resting"
+                        ? "info"
+                        : "warning"
+                  }
+                >
+                  {context.data.rest.state === "pastPeak"
+                    ? "past peak"
+                    : context.data.rest.state}
+                </Badge>
+                <span className="text-muted-foreground text-sm">
+                  day {context.data.rest.ageDays}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-3 text-sm">
+                Suggested window:{" "}
+                {new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                }).format(new Date(context.data.rest.suggestedFrom))}{" "}
+                –{" "}
+                {new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "medium",
+                }).format(new Date(context.data.rest.suggestedUntil))}
+              </p>
+            </section>
+          ) : null}
+
+          <section className="bg-card rounded-xl border p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">Notes</h2>
+              <Badge variant="secondary">
+                {context.data?.notes.length ?? 0}
+              </Badge>
+            </div>
+            <div className="mt-4 flex flex-col gap-4">
+              {context.data?.notes.map((note) => (
+                <article key={note.id}>
+                  <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+                  {note.ratingBasisPoints != null ? (
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Score {(note.ratingBasisPoints / 100).toFixed(2)}
+                    </p>
+                  ) : null}
+                  <Separator className="mt-4" />
+                </article>
+              ))}
+            </div>
+            <form onSubmit={submitNote} className="mt-4">
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="note-kind">Type</FieldLabel>
+                  <Select name="kind" defaultValue="observation">
+                    <SelectTrigger id="note-kind" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="observation">Observation</SelectItem>
+                        <SelectItem value="tasting">Tasting</SelectItem>
+                        <SelectItem value="recommendation">
+                          Recommendation
+                        </SelectItem>
+                        <SelectItem value="general">General</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="note-body">Add a note</FieldLabel>
+                  <Textarea
+                    id="note-body"
+                    name="body"
+                    required
+                    value={noteBody}
+                    onChange={(event) => setNoteBody(event.target.value)}
+                    placeholder="What did you notice?"
+                  />
+                  <FieldDescription>
+                    Saved to roast #{item.id}; agents receive it through the
+                    same API.
+                  </FieldDescription>
+                </Field>
+                <Button type="submit" disabled={noteMutation.isPending}>
+                  <FileTextIcon data-icon="inline-start" />
+                  Save note
+                </Button>
+              </FieldGroup>
+            </form>
           </section>
         </aside>
       </div>

@@ -1,365 +1,61 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 
-import {
-  allowsDemoData,
-  CapabilityUnavailableError,
-  demoDataEnabled,
-  getDeviceState,
-  getRoast,
-  isDemoResult,
-  listProfiles,
-  listRoasts,
-  submitPrintJob,
-} from "@/lib/api"
+import { listRoasts, updateRoast } from "@/lib/api"
 
-function jsonResponse(value: unknown, status = 200) {
+function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
     headers: { "Content-Type": "application/json" },
   })
 }
 
-function mockFetch() {
-  const fetchMock = vi.fn<typeof fetch>()
-  vi.stubGlobal("fetch", fetchMock)
-  return fetchMock
-}
+afterEach(() => vi.unstubAllGlobals())
 
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
-
-describe("development demo gate", () => {
-  test("requires both a development build and an explicit opt-in", () => {
-    expect(allowsDemoData(false, "true")).toBe(false)
-    expect(allowsDemoData(true, undefined)).toBe(false)
-    expect(allowsDemoData(true, "false")).toBe(false)
-    expect(allowsDemoData(true, "true")).toBe(true)
-  })
-
-  test("is disabled in the test runtime unless explicitly configured", () => {
-    expect(demoDataEnabled).toBe(false)
-    expect(isDemoResult({ source: "demo", data: {} })).toBe(false)
-  })
-})
-
-describe("production-safe companion reads", () => {
-  test("keeps an empty roast collection empty", async () => {
-    const fetchMock = mockFetch().mockResolvedValue(jsonResponse({ rows: [] }))
-
-    await expect(listRoasts()).resolves.toEqual({
-      data: [],
-      source: "companion",
-    })
-    const request = fetchMock.mock.calls[0]?.[0]
-    const body = await (request as Request).clone().json()
-    expect(body.sorts).toEqual([
-      { field: "roastNumber", direction: "desc", nulls: "last" },
-    ])
-  })
-
-  test("keeps a missing Nano roast date unknown", async () => {
-    mockFetch().mockResolvedValue(
-      jsonResponse({
-        kind: "rows",
-        rows: [
-          {
-            roastId: "roast-14",
-            values: {
-              roastNumber: 14,
-              nativeLogNumber: 14,
-              roastedAt: null,
-              roastedAtSource: "unknown",
-              status: "completed",
-              result: "success",
-            },
-          },
-        ],
-      })
-    )
-
-    const result = await listRoasts()
-
-    expect(result.data[0]).toMatchObject({
-      number: 14,
-      nativeLogNumber: 14,
-      roastedAt: null,
-    })
-  })
-
-  test("maps native profiles from the generated contract", async () => {
-    mockFetch().mockResolvedValue(
-      jsonResponse({
-        items: [
-          {
-            kind: "profile",
-            id: "revision-1",
-            profileId: "profile-1",
-            revisionNumber: 1,
-            fileName: "Washed.kpro",
-            displayName: "Washed",
-            designer: "Kaffelogic Ltd",
-            description: "Balanced",
-            schemaVersion: "1.6",
-            sourceModifiedAt: null,
-            profileModifiedAt: null,
-            recommendedLevelThousandths: 800,
-            referenceLoadMg: 100_000,
-            roastLevelsMilliC: [205_000, 210_000],
-            roastCurve: [{ elapsedMs: 0, temperatureMilliC: 20_000 }],
-            fanCurve: [{ elapsedMs: 0, fanRpm: 14_700 }],
-            sourceHash: "a".repeat(64),
-            warnings: [],
-          },
-        ],
-      })
-    )
-
-    await expect(listProfiles()).resolves.toEqual({
-      source: "companion",
-      data: [
-        expect.objectContaining({
-          id: "revision-1",
-          displayName: "Washed",
-          recommendedLevel: 0.8,
-          referenceLoadGrams: 100,
-          roastLevelsC: [205, 210],
-          roastCurve: [{ elapsedMs: 0, temperatureC: 20 }],
-          fanCurve: [{ elapsedMs: 0, fanRpm: 14_700 }],
-          warnings: [],
-        }),
-      ],
-    })
-  })
-
-  test("sends URL-backed roast filters and sorting to the companion", async () => {
-    const fetchMock = mockFetch().mockResolvedValue(jsonResponse({ rows: [] }))
-
-    await listRoasts({
-      q: "ethiopia",
-      group: "provider",
-      sort: "score",
-      provider: "Sey",
-      process: "washed",
-      minScore: 85,
-      status: "tasted",
-    })
-
-    const request = fetchMock.mock.calls[0]?.[0]
-    expect(request).toBeInstanceOf(Request)
-    const body = await (request as Request).clone().json()
-    expect(body.filters.clauses).toEqual([
-      { op: "search", query: "ethiopia" },
-      {
-        op: "field",
-        field: "providerName",
-        operator: "contains",
-        value: "Sey",
-      },
-      {
-        op: "field",
-        field: "process",
-        operator: "contains",
-        value: "washed",
-      },
-      {
-        op: "field",
-        field: "needsTasting",
-        operator: "eq",
-        value: false,
-      },
-      {
-        op: "field",
-        field: "tastingScoreBasisPoints",
-        operator: "gte",
-        value: 8500,
-      },
-    ])
-    expect(body.sorts).toEqual([
-      { field: "providerName", direction: "asc", nulls: "last" },
-      {
-        field: "tastingScoreBasisPoints",
-        direction: "desc",
-        nulls: "last",
-      },
-      { field: "roastNumber", direction: "desc", nulls: "last" },
-    ])
-  })
-
-  test("maps interrupted roasts and filters them by device process state", async () => {
-    const fetchMock = mockFetch().mockResolvedValue(
-      jsonResponse({
-        kind: "rows",
-        rows: [
-          {
-            roastId: "interrupted-roast",
-            values: {
-              roastNumber: 7,
-              status: "interrupted",
-              result: "aborted",
-            },
-          },
-        ],
-      })
-    )
-
-    const result = await listRoasts({ status: "interrupted" })
-
-    expect(result.data[0]?.status).toBe("interrupted")
-    const request = fetchMock.mock.calls[0]?.[0]
-    const body = await (request as Request).clone().json()
-    expect(body.filters.clauses).toEqual([
-      {
-        op: "field",
-        field: "status",
-        operator: "eq",
-        value: "interrupted",
-      },
-    ])
-  })
-
-  test("propagates companion failures instead of returning sample roasts", async () => {
-    mockFetch().mockRejectedValue(new Error("companion offline"))
-
-    await expect(listRoasts()).rejects.toThrow("companion offline")
-  })
-
-  test("maps a companion roast without merging sample telemetry", async () => {
-    mockFetch().mockResolvedValue(
-      jsonResponse({
-        id: "actual-roast",
-        roastedAt: "2026-07-18T16:42:00.000Z",
-        roastLevelThousandths: 1200,
-        developmentBasisPoints: 1250,
-        greenInputMassMg: 100_000,
-        roastedYieldMassMg: 86_000,
-        result: "completed",
-        status: "complete",
-        lineage: {
-          coffee: { displayName: "Actual coffee" },
-          lot: { internalCode: "ACT-1" },
-          provider: { displayName: "Actual provider" },
-          origin: {
-            countryCode: "ET",
-            region: "Guji",
-            farmProducer: "Actual farm",
-            process: "Washed",
-          },
-        },
-        profile: { displayName: "Actual profile", revisionNumber: 3 },
-        sampleStream: null,
-        promotedTasting: {
-          scoreBasisPoints: 8700,
-          descriptors: ["peach"],
-          notes: "Clean",
-          conclusion: "Repeat",
-          nextAction: "No change",
-        },
-        events: [],
-        annotations: [],
-      })
-    )
-
-    const result = await getRoast("actual-roast")
-
-    expect(result.source).toBe("companion")
-    expect(result.data).toMatchObject({
-      id: "actual-roast",
-      coffeeName: "Actual coffee",
-      conclusion: "Repeat",
-      nextAction: "No change",
-      chart: [],
-      events: [],
-    })
-  })
-})
-
-describe("capability-gated device and printing adapters", () => {
-  test("reads the dedicated fail-closed device resource", async () => {
-    mockFetch().mockResolvedValue(
-      jsonResponse({
-        state: "unavailable",
-        reason: "not_implemented",
-        connection: "disconnected",
-        readOnly: true,
-      })
-    )
-
-    const result = await getDeviceState()
-
-    expect(result).toEqual({
-      source: "companion",
-      data: {
-        available: false,
-        adapterState: "unavailable",
-        reason: "not_implemented",
-        connection: "disconnected",
-        model: null,
-        firmware: null,
-        protocol: null,
-        packetLimitBytes: null,
-        busy: null,
-        profileCount: null,
-        logCount: null,
-        syncState: "idle",
-        importedLogCount: 0,
-        updatedLogCount: 0,
-        importWarningCount: 0,
-        quarantinedLogCount: 0,
-        importedProfileCount: 0,
-        profileWarningCount: 0,
-        quarantinedProfileCount: 0,
-        lastSyncedAt: null,
-        readOnly: true,
-      },
-    })
-  })
-
-  test("rejects submission when the printing capability is unavailable", async () => {
-    const fetchMock = mockFetch().mockResolvedValue(
-      jsonResponse({
-        features: { deviceConnection: false, printing: false },
-        adapters: {
-          usb: { state: "unavailable" },
-          printing: { state: "unavailable", reason: "not_implemented" },
-        },
-      })
-    )
+describe("generated API client integration", () => {
+  test("keeps roast filters in the URL query contract", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ items: [] }))
+    vi.stubGlobal("fetch", fetchMock)
 
     await expect(
-      submitPrintJob({
-        printerId: "pdf",
-        widthMm: 50,
-        heightMm: 30,
-        copies: 1,
-        artifact: "pdf",
-      })
-    ).rejects.toBeInstanceOf(CapabilityUnavailableError)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+      listRoasts({ q: "washed", status: "completed", profileId: 4 })
+    ).resolves.toEqual([])
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    const url = new URL(request.url)
+    expect(url.pathname).toBe("/api/v1/roasts")
+    expect(url.searchParams.get("q")).toBe("washed")
+    expect(url.searchParams.get("status")).toBe("completed")
+    expect(url.searchParams.get("profileId")).toBe("4")
   })
 
-  test("does not fabricate success when an enabled print endpoint fails", async () => {
-    const fetchMock = mockFetch()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          features: { deviceConnection: false, printing: true },
-          adapters: {
-            usb: { state: "unavailable" },
-            printing: { state: "ready" },
-          },
-        })
-      )
-      .mockRejectedValueOnce(new Error("spooler offline"))
+  test("sends optimistic concurrency from the resource revision", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ id: 15, revision: 4 }))
+    vi.stubGlobal("fetch", fetchMock)
 
-    await expect(
-      submitPrintJob({
-        printerId: "system",
-        widthMm: 50,
-        heightMm: 30,
-        copies: 1,
-        artifact: "queue",
-      })
-    ).rejects.toThrow("spooler offline")
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await updateRoast(15, 3, { coffeeId: 2 })
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(request.method).toBe("PATCH")
+    expect(request.headers.get("If-Match")).toBe('"revision:3"')
+    await expect(request.clone().json()).resolves.toEqual({ coffeeId: 2 })
+  })
+
+  test("propagates API problem details instead of inventing demo data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response(
+            { title: "Database unavailable", detail: "Read failed" },
+            500
+          )
+        )
+    )
+    await expect(listRoasts()).rejects.toThrow("Read failed")
   })
 })

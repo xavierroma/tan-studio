@@ -77,13 +77,10 @@ export function AppErrorScreen({
               to="/roasts"
               search={{
                 q: undefined,
-                group: undefined,
-                sort: undefined,
-                date: undefined,
-                provider: undefined,
-                process: undefined,
-                minScore: undefined,
                 status: undefined,
+                profileId: undefined,
+                coffeeId: undefined,
+                view: undefined,
               }}
               className={buttonVariants({ variant: "outline" })}
             >

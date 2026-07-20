@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   Alert,
@@ -6,7 +6,7 @@ import {
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { buttonVariants } from "@tan-studio/ui/components/button"
+import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
   Empty,
   EmptyDescription,
@@ -14,310 +14,499 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
-import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import {
-  ArrowLeftIcon,
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@tan-studio/ui/components/field"
+import { Input } from "@tan-studio/ui/components/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@tan-studio/ui/components/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@tan-studio/ui/components/sheet"
+import { Skeleton } from "@tan-studio/ui/components/skeleton"
+import { Textarea } from "@tan-studio/ui/components/textarea"
+import {
   FileChartColumnIncreasingIcon,
-  GaugeIcon,
-  LockKeyholeIcon,
+  GitBranchIcon,
+  InfoIcon,
+  PlusIcon,
 } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import type { FormEvent } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import { RoastChart } from "@/components/roast-chart"
-import { listProfiles, queryKeys } from "@/lib/api"
-import type { ChartPoint, RoastProfile } from "@/types"
+import {
+  createChildProfile,
+  getProfile,
+  listProfiles,
+  queryKeys,
+} from "@/lib/api"
+import type { ChartPoint } from "@/types"
 
-type ProfileSearch = {
-  profile?: string
-  proposalFrom?: string
+function record(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }
-
+function points(value: unknown) {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        const row = record(item)
+        return typeof row.timeSeconds === "number" &&
+          typeof row.value === "number"
+          ? [{ elapsedMs: row.timeSeconds * 1_000, value: row.value }]
+          : []
+      })
+    : []
+}
+function cubic(
+  start: number,
+  outgoing: number,
+  incoming: number,
+  end: number,
+  progress: number
+) {
+  const inverse = 1 - progress
+  return (
+    inverse ** 3 * start +
+    3 * inverse ** 2 * progress * outgoing +
+    3 * inverse * progress ** 2 * incoming +
+    progress ** 3 * end
+  )
+}
+export function sampleNativeCurve(value: unknown, samplesPerSegment = 24) {
+  const controls = Array.isArray(value)
+    ? points(value)
+    : typeof value === "string"
+      ? (() => {
+          const values = value.split(",").map(Number)
+          if (
+            values.length % 2 !== 0 ||
+            values.some((entry) => !Number.isFinite(entry))
+          )
+            return []
+          return Array.from({ length: values.length / 2 }, (_, index) => ({
+            elapsedMs: values[index * 2]! * 1_000,
+            value: values[index * 2 + 1]!,
+          }))
+        })()
+      : []
+  if (controls.length < 6 || controls.length % 3 !== 0) return []
+  const segments = controls.length / 3
+  return Array.from(
+    { length: (segments - 1) * samplesPerSegment + 1 },
+    (_, index) => {
+      if (index === (segments - 1) * samplesPerSegment)
+        return controls[(segments - 1) * 3]!
+      const segment = Math.floor(index / samplesPerSegment)
+      const progress = (index % samplesPerSegment) / samplesPerSegment
+      const start = controls[segment * 3]!
+      const outgoing = controls[segment * 3 + 2]!
+      const incoming = controls[(segment + 1) * 3 + 1]!
+      const end = controls[(segment + 1) * 3]!
+      return {
+        elapsedMs: cubic(
+          start.elapsedMs,
+          outgoing.elapsedMs,
+          incoming.elapsedMs,
+          end.elapsedMs,
+          progress
+        ),
+        value: cubic(
+          start.value,
+          outgoing.value,
+          incoming.value,
+          end.value,
+          progress
+        ),
+      }
+    }
+  )
+}
 function interpolate(
-  points: ReadonlyArray<{ elapsedMs: number; value: number }>,
+  values: Array<{ elapsedMs: number; value: number }>,
   elapsedMs: number
 ) {
-  if (points.length === 0) return null
-  const first = points[0]!
-  const last = points.at(-1)!
-  if (elapsedMs < first.elapsedMs || elapsedMs > last.elapsedMs) {
-    return null
-  }
-  const rightIndex = points.findIndex((point) => point.elapsedMs >= elapsedMs)
-  if (rightIndex < 0) return last.value
-  const right = points[rightIndex]!
-  const left = points[Math.max(0, rightIndex - 1)]!
-  if (right.elapsedMs === left.elapsedMs) return right.value
+  const left = values.filter((point) => point.elapsedMs <= elapsedMs).at(-1)
+  const right = values.find((point) => point.elapsedMs >= elapsedMs)
+  if (!left) return right?.value ?? null
+  if (!right || right.elapsedMs === left.elapsedMs) return left.value
   const progress =
     (elapsedMs - left.elapsedMs) / (right.elapsedMs - left.elapsedMs)
   return left.value + (right.value - left.value) * progress
 }
 
-function profileChart(profile: RoastProfile): ChartPoint[] {
-  const roast = profile.roastCurve
-    .map((point) => ({ elapsedMs: point.elapsedMs, value: point.temperatureC }))
-    .toSorted((left, right) => left.elapsedMs - right.elapsedMs)
-  const fan = profile.fanCurve
-    .map((point) => ({ elapsedMs: point.elapsedMs, value: point.fanRpm }))
-    .toSorted((left, right) => left.elapsedMs - right.elapsedMs)
-  const elapsedTimes = [
-    ...new Set([...roast, ...fan].map((point) => point.elapsedMs)),
-  ].toSorted((left, right) => left - right)
-  return elapsedTimes.map((elapsedMs) => ({
-    elapsedMs,
-    temperatureC: interpolate(roast, elapsedMs) ?? 0,
-    profileC: null,
-    rorCPerMin: null,
-    actualFanRpm: interpolate(fan, elapsedMs),
-  }))
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "Factory default"
-  const timestamp = Date.parse(value)
-  return Number.isNaN(timestamp)
-    ? value
-    : new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(timestamp)
-}
-
-function ProfileLoading() {
-  return (
-    <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[18rem_minmax(0,1fr)]">
-      <Skeleton className="h-[34rem] rounded-xl" />
-      <Skeleton className="h-[34rem] rounded-xl" />
-    </div>
-  )
-}
-
 export function ProfileEditorScreen() {
-  const search = useSearch({ strict: false }) as ProfileSearch
+  const search = useSearch({ from: "/profiles" })
   const navigate = useNavigate({ from: "/profiles" })
-  const profilesQuery = useQuery({
+  const queryClient = useQueryClient()
+  const [childOpen, setChildOpen] = useState(false)
+  const list = useQuery({
     queryKey: queryKeys.profiles(),
-    queryFn: ({ signal }) => listProfiles(signal),
+    queryFn: ({ signal }) => listProfiles(undefined, signal),
   })
-  const profiles = profilesQuery.data?.data ?? []
-  const selected =
-    profiles.find((profile) => profile.id === search.profile) ?? profiles[0]
+  const selectedId = search.profileId ?? list.data?.[0]?.id
+  const profile = useQuery({
+    queryKey: queryKeys.profile(selectedId ?? 0),
+    queryFn: ({ signal }) => getProfile(selectedId!, signal),
+    enabled: selectedId != null,
+  })
+  const child = useMutation({
+    mutationFn: (input: Parameters<typeof createChildProfile>[1]) =>
+      createChildProfile(selectedId!, input),
+    onSuccess: (created) => {
+      toast.success(`Profile #${created.id} created`)
+      setChildOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ["profiles"] })
+      void navigate({ search: { profileId: created.id } })
+    },
+    onError: (error) => toast.error(error.message),
+  })
 
   useEffect(() => {
-    if (selected && search.profile !== selected.id) {
-      void navigate({
-        search: (previous) => ({ ...previous, profile: selected.id }),
-        replace: true,
-      })
-    }
-  }, [navigate, search.profile, selected])
+    if (!search.profileId && selectedId)
+      void navigate({ search: { profileId: selectedId }, replace: true })
+  }, [navigate, search.profileId, selectedId])
+  if (list.error) throw list.error
+  if (profile.error) throw profile.error
 
-  const chart = useMemo(
-    () => (selected ? profileChart(selected) : []),
-    [selected]
+  const chart = useMemo(() => {
+    const document = record(profile.data?.profile)
+    const roast = sampleNativeCurve(
+      document.roastCurve ?? document.roast_profile
+    ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
+    const fan = sampleNativeCurve(
+      document.fanCurve ?? document.fan_profile
+    ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
+    return [...new Set([...roast, ...fan].map((point) => point.elapsedMs))]
+      .toSorted((a, b) => a - b)
+      .map((elapsedMs): ChartPoint => ({
+        elapsedMs,
+        temperatureC: interpolate(roast, elapsedMs) ?? 0,
+        profileC: null,
+        rorCPerMin: null,
+        actualFanRpm: interpolate(fan, elapsedMs),
+      }))
+  }, [profile.data?.profile])
+
+  if (list.isPending)
+    return (
+      <div className="p-7">
+        <Skeleton className="h-[38rem] rounded-xl" />
+      </div>
+    )
+  if (!selectedId)
+    return (
+      <Empty className="m-7 min-h-80 border">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileChartColumnIncreasingIcon />
+          </EmptyMedia>
+          <EmptyTitle>No profiles yet</EmptyTitle>
+          <EmptyDescription>
+            Synchronize the Nano to import its KPRO profile library.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    )
+  if (!profile.data)
+    return (
+      <div className="p-7">
+        <Skeleton className="h-[38rem] rounded-xl" />
+      </div>
+    )
+
+  const item = profile.data
+  const parent = list.data?.find(
+    (candidate) => candidate.id === item.parentProfileId
   )
-
-  if (profilesQuery.error) throw profilesQuery.error
+  const children =
+    list.data?.filter((candidate) => candidate.parentProfileId === item.id) ??
+    []
+  const submitChild = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    child.mutate({
+      parentProfileId: item.id,
+      name: String(form.get("name") ?? "").trim(),
+      description: String(form.get("description") ?? ""),
+      designer: item.designer,
+      recommendedLevelThousandths: Math.round(
+        Number(form.get("level")) * 1_000
+      ),
+      referenceLoadMg: Math.round(Number(form.get("load")) * 1_000),
+      profile: item.profile,
+    })
+  }
 
   return (
     <div className="min-h-screen">
       <PageHeader
-        eyebrow={selected?.fileName ?? "Nano profile library"}
-        title={selected?.displayName ?? "Roast profiles"}
+        eyebrow={`Profile #${item.id} · ${item.origin}`}
+        title={item.name}
         description={
-          selected
-            ? `Revision ${selected.revisionNumber} · Designed by ${selected.designer || "Unknown"} · Original KPRO retained`
-            : "Lossless profiles imported from the connected Kaffeelogic library"
+          item.description.split("\n").find(Boolean) ??
+          "Kaffelogic roast profile"
         }
         actions={
-          <Link
-            to="/roasts"
-            search={{
-              q: undefined,
-              group: undefined,
-              sort: undefined,
-              date: undefined,
-              provider: undefined,
-              process: undefined,
-              minScore: undefined,
-              status: undefined,
-            }}
-            className={buttonVariants({ variant: "outline" })}
-          >
-            <ArrowLeftIcon data-icon="inline-start" />
-            Roast notebook
-          </Link>
+          <Sheet open={childOpen} onOpenChange={setChildOpen}>
+            <SheetTrigger
+              render={
+                <Button>
+                  <GitBranchIcon data-icon="inline-start" />
+                  Create adjusted child
+                </Button>
+              }
+            />
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Create a child profile</SheetTitle>
+                <SheetDescription>
+                  The child keeps this exact profile document and records your
+                  reusable changes without changing profile #{item.id}.
+                </SheetDescription>
+              </SheetHeader>
+              <form
+                id="child-profile-form"
+                onSubmit={submitChild}
+                className="px-4"
+              >
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="child-name">Name</FieldLabel>
+                    <Input
+                      id="child-name"
+                      name="name"
+                      required
+                      defaultValue={`${item.name} · adjusted`}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field>
+                      <FieldLabel htmlFor="child-level">
+                        Recommended level
+                      </FieldLabel>
+                      <Input
+                        id="child-level"
+                        name="level"
+                        type="number"
+                        min="0"
+                        max="10"
+                        step="0.1"
+                        required
+                        defaultValue={
+                          (item.recommendedLevelThousandths ?? 0) / 1_000
+                        }
+                      />
+                      <FieldDescription>
+                        Default endpoint for a roast.
+                      </FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="child-load">
+                        Reference load · g
+                      </FieldLabel>
+                      <Input
+                        id="child-load"
+                        name="load"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        defaultValue={(item.referenceLoadMg ?? 120_000) / 1_000}
+                      />
+                      <FieldDescription>
+                        Bean mass the profile was tuned around.
+                      </FieldDescription>
+                    </Field>
+                  </div>
+                  <Field>
+                    <FieldLabel htmlFor="child-description">
+                      Why this variant?
+                    </FieldLabel>
+                    <Textarea
+                      id="child-description"
+                      name="description"
+                      placeholder="What are you changing, and what result do you expect?"
+                    />
+                  </Field>
+                </FieldGroup>
+              </form>
+              <SheetFooter>
+                <Button
+                  type="submit"
+                  form="child-profile-form"
+                  disabled={child.isPending}
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Create profile
+                </Button>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
         }
       />
 
-      {profilesQuery.isPending ? <ProfileLoading /> : null}
-
-      {!profilesQuery.isPending && profiles.length === 0 ? (
-        <Empty className="m-5 min-h-80 border sm:m-7">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <FileChartColumnIncreasingIcon />
-            </EmptyMedia>
-            <EmptyTitle>No profiles imported yet</EmptyTitle>
-            <EmptyDescription>
-              Connect and synchronize a Nano from Device &amp; sync. Tan Studio
-              retains the original KPRO bytes before creating this view.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : null}
-
-      {selected ? (
-        <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[18rem_minmax(0,1fr)]">
-          <aside className="min-w-0">
-            <section className="bg-card overflow-hidden rounded-xl border">
-              <div className="border-b p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="font-semibold">Profile files</h2>
-                  <Badge variant="secondary">{profiles.length}</Badge>
-                </div>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Imported from the Nano sync library
-                </p>
-              </div>
-              <div className="max-h-[42rem] divide-y overflow-y-auto">
-                {profiles.map((profile) => (
-                  <button
-                    key={profile.id}
-                    type="button"
-                    aria-pressed={profile.id === selected.id}
-                    onClick={() =>
-                      void navigate({
-                        search: (previous) => ({
-                          ...previous,
-                          profile: profile.id,
-                        }),
-                      })
-                    }
-                    className="hover:bg-secondary/40 aria-pressed:bg-accent/40 w-full px-4 py-3 text-left transition-colors"
-                  >
-                    <span className="block truncate text-sm font-medium">
-                      {profile.displayName}
-                    </span>
-                    <span className="text-muted-foreground mt-1 block truncate text-xs">
-                      {profile.fileName}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </aside>
-
-          <main className="min-w-0">
-            <section className="bg-card overflow-hidden rounded-xl border">
-              <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
-                <div>
-                  <h2 className="font-semibold">Temperature and fan profile</h2>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    KPRO cubic Bézier controls sampled without changing the
-                    retained source.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">
-                    Schema {selected.schemaVersion}
-                  </Badge>
-                  {selected.warnings.length === 0 ? (
-                    <Badge variant="success">Parsed without warnings</Badge>
-                  ) : (
-                    <Badge variant="warning">
-                      {selected.warnings.length} warnings
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <RoastChart points={chart} height={430} showFanAxis />
-            </section>
-
-            <section
-              className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-              aria-label="Profile summary"
+      <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
+        <div className="max-w-md">
+          <Field>
+            <FieldLabel htmlFor="profile-picker">Inspect profile</FieldLabel>
+            <Select
+              value={String(item.id)}
+              onValueChange={(value) =>
+                value && void navigate({ search: { profileId: Number(value) } })
+              }
             >
-              <div className="bg-card rounded-xl border p-5">
-                <Metric
-                  label="Recommended level"
-                  value={selected.recommendedLevel?.toFixed(1) ?? "—"}
-                  detail="Kaffelogic level"
-                />
-              </div>
-              <div className="bg-card rounded-xl border p-5">
-                <Metric
-                  label="Reference load"
-                  value={
-                    selected.referenceLoadGrams == null
-                      ? "—"
-                      : `${selected.referenceLoadGrams.toLocaleString()} g`
-                  }
-                  detail="Profile metadata"
-                />
-              </div>
-              <div className="bg-card rounded-xl border p-5">
-                <Metric
-                  label="Roast duration"
-                  value={
-                    chart.length === 0
-                      ? "—"
-                      : `${Math.round(chart.at(-1)!.elapsedMs / 1_000)} s`
-                  }
-                  detail="Final curve point"
-                />
-              </div>
-              <div className="bg-card rounded-xl border p-5">
-                <Metric
-                  label="Roast levels"
-                  value={selected.roastLevelsC.length}
-                  detail={
-                    selected.roastLevelsC.length === 0
-                      ? "Not specified"
-                      : `${Math.min(...selected.roastLevelsC).toFixed(1)}–${Math.max(...selected.roastLevelsC).toFixed(1)} °C`
-                  }
-                />
-              </div>
-            </section>
+              <SelectTrigger id="profile-picker" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {list.data?.map((candidate) => (
+                    <SelectItem key={candidate.id} value={String(candidate.id)}>
+                      #{candidate.id} · {candidate.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
 
-            <section
-              className="bg-card mt-6 rounded-xl border p-5"
-              aria-labelledby="profile-notes-heading"
-            >
-              <div className="flex items-center gap-3">
-                <span className="bg-info flex size-9 items-center justify-center rounded-full">
-                  <GaugeIcon className="size-4" />
-                </span>
-                <div>
-                  <h2 id="profile-notes-heading" className="font-semibold">
-                    Native profile metadata
-                  </h2>
-                  <p className="text-muted-foreground text-xs">
-                    Modified{" "}
-                    {formatDate(
-                      selected.profileModifiedAt ?? selected.sourceModifiedAt
-                    )}
-                  </p>
-                </div>
-              </div>
-              <p className="text-muted-foreground mt-4 text-sm leading-relaxed whitespace-pre-line">
-                {selected.description || "No profile description was supplied."}
+        <section className="bg-card overflow-hidden rounded-xl border">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
+            <div>
+              <h2 className="font-semibold">Temperature & fan</h2>
+              <p className="text-muted-foreground mt-1 text-sm">
+                The curve stored in the source KPRO; viewing it never normalizes
+                or rewrites the original file.
               </p>
-            </section>
+            </div>
+            {item.sourceHash ? (
+              <Badge variant="success">Source retained</Badge>
+            ) : (
+              <Badge variant="secondary">User profile</Badge>
+            )}
+          </div>
+          {chart.length > 0 ? (
+            <RoastChart points={chart} height={430} showFanAxis />
+          ) : (
+            <p className="text-muted-foreground p-8 text-center text-sm">
+              This profile has no curve points yet.
+            </p>
+          )}
+        </section>
 
-            <Alert className="bg-info mt-6">
-              <LockKeyholeIcon />
-              <AlertTitle>Device deployment remains read-only</AlertTitle>
+        <section
+          className="grid gap-4 sm:grid-cols-3"
+          aria-label="Profile metrics"
+        >
+          <div className="bg-card rounded-xl border p-5">
+            <Metric
+              label="Recommended level"
+              value={
+                item.recommendedLevelThousandths == null
+                  ? "—"
+                  : (item.recommendedLevelThousandths / 1_000).toFixed(1)
+              }
+              detail="A starting endpoint, adjustable per roast"
+            />
+          </div>
+          <div className="bg-card rounded-xl border p-5">
+            <Metric
+              label="Reference load"
+              value={
+                item.referenceLoadMg == null
+                  ? "—"
+                  : `${item.referenceLoadMg / 1_000} g`
+              }
+              detail="The bean mass this curve expects"
+            />
+          </div>
+          <div className="bg-card rounded-xl border p-5">
+            <Metric
+              label="Used by"
+              value={`${item.roastCount} roasts`}
+              detail={`${item.childCount} child profiles`}
+            />
+          </div>
+        </section>
+
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <section className="bg-card rounded-xl border p-5">
+            <h2 className="font-semibold">About this profile</h2>
+            <p className="text-muted-foreground mt-4 text-sm leading-relaxed whitespace-pre-line">
+              {item.description || "No description was supplied."}
+            </p>
+            <Alert className="bg-info mt-5">
+              <InfoIcon />
+              <AlertTitle>Adjustments belong to the roast first</AlertTitle>
               <AlertDescription>
-                Reading, parsing and visualization are enabled. Tan Studio will
-                not write a profile to the Nano until the write protocol is
-                captured and validated safely.
+                Changing level or boost for one run is recorded on that roast.
+                Create a child only when you want the adjustment to become a
+                reusable profile.
               </AlertDescription>
             </Alert>
-          </main>
+          </section>
+          <aside className="bg-card rounded-xl border p-5">
+            <h2 className="font-semibold">Relationships</h2>
+            <div className="mt-4 flex flex-col gap-3 text-sm">
+              {parent ? (
+                <Link
+                  to="/profiles"
+                  search={{ profileId: parent.id }}
+                  className="underline-offset-4 hover:underline"
+                >
+                  Parent · #{parent.id} {parent.name}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">No parent profile</span>
+              )}
+              {children.map((candidate) => (
+                <Link
+                  key={candidate.id}
+                  to="/profiles"
+                  search={{ profileId: candidate.id }}
+                  className="underline-offset-4 hover:underline"
+                >
+                  Child · #{candidate.id} {candidate.name}
+                </Link>
+              ))}
+              <Link
+                to="/roasts"
+                search={{
+                  profileId: item.id,
+                  coffeeId: undefined,
+                  q: undefined,
+                  status: undefined,
+                  view: undefined,
+                }}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                View its {item.roastCount} roasts
+              </Link>
+            </div>
+          </aside>
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

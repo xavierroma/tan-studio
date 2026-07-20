@@ -73,8 +73,7 @@ pub struct ImportInput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
-    pub profile_id: String,
-    pub profile_revision_id: String,
+    pub profile_id: i64,
     pub revision_number: i64,
     pub imported: bool,
     pub warning_count: usize,
@@ -108,26 +107,15 @@ impl KproImporter {
 
         if let Some(existing) = connection
             .query_row(
-                "SELECT p.id, pr.id, pr.revision_number
-                   FROM native_files nf
-                   JOIN profile_revisions pr ON pr.source_file_id=nf.id
-                   JOIN profiles p ON p.id=pr.profile_id
-                  WHERE nf.sha256=?",
+                "SELECT id, revision FROM profiles WHERE source_hash=?",
                 [&document.source_hash],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                    ))
-                },
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )
             .optional()?
         {
             return Ok(ImportResult {
                 profile_id: existing.0,
-                profile_revision_id: existing.1,
-                revision_number: existing.2,
+                revision_number: existing.1,
                 imported: false,
                 warning_count: document.warnings.len(),
             });
@@ -170,93 +158,81 @@ impl KproImporter {
             id
         };
 
-        let normalized = normalize_name(&document.short_name);
         let profile_id = transaction
             .query_row(
-                "SELECT id FROM profiles WHERE normalized_name=?
+                "SELECT id FROM profiles WHERE lower(name)=?
                  ORDER BY CASE origin WHEN 'official' THEN 0 WHEN 'imported' THEN 1 ELSE 2 END,
                           created_at_ms LIMIT 1",
-                [&normalized],
-                |row| row.get::<_, String>(0),
+                [normalize_name(&document.short_name)],
+                |row| row.get::<_, i64>(0),
             )
-            .optional()?
-            .unwrap_or_else(new_id);
-        let profile_exists = transaction
-            .query_row("SELECT 1 FROM profiles WHERE id=?", [&profile_id], |_| {
-                Ok(())
-            })
-            .optional()?
-            .is_some();
-        if profile_exists {
-            transaction.execute(
-                "UPDATE profiles
-                    SET display_name=?, family=?, updated_at_ms=?, revision=revision+1
-                  WHERE id=?",
-                params![document.short_name, document.short_name, now, profile_id],
-            )?;
-        } else {
-            let origin = if is_official_designer(&document.designer) {
-                "official"
-            } else {
-                "imported"
-            };
-            transaction.execute(
-                "INSERT INTO profiles
-                   (id, display_name, normalized_name, family, origin, created_at_ms, updated_at_ms)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    profile_id,
-                    document.short_name,
-                    normalized,
-                    document.short_name,
-                    origin,
-                    now,
-                    now
-                ],
-            )?;
-        }
-
-        let revision_number: i64 = transaction.query_row(
-            "SELECT coalesce(max(revision_number), 0) + 1
-               FROM profile_revisions WHERE profile_id=?",
-            [&profile_id],
-            |row| row.get(0),
-        )?;
-        let profile_revision_id = new_id();
-        let schema_version = schema_version_number(&document.schema_version);
+            .optional()?;
         let recommended_level_thousandths = document
             .recommended_level
             .map(|value| (value * 1_000.0).round() as i64);
         let reference_load_mg = document
             .reference_load_grams
             .map(|value| (value * 1_000.0).round() as i64);
-        transaction.execute(
-            "INSERT INTO profile_revisions
-               (id, profile_id, revision_number, schema_version, short_name, document_json,
-                created_at_ms, source_file_id, description, designer, modified_at,
-                recommended_level_thousandths, reference_load_mg)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![
-                profile_revision_id,
-                profile_id,
-                revision_number,
-                schema_version,
-                document.short_name,
-                document_json,
-                now,
-                source_file_id,
-                document.description,
-                document.designer,
-                document.profile_modified,
-                recommended_level_thousandths,
-                reference_load_mg
-            ],
-        )?;
+        let origin = if is_official_designer(&document.designer) {
+            "official"
+        } else {
+            "imported"
+        };
+        let (profile_id, revision_number) = if let Some(profile_id) = profile_id {
+            transaction.execute(
+                "UPDATE profiles
+                    SET name=?, description=?, designer=?, origin=?,
+                        recommended_level_thousandths=?, reference_load_mg=?,
+                        profile_json=?, source_file_id=?, source_hash=?,
+                        updated_at_ms=?, revision=revision+1
+                  WHERE id=?",
+                params![
+                    document.short_name,
+                    document.description,
+                    document.designer,
+                    origin,
+                    recommended_level_thousandths,
+                    reference_load_mg,
+                    document_json,
+                    source_file_id,
+                    document.source_hash,
+                    now,
+                    profile_id
+                ],
+            )?;
+            let revision = transaction.query_row(
+                "SELECT revision FROM profiles WHERE id=?",
+                [profile_id],
+                |row| row.get(0),
+            )?;
+            (profile_id, revision)
+        } else {
+            transaction.execute(
+                "INSERT INTO profiles
+                   (name, description, designer, origin, recommended_level_thousandths,
+                    reference_load_mg, profile_json, source_file_id, source_hash,
+                    created_at_ms, updated_at_ms)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    document.short_name,
+                    document.description,
+                    document.designer,
+                    origin,
+                    recommended_level_thousandths,
+                    reference_load_mg,
+                    document_json,
+                    source_file_id,
+                    document.source_hash,
+                    now,
+                    now
+                ],
+            )?;
+            (transaction.last_insert_rowid(), 1)
+        };
         transaction.commit()?;
 
         Ok(ImportResult {
             profile_id,
-            profile_revision_id,
             revision_number,
             imported: true,
             warning_count: document.warnings.len(),
@@ -580,15 +556,6 @@ fn is_official_designer(value: &str) -> bool {
         || normalized == "c j hilder"
 }
 
-fn schema_version_number(value: &str) -> i64 {
-    value
-        .parse::<f64>()
-        .ok()
-        .filter(|number| number.is_finite() && *number > 0.0 && *number <= 1_000.0)
-        .map(|number| (number * 1_000.0).round() as i64)
-        .unwrap_or(1)
-}
-
 fn new_id() -> String {
     Uuid::now_v7().to_string()
 }
@@ -692,7 +659,7 @@ mod tests {
         let second = importer.import(input).unwrap();
         assert!(first.imported);
         assert!(!second.imported);
-        assert_eq!(first.profile_revision_id, second.profile_revision_id);
+        assert_eq!(first.profile_id, second.profile_id);
         let connection = database.connection();
         let stored: Vec<u8> = connection
             .query_row(
@@ -727,9 +694,7 @@ mod tests {
             .unwrap();
         assert_eq!(retained, bytes);
         let revisions: i64 = connection
-            .query_row("SELECT count(*) FROM profile_revisions", [], |row| {
-                row.get(0)
-            })
+            .query_row("SELECT count(*) FROM profiles", [], |row| row.get(0))
             .unwrap();
         assert_eq!(revisions, 0);
     }

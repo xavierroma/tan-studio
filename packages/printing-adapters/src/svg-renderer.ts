@@ -93,9 +93,16 @@ export class DeterministicSvgLabelRenderer {
       widthUm: document.widthUm,
       heightUm: document.heightUm,
       bytes,
-      sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+      sha256: await sha256(bytes),
     }
   }
+}
+
+async function sha256(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes))
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
 }
 
 export function renderLabelToSvg(

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@tan-studio/api-contract": "workspace:*",
+    "@tan-studio/printing-adapters": "workspace:*",
     "@tan-studio/ui": "workspace:*",
     "@tanstack/react-query": "^5.90.20",
     "@tanstack/react-router": "^1.159.5",

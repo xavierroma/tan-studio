@@ -496,7 +496,7 @@ pub struct ImportInput {
 
 #[derive(Debug, Clone)]
 pub struct ImportResult {
-    pub roast_id: String,
+    pub roast_id: i64,
     pub serial_number: i64,
     pub imported: bool,
     pub updated: bool,
@@ -526,65 +526,82 @@ impl KlogImporter {
         };
         let mut connection = self.database.connection();
         if let Some(existing) = connection.query_row(
-            "SELECT r.id, r.serial_number FROM native_files f JOIN roasts r ON r.source_file_id=f.id WHERE f.sha256=?",
-            [&document.source_hash], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            "SELECT r.id FROM native_files f JOIN roasts r ON r.source_file_id=f.id WHERE f.sha256=?",
+            [&document.source_hash], |row| row.get::<_, i64>(0),
         ).optional()? {
-            return Ok(ImportResult { roast_id: existing.0, serial_number: existing.1, imported: false, updated: false, warning_count: document.diagnostics.len() });
+            return Ok(ImportResult { roast_id: existing, serial_number: existing, imported: false, updated: false, warning_count: document.diagnostics.len() });
         }
         let transaction = connection.transaction()?;
         let logical = transaction.query_row(
-            "SELECT r.id, r.serial_number, s.stream_version FROM native_files f JOIN roasts r ON r.source_file_id=f.id LEFT JOIN roast_sample_streams s ON s.roast_id=r.id WHERE f.device_path=? ORDER BY f.imported_at_ms DESC LIMIT 1",
-            [&input.device_path], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, Option<i64>>(2)?)),
+            "SELECT r.id, s.stream_version FROM native_files f JOIN roasts r ON r.source_file_id=f.id LEFT JOIN roast_sample_streams s ON s.roast_id=r.id WHERE f.device_path=? ORDER BY f.imported_at_ms DESC LIMIT 1",
+            [&input.device_path], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
         ).optional()?;
+        let logical = match logical {
+            Some(existing) => Some(existing),
+            None => transaction.query_row(
+                "SELECT r.id, s.stream_version FROM roasts r LEFT JOIN roast_sample_streams s ON s.roast_id=r.id
+                 WHERE r.status='planned' AND r.source_file_id IS NULL AND r.created_at_ms >= ?
+                 ORDER BY r.created_at_ms DESC LIMIT 1",
+                [Utc::now().timestamp_millis() - 86_400_000],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+            ).optional()?,
+        };
         let now = Utc::now().timestamp_millis();
         let source_file_id = new_id();
         transaction.execute(
             "INSERT INTO native_files (id, sha256, kind, filename, device_path, source_modified_at, byte_length, original_bytes, parser_version, warnings_json, imported_at_ms) VALUES (?, ?, 'klog', ?, ?, ?, ?, ?, 2, ?, ?)",
             params![source_file_id, document.source_hash, input.filename, input.device_path, input.source_modified_at, input.bytes.len() as i64, input.bytes, serde_json::to_string(&document.diagnostics).map_err(|_| KlogError::Unsafe("diagnostics are not serializable".into()))?, now],
         )?;
-        let profile_revision_id = resolve_profile(&transaction, &document, now)?;
+        let mut profile_id = resolve_profile(&transaction, &document, now)?;
+        let mut profile_snapshot_json = if let Some(profile_id) = profile_id {
+            transaction.query_row(
+                "SELECT profile_json FROM profiles WHERE id=?",
+                [profile_id],
+                |row| row.get::<_, String>(0),
+            )?
+        } else {
+            "{}".into()
+        };
         let facts = facts(&document, &input);
         let (roast_id, serial_number, stream_version, updated) = match logical {
-            Some((id, serial, version)) => (id, serial, version.unwrap_or(0) + 1, true),
-            None => (
-                new_id(),
-                transaction.query_row(
-                    "SELECT coalesce(max(serial_number),0)+1 FROM roasts",
+            Some((id, version)) => (id, id, version.unwrap_or(0) + 1, true),
+            None => {
+                let id = transaction.query_row(
+                    "SELECT coalesce(max(id),0)+1 FROM roasts",
                     [],
                     |row| row.get(0),
-                )?,
-                1,
-                false,
-            ),
+                )?;
+                (id, id, 1, false)
+            }
         };
         if updated {
+            let planned_profile_id: Option<i64> = transaction.query_row(
+                "SELECT profile_id FROM roasts WHERE id=?",
+                [roast_id],
+                |row| row.get(0),
+            )?;
+            if let Some(planned_profile_id) = planned_profile_id {
+                profile_id = Some(planned_profile_id);
+                profile_snapshot_json = transaction.query_row(
+                    "SELECT profile_json FROM profiles WHERE id=?",
+                    [planned_profile_id],
+                    |row| row.get(0),
+                )?;
+            }
+        }
+        if updated {
             transaction.execute(
-                "UPDATE roasts SET profile_revision_id=?, roasted_at_ms=?, roasted_at_source=?, source_timezone='UTC', level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, notes=?, native_log_number=?, roast_duration_ms=?, cooldown_end_ms=?, source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
-                params![profile_revision_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, roast_id],
+                "UPDATE roasts SET profile_id=?, roasted_at_ms=?, roasted_at_source=?, source_timezone='UTC', level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, native_log_number=?, duration_ms=?, cooldown_end_ms=?, profile_snapshot_json=?, adjustments_json=json_set(adjustments_json, '$.levelThousandths', ?), source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
+                params![profile_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, profile_snapshot_json, facts.level_thousandths, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, roast_id],
             )?;
         } else {
             transaction.execute(
-                "INSERT INTO roasts (id, serial_number, profile_revision_id, roasted_at_ms, roasted_at_source, source_timezone, level_thousandths, development_basis_points, green_input_mass_mg, end_reason, result, status, notes, native_log_number, roast_duration_ms, cooldown_end_ms, source_file_id, native_metadata_json, import_warnings_json, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, 'UTC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params![roast_id, serial_number, profile_revision_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.notes, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, now],
+                "INSERT INTO roasts (id, profile_id, roasted_at_ms, roasted_at_source, source_timezone, level_thousandths, development_basis_points, green_input_mass_mg, end_reason, result, status, native_log_number, duration_ms, cooldown_end_ms, profile_snapshot_json, adjustments_json, source_file_id, native_metadata_json, import_warnings_json, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'UTC', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![roast_id, profile_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, profile_snapshot_json, serde_json::json!({"levelThousandths": facts.level_thousandths}).to_string(), source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, now],
             )?;
         }
         replace_telemetry(&transaction, &roast_id, stream_version, &document, now)?;
-        if updated {
-            refresh_projection(
-                &transaction,
-                &roast_id,
-                &facts,
-                profile_revision_id.as_deref(),
-            )?;
-        } else {
-            insert_projection(
-                &transaction,
-                &roast_id,
-                serial_number,
-                &facts,
-                profile_revision_id.as_deref(),
-            )?;
-        }
+        upsert_import_note(&transaction, roast_id, &facts.notes, now)?;
         transaction.commit()?;
         Ok(ImportResult {
             roast_id,
@@ -792,7 +809,7 @@ fn resolve_profile(
     transaction: &Transaction<'_>,
     document: &Document,
     now: i64,
-) -> Result<Option<String>, KlogError> {
+) -> Result<Option<i64>, KlogError> {
     let short_name = document
         .metadata
         .get("profile_short_name")
@@ -800,17 +817,6 @@ fn resolve_profile(
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .unwrap_or("Imported profile");
-    let normalized = short_name.to_lowercase();
-    let profile_id = transaction.query_row("SELECT id FROM profiles WHERE normalized_name=? AND origin='extracted' ORDER BY created_at_ms LIMIT 1", [&normalized], |row| row.get::<_, String>(0)).optional()?.unwrap_or_else(|| new_id());
-    if transaction
-        .query_row("SELECT 1 FROM profiles WHERE id=?", [&profile_id], |_| {
-            Ok(())
-        })
-        .optional()?
-        .is_none()
-    {
-        transaction.execute("INSERT INTO profiles (id, display_name, normalized_name, family, origin, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'extracted', ?, ?)", params![profile_id, short_name, normalized, short_name, now, now])?;
-    }
     let roast_only: HashSet<_> = [
         "log_file_name",
         "roasting_level",
@@ -837,34 +843,32 @@ fn resolve_profile(
     let document_json = serde_json::to_string(&profile_document).unwrap();
     if let Some(id) = transaction
         .query_row(
-            "SELECT id FROM profile_revisions WHERE profile_id=? AND document_json=?",
-            params![profile_id, document_json],
+            "SELECT id FROM profiles WHERE lower(name)=? AND profile_json=?",
+            params![short_name.to_lowercase(), document_json],
             |row| row.get(0),
         )
         .optional()?
     {
         return Ok(Some(id));
     }
-    let revision: i64 = transaction.query_row(
-        "SELECT coalesce(max(revision_number),0)+1 FROM profile_revisions WHERE profile_id=?",
-        [&profile_id],
-        |row| row.get(0),
+    let parent_id: Option<i64> = transaction
+        .query_row(
+            "SELECT id FROM profiles WHERE lower(name)=? ORDER BY created_at_ms DESC LIMIT 1",
+            [short_name.to_lowercase()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    transaction.execute(
+        "INSERT INTO profiles(parent_profile_id, name, origin, profile_json, created_at_ms, updated_at_ms) VALUES (?, ?, 'extracted', ?, ?, ?)",
+        params![parent_id, short_name, document_json, now, now]
     )?;
-    let id = new_id();
-    let schema = document
-        .metadata
-        .get("profile_schema_version")
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|value| *value > 0.0 && *value <= 1_000.0)
-        .map(|value| (value * 1_000.0).round() as i64)
-        .unwrap_or(1);
-    transaction.execute("INSERT INTO profile_revisions (id, profile_id, revision_number, schema_version, short_name, document_json, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)", params![id, profile_id, revision, schema, short_name, document_json, now])?;
+    let id = transaction.last_insert_rowid();
     Ok(Some(id))
 }
 
 fn replace_telemetry(
     transaction: &Transaction<'_>,
-    roast_id: &str,
+    roast_id: &i64,
     version: i64,
     document: &Document,
     now: i64,
@@ -920,68 +924,41 @@ fn replace_telemetry(
     Ok(())
 }
 
-fn insert_projection(
+fn upsert_import_note(
     transaction: &Transaction<'_>,
-    roast_id: &str,
-    serial: i64,
-    facts: &Facts,
-    profile_revision: Option<&str>,
+    roast_id: i64,
+    body: &str,
+    now: i64,
 ) -> Result<(), KlogError> {
-    let profile = profile_details(transaction, profile_revision)?;
-    transaction.execute("INSERT INTO roast_library_rows (roast_id, serial_number, revision, roasted_at_ms, roasted_at_source, coffee_name, provider_name, varieties_json, profile_revision_id, profile_name, profile_revision_number, roast_level_thousandths, green_input_mass_mg, development_basis_points, tags_json, result, status, needs_tasting, native_log_number, duration_ms) VALUES (?, ?, 1, ?, ?, 'Unassigned coffee', NULL, '[]', ?, ?, ?, ?, ?, ?, '[]', ?, ?, 1, ?, ?)", params![roast_id, serial, facts.roasted_at_ms, facts.roasted_at_source, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms])?;
-    replace_fts(
-        transaction,
-        roast_id,
-        "Unassigned coffee",
-        "",
-        "",
-        "",
-        &facts.notes,
-    )
-}
-
-fn refresh_projection(
-    transaction: &Transaction<'_>,
-    roast_id: &str,
-    facts: &Facts,
-    profile_revision: Option<&str>,
-) -> Result<(), KlogError> {
-    let profile = profile_details(transaction, profile_revision)?;
-    transaction.execute("UPDATE roast_library_rows SET revision=revision+1, roasted_at_ms=?, roasted_at_source=?, profile_revision_id=?, profile_name=?, profile_revision_number=?, roast_level_thousandths=?, green_input_mass_mg=?, development_basis_points=?, result=?, status=?, native_log_number=?, duration_ms=? WHERE roast_id=?", params![facts.roasted_at_ms, facts.roasted_at_source, profile_revision, profile.0, profile.1, facts.level_thousandths, facts.green_input_mass_mg, facts.development_basis_points, facts.result, facts.status, facts.native_log_number, facts.duration_ms, roast_id])?;
-    let row = transaction.query_row("SELECT coalesce(coffee_name,'Unassigned coffee'), coalesce(provider_name,''), coalesce(farm_producer,''), coalesce(process,''), coalesce(tasting_notes,'') FROM roast_library_rows WHERE roast_id=?", [roast_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
-    replace_fts(
-        transaction,
-        roast_id,
-        &row.0,
-        &row.1,
-        &row.2,
-        &row.3,
-        &format!("{} {}", row.4, facts.notes),
-    )
-}
-
-fn profile_details(
-    transaction: &Transaction<'_>,
-    revision: Option<&str>,
-) -> Result<(String, i64), KlogError> {
-    Ok(if let Some(revision) = revision {
-        transaction.query_row("SELECT p.display_name, pr.revision_number FROM profile_revisions pr JOIN profiles p ON p.id=pr.profile_id WHERE pr.id=?", [revision], |row| Ok((row.get(0)?, row.get(1)?)))?
+    let existing: Option<i64> = transaction
+        .query_row(
+            "SELECT n.id FROM notes n JOIN note_links l ON l.note_id=n.id
+         WHERE l.roast_id=? AND n.source='import'
+           AND json_extract(n.attributes_json, '$.nativeKlog')=1
+         ORDER BY n.id LIMIT 1",
+            [roast_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if body.trim().is_empty() {
+        return Ok(());
+    }
+    if let Some(note_id) = existing {
+        transaction.execute(
+            "UPDATE notes SET body=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
+            params![body.trim(), now, note_id],
+        )?;
     } else {
-        ("Imported profile".into(), 1)
-    })
-}
-
-fn replace_fts(
-    transaction: &Transaction<'_>,
-    roast_id: &str,
-    coffee: &str,
-    provider: &str,
-    farm: &str,
-    process: &str,
-    notes: &str,
-) -> Result<(), KlogError> {
-    transaction.execute("DELETE FROM roast_library_fts WHERE roast_id=?", [roast_id])?;
-    transaction.execute("INSERT INTO roast_library_fts (roast_id, coffee_name, provider_name, farm_producer, process, tasting_notes, tasting_conclusion) VALUES (?, ?, ?, ?, ?, ?, '')", params![roast_id, coffee, provider, farm, process, notes])?;
+        transaction.execute(
+            "INSERT INTO notes(kind, body, attributes_json, source, created_at_ms, updated_at_ms)
+             VALUES ('observation', ?, '{\"nativeKlog\":true}', 'import', ?, ?)",
+            params![body.trim(), now, now],
+        )?;
+        transaction.execute(
+            "INSERT INTO note_links(note_id, roast_id) VALUES (?, ?)",
+            params![transaction.last_insert_rowid(), roast_id],
+        )?;
+    }
     Ok(())
 }
 
@@ -1113,6 +1090,7 @@ fn end_reason_label(value: i64) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     fn fixture(level: &str, end: &str) -> Vec<u8> {
         ["log_file_name:kaffelogic/roast-logs/log0013.klog", "profile_file_name:1200-1500m Rest v1.0.kpro", "profile_short_name:1200-1500m Rest", "profile_schema_version:1.4", &format!("roasting_level:{level}"), "boost_load_size:50.0000", "roast_date:18/07/2026 18:37:27 UTC", "model:KN1007B/J/TS00000001", "", "offsets\t-8.5\t-8.75\t-12\t0\t0\t-19.5\t-8.75\t-8.5\t-8.5\t-8.5\t-8.5\t-8.5\t-8.5", "time\t#spot_temp\t#=temp\t=mean_temp\t=profile\tprofile_ROR\t=actual_ROR\t#=desired_ROR\tpower_kW\t#volts-9\t#Kp\t#Ki\t#Kd\t#^actual_fan_RPM", "521\t216.1\t216\t215.9\t218\t6.6\t5.9\t6\t0.71\t4.5\t0.7\t0\t3\t13200\t", &format!("!roast_end:{end}"), "!roast_end_reason:0.00000", "!roast_date:18/07/2026 18:46:17 UTC", "522\t120\t121\t200\t218\t6.6\t-1\t6\t0\t4.4\t0.7\t0\t3\t15000\t", ""].join("\n").into_bytes()
@@ -1153,7 +1131,7 @@ mod tests {
         assert!(revised.updated);
         assert_eq!(revised.roast_id, first.roast_id);
         let connection = database.connection();
-        let row: (i64, i64, i64) = connection.query_row("SELECT r.level_thousandths, r.roast_duration_ms, s.stream_version FROM roasts r JOIN roast_sample_streams s ON s.roast_id=r.id", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+        let row: (i64, i64, i64) = connection.query_row("SELECT r.level_thousandths, r.duration_ms, s.stream_version FROM roasts r JOIN roast_sample_streams s ON s.roast_id=r.id", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
         assert_eq!(row, (2_500, 530_000, 2));
         let event_temperature: i64 = connection
             .query_row(
@@ -1163,6 +1141,76 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event_temperature, 200_000);
+    }
+
+    #[test]
+    fn finished_log_reconciles_the_latest_planned_roast_without_losing_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        {
+            let connection = database.connection();
+            let now = Utc::now().timestamp_millis();
+            connection
+                .execute(
+                    "INSERT INTO profiles(id, name, profile_json, created_at_ms, updated_at_ms)
+                 VALUES (1, 'Planned child', '{\"marker\":\"planned\"}', ?, ?)",
+                    params![now, now],
+                )
+                .unwrap();
+            connection.execute(
+                "INSERT INTO coffees(id, name, purchased_mass_mg, remaining_mass_mg, created_at_ms, updated_at_ms)
+                 VALUES (1, 'Planned coffee', 500000, 500000, ?, ?)",
+                params![now, now],
+            ).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO roasts(id, profile_id, coffee_id, roasted_at_ms, status, result,
+                  profile_snapshot_json, adjustments_json, created_at_ms, updated_at_ms)
+                 VALUES (1, 1, 1, ?, 'planned', 'unknown', '{\"marker\":\"planned\"}',
+                  '{\"boost\":0.2}', ?, ?)",
+                    params![now, now, now],
+                )
+                .unwrap();
+        }
+
+        let result = KlogImporter::new(database.clone())
+            .import(ImportInput {
+                bytes: fixture("2.50000", "530.000"),
+                device_path: "kaffelogic/roast-logs/log0013.klog".into(),
+                filename: "log0013.klog".into(),
+                source_modified_at: "202607186185000".into(),
+            })
+            .unwrap();
+
+        assert!(result.updated);
+        assert_eq!(result.roast_id, 1);
+        let connection = database.connection();
+        let row: (i64, i64, String, String, String) = connection
+            .query_row(
+                "SELECT profile_id, coffee_id, profile_snapshot_json, adjustments_json, status
+                 FROM roasts WHERE id=1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(row.0, 1);
+        assert_eq!(row.1, 1);
+        assert_eq!(
+            serde_json::from_str::<Value>(&row.2).unwrap()["marker"],
+            "planned"
+        );
+        let adjustments: Value = serde_json::from_str(&row.3).unwrap();
+        assert_eq!(adjustments["boost"], 0.2);
+        assert_eq!(adjustments["levelThousandths"], 2500);
+        assert_eq!(row.4, "completed");
     }
 
     #[test]

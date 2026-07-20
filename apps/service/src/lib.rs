@@ -1,6 +1,8 @@
 pub mod api;
 pub mod config;
 pub mod contract;
+pub mod core_api;
+pub mod core_contract;
 pub mod db;
 pub mod device;
 pub mod error;
@@ -11,5 +13,5 @@ pub mod static_ui;
 
 pub use api::{build_router, ApiState};
 pub use config::{LaunchMode, ServiceConfig};
-pub use contract::ApiDoc;
+pub use core_contract::ApiDoc;
 pub use db::Database;

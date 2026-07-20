@@ -2,7 +2,7 @@ use std::{env, io::Write, path::PathBuf, sync::Arc};
 
 use tan_studio_service::{
     build_router,
-    contract::ApiDoc,
+    core_contract::ApiDoc,
     device::NanoDeviceManager,
     klog::{ImportInput, KlogImporter},
     kpro::{ImportInput as ProfileImportInput, KproImporter},

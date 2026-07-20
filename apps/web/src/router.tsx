@@ -5,11 +5,20 @@ import {
   lazyRouteComponent,
   redirect,
 } from "@tanstack/react-router"
-
-import { AppShell } from "@/components/app-shell"
-import { AppErrorScreen, AppPendingScreen } from "@/components/app-error-screen"
-import { buttonVariants } from "@tan-studio/ui/components/button"
 import { Link } from "@tanstack/react-router"
+import { buttonVariants } from "@tan-studio/ui/components/button"
+
+import { AppErrorScreen, AppPendingScreen } from "@/components/app-error-screen"
+import { AppShell } from "@/components/app-shell"
+
+function integer(value: unknown) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+    return value
+  }
+  return typeof value === "string" && /^[1-9]\d*$/u.test(value)
+    ? Number(value)
+    : undefined
+}
 
 const rootRoute = createRootRoute({
   component: AppShell,
@@ -18,17 +27,11 @@ const rootRoute = createRootRoute({
   ),
   pendingComponent: AppPendingScreen,
   notFoundComponent: () => (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-muted-foreground text-sm font-semibold uppercase">
-        404
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="text-muted-foreground text-sm">
+        This Tan Studio view does not exist.
       </p>
-      <h1 className="text-2xl font-semibold">
-        This workspace view does not exist
-      </h1>
-      <p className="text-muted-foreground max-w-md text-sm">
-        The link may be old or the roast may no longer exist.
-      </p>
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex gap-2">
         <button
           type="button"
           className={buttonVariants({ variant: "outline" })}
@@ -40,17 +43,14 @@ const rootRoute = createRootRoute({
           to="/roasts"
           search={{
             q: undefined,
-            group: undefined,
-            sort: undefined,
-            date: undefined,
-            provider: undefined,
-            process: undefined,
-            minScore: undefined,
             status: undefined,
+            profileId: undefined,
+            coffeeId: undefined,
+            view: undefined,
           }}
           className={buttonVariants()}
         >
-          Roast notebook
+          Roasts
         </Link>
       </div>
     </div>
@@ -65,72 +65,44 @@ const indexRoute = createRoute({
       to: "/roasts",
       search: {
         q: undefined,
-        group: undefined,
-        sort: undefined,
-        date: undefined,
-        provider: undefined,
-        process: undefined,
-        minScore: undefined,
         status: undefined,
+        profileId: undefined,
+        coffeeId: undefined,
+        view: undefined,
       },
     })
   },
 })
 
-const liveRoute = createRoute({
+const roastRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/live",
+  path: "/roast",
+  validateSearch: (search: Record<string, unknown>) => ({
+    profileId: integer(search.profileId),
+    coffeeId: integer(search.coffeeId),
+  }),
   component: lazyRouteComponent(
     () => import("@/screens/live-roast-screen"),
     "LiveRoastScreen"
   ),
 })
+
 const roastLibraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/roasts",
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" ? search.q : undefined,
-    group:
-      search.group === "lot" ||
-      search.group === "coffee" ||
-      search.group === "provider" ||
-      search.group === "none"
-        ? search.group
-        : undefined,
-    sort:
-      search.sort === "newest" ||
-      search.sort === "score" ||
-      search.sort === "coffee"
-        ? search.sort
-        : undefined,
-    date:
-      search.date === "90-days" ||
-      search.date === "year" ||
-      search.date === "all"
-        ? search.date
-        : undefined,
-    provider: typeof search.provider === "string" ? search.provider : undefined,
-    process: typeof search.process === "string" ? search.process : undefined,
-    minScore:
-      search.minScore === 80 ||
-      search.minScore === 85 ||
-      search.minScore === "80" ||
-      search.minScore === "85"
-        ? Number(search.minScore)
-        : undefined,
-    status:
-      search.status === "tasted" ||
-      search.status === "needs-tasting" ||
-      search.status === "ready" ||
-      search.status === "interrupted"
-        ? search.status
-        : undefined,
+    status: typeof search.status === "string" ? search.status : undefined,
+    profileId: integer(search.profileId),
+    coffeeId: integer(search.coffeeId),
+    view: search.view === "pantry" ? ("pantry" as const) : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/roast-library-screen"),
     "RoastLibraryScreen"
   ),
 })
+
 const roastDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/roasts/$roastId",
@@ -139,77 +111,57 @@ const roastDetailRoute = createRoute({
     "RoastDetailScreen"
   ),
 })
+
 const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiles",
   validateSearch: (search: Record<string, unknown>) => ({
-    profile: typeof search.profile === "string" ? search.profile : undefined,
-    proposalFrom:
-      typeof search.proposalFrom === "string" ? search.proposalFrom : undefined,
+    profileId: integer(search.profileId),
   }),
   component: lazyRouteComponent(
     () => import("@/screens/profile-editor-screen"),
     "ProfileEditorScreen"
   ),
 })
+
 const coffeesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/coffees",
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" ? search.q : undefined,
-    lotId: typeof search.lotId === "string" ? search.lotId : undefined,
+    coffeeId: integer(search.coffeeId),
   }),
   component: lazyRouteComponent(
     () => import("@/screens/coffee-catalog-screen"),
     "CoffeeCatalogScreen"
   ),
 })
-const coffeeLotRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/coffees/$lotId",
-  component: lazyRouteComponent(
-    () => import("@/screens/coffee-lot-screen"),
-    "CoffeeLotScreen"
-  ),
-})
-const labelsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/labels",
-  validateSearch: (search: Record<string, unknown>) => ({
-    roastId:
-      typeof search.roastId === "number" && Number.isSafeInteger(search.roastId)
-        ? search.roastId
-        : typeof search.roastId === "string" && /^\d+$/u.test(search.roastId)
-          ? Number(search.roastId)
-          : undefined,
-  }),
-  component: lazyRouteComponent(
-    () => import("@/screens/label-composer-screen"),
-    "LabelComposerScreen"
-  ),
-})
+
 const brewsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/brews",
   validateSearch: (search: Record<string, unknown>) => ({
-    tab:
-      search.tab === "brew" || search.tab === "defaults"
-        ? search.tab
-        : undefined,
-    roastNumber:
-      typeof search.roastNumber === "number" &&
-      Number.isSafeInteger(search.roastNumber)
-        ? search.roastNumber
-        : typeof search.roastNumber === "string" &&
-            /^\d+$/u.test(search.roastNumber)
-          ? Number(search.roastNumber)
-          : undefined,
+    roastId: integer(search.roastId),
+    tab: search.tab === "defaults" ? ("defaults" as const) : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/brews-screen"),
     "BrewsScreen"
   ),
 })
+
+const labelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/labels",
+  validateSearch: (search: Record<string, unknown>) => ({
+    roastId: integer(search.roastId),
+  }),
+  component: lazyRouteComponent(
+    () => import("@/screens/label-composer-screen"),
+    "LabelComposerScreen"
+  ),
+})
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
@@ -218,39 +170,17 @@ const devicesRoute = createRoute({
     "DeviceScreen"
   ),
 })
-const compareRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/compare",
-  component: lazyRouteComponent(
-    () => import("@/screens/compare-screen"),
-    "CompareScreen"
-  ),
-})
-const preflightRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/preflight",
-  validateSearch: (search: Record<string, unknown>) => ({
-    lotId: typeof search.lotId === "string" ? search.lotId : undefined,
-  }),
-  component: lazyRouteComponent(
-    () => import("@/screens/preflight-screen"),
-    "PreflightScreen"
-  ),
-})
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  liveRoute,
+  roastRoute,
   roastLibraryRoute,
   roastDetailRoute,
   profilesRoute,
   coffeesRoute,
-  coffeeLotRoute,
-  labelsRoute,
   brewsRoute,
+  labelsRoute,
   devicesRoute,
-  compareRoute,
-  preflightRoute,
 ])
 
 export const router = createRouter({

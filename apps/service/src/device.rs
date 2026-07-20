@@ -33,6 +33,7 @@ const EXPECTED_MODEL: &str = "KN1007B";
 const EXPECTED_MANUFACTURER: &str = "kaffelogic.com";
 const SCAN_INTERVAL: Duration = Duration::from_millis(1_500);
 const READ_TIMEOUT: Duration = Duration::from_millis(25);
+const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(12);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DIRECTORY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
@@ -98,6 +99,7 @@ struct Session {
     port: Box<dyn SerialPort>,
     decoder: Decoder,
     phase: Phase,
+    phase_started: Instant,
     started: Instant,
     last_elapsed_ms: u64,
     crc_seed: Option<u16>,
@@ -128,9 +130,14 @@ fn device_loop(
         loop {
             match commands.try_recv() {
                 Ok(Command::Refresh) => {
-                    if session.is_none() {
-                        next_scan = Instant::now();
+                    if session
+                        .as_ref()
+                        .is_some_and(|active| active.phase != Phase::Ready)
+                    {
+                        session = None;
+                        *snapshot.write() = reconnecting("refresh_requested");
                     }
+                    next_scan = Instant::now();
                 }
                 Ok(Command::Synchronize(reply)) => {
                     let result = if let Some(active) = session.as_mut() {
@@ -159,6 +166,16 @@ fn device_loop(
                 },
                 Err(reason) => *snapshot.write() = degraded(reason),
             }
+        }
+
+        let negotiation_timed_out = session.as_ref().is_some_and(|active| {
+            active.phase != Phase::Ready && active.phase_started.elapsed() >= NEGOTIATION_TIMEOUT
+        });
+        if negotiation_timed_out {
+            *snapshot.write() = degraded("negotiation_timeout");
+            session = None;
+            next_scan = Instant::now() + SCAN_INTERVAL;
+            continue;
         }
 
         if let Some(active) = session.as_mut() {
@@ -260,6 +277,7 @@ fn open_session(path: &str) -> Result<Session, &'static str> {
         port,
         decoder: Decoder::default(),
         phase: Phase::AwaitingHandshake,
+        phase_started: Instant::now(),
         started: Instant::now(),
         last_elapsed_ms: 0,
         crc_seed: None,
@@ -319,6 +337,7 @@ fn handle_message(
                 time_sync_frame(elapsed, seed, maximum)
             })?;
             session.phase = Phase::AwaitingTimeSync;
+            session.phase_started = Instant::now();
             let mut current = snapshot.write();
             current.state = "ready".into();
             current.reason = Some("awaiting_time_sync_ack".into());
@@ -332,6 +351,7 @@ fn handle_message(
                 info_frame(elapsed, seed, maximum, 9)
             })?;
             session.phase = Phase::AwaitingStatus;
+            session.phase_started = Instant::now();
             let mut current = snapshot.write();
             current.connection = "connected".into();
             current.reason = None;
@@ -343,12 +363,14 @@ fn handle_message(
                 info_frame(elapsed, seed, maximum, 3)
             })?;
             session.phase = Phase::AwaitingFirmware;
+            session.phase_started = Instant::now();
         }
         Message::InfoResponse { data, info_code: 3 }
             if session.phase == Phase::AwaitingFirmware =>
         {
             snapshot.write().firmware = extract_firmware(&data);
             session.phase = Phase::Ready;
+            session.phase_started = Instant::now();
         }
         Message::StatusNotification { info_code: 6, .. } => snapshot.write().busy = Some(true),
         Message::StatusNotification { info_code: 7, .. } => snapshot.write().busy = Some(false),

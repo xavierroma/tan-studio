@@ -1,19 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button } from "@tan-studio/ui/components/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@tan-studio/ui/components/field"
-import { Input } from "@tan-studio/ui/components/input"
+import { Button, buttonVariants } from "@tan-studio/ui/components/button"
 import {
   Empty,
   EmptyDescription,
@@ -22,483 +10,502 @@ import {
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
 import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@tan-studio/ui/components/field"
+import { Input } from "@tan-studio/ui/components/input"
+import { Separator } from "@tan-studio/ui/components/separator"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
+  SheetTrigger,
 } from "@tan-studio/ui/components/sheet"
-import { toast } from "sonner"
 import {
-  ArrowUpRightIcon,
-  BoxesIcon,
-  PackagePlusIcon,
-  SearchIcon,
-  SproutIcon,
-  TrendingUpIcon,
-} from "lucide-react"
-import { useMemo, useState, type FormEvent } from "react"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@tan-studio/ui/components/table"
+import { Textarea } from "@tan-studio/ui/components/textarea"
+import { BeanIcon, PlusIcon, SaveIcon, SearchIcon } from "lucide-react"
+import type { FormEvent } from "react"
+import { useState } from "react"
+import { toast } from "sonner"
 
-import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
-import { createAcquisition, listCoffeeLots, queryKeys } from "@/lib/api"
-import { formatMass, formatScore } from "@/lib/format"
+import {
+  createCoffee,
+  createNote,
+  listCoffees,
+  listNotes,
+  queryKeys,
+  updateCoffee,
+  type Coffee,
+  type CoffeeCreate,
+} from "@/lib/api"
+
+function grams(value: FormDataEntryValue | null) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.round(parsed * 1_000) : 0
+}
+function dateInput(value?: string | null) {
+  return value ? value.slice(0, 10) : ""
+}
+function instant(value: FormDataEntryValue | null) {
+  const text = String(value ?? "")
+  return text ? new Date(`${text}T12:00:00`).toISOString() : null
+}
+
+function coffeeBody(form: FormData): CoffeeCreate {
+  return {
+    name: String(form.get("name") ?? "").trim(),
+    provider: String(form.get("provider") ?? "").trim(),
+    providerUrl: String(form.get("providerUrl") ?? "").trim(),
+    providerProductId: "",
+    purchaseReference: String(form.get("purchaseReference") ?? "").trim(),
+    purchasedAt: instant(form.get("purchasedAt")),
+    priceMinor: null,
+    currencyCode: null,
+    purchasedMassMg: grams(form.get("purchasedMass")),
+    remainingMassMg: grams(form.get("remainingMass")),
+    country: String(form.get("country") ?? "").trim(),
+    region: String(form.get("region") ?? "").trim(),
+    farm: String(form.get("farm") ?? "").trim(),
+    producer: String(form.get("producer") ?? "").trim(),
+    washingStation: "",
+    process: String(form.get("process") ?? "").trim(),
+    variety: String(form.get("variety") ?? "").trim(),
+    altitudeMinM: null,
+    altitudeMaxM: null,
+    harvest: String(form.get("harvest") ?? "").trim(),
+    storageLocation: String(form.get("storageLocation") ?? "").trim(),
+    metadata: {},
+  }
+}
+
+function CoffeeFields({ coffee }: { coffee?: Coffee }) {
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="coffee-name">Coffee name</FieldLabel>
+        <Input
+          id="coffee-name"
+          name="name"
+          required
+          defaultValue={coffee?.name}
+          placeholder="Ethiopia Hamasho"
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-4">
+        <Field>
+          <FieldLabel htmlFor="provider">Provider</FieldLabel>
+          <Input
+            id="provider"
+            name="provider"
+            defaultValue={coffee?.provider}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="provider-url">Provider URL</FieldLabel>
+          <Input
+            id="provider-url"
+            name="providerUrl"
+            type="url"
+            defaultValue={coffee?.providerUrl}
+          />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field>
+          <FieldLabel htmlFor="purchase-reference">
+            Purchase reference
+          </FieldLabel>
+          <Input
+            id="purchase-reference"
+            name="purchaseReference"
+            defaultValue={coffee?.purchaseReference}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="purchased-at">Purchased</FieldLabel>
+          <Input
+            id="purchased-at"
+            name="purchasedAt"
+            type="date"
+            defaultValue={dateInput(coffee?.purchasedAt)}
+          />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field>
+          <FieldLabel htmlFor="purchased-mass">Purchased · g</FieldLabel>
+          <Input
+            id="purchased-mass"
+            name="purchasedMass"
+            type="number"
+            min="0"
+            step="1"
+            defaultValue={(coffee?.purchasedMassMg ?? 0) / 1_000}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="remaining-mass">Green remaining · g</FieldLabel>
+          <Input
+            id="remaining-mass"
+            name="remainingMass"
+            type="number"
+            min="0"
+            step="1"
+            defaultValue={(coffee?.remainingMassMg ?? 0) / 1_000}
+          />
+          <FieldDescription>Update when inventory changes.</FieldDescription>
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field>
+          <FieldLabel htmlFor="country">Country</FieldLabel>
+          <Input id="country" name="country" defaultValue={coffee?.country} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="region">Region</FieldLabel>
+          <Input id="region" name="region" defaultValue={coffee?.region} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="farm">Farm</FieldLabel>
+          <Input id="farm" name="farm" defaultValue={coffee?.farm} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="producer">Producer</FieldLabel>
+          <Input
+            id="producer"
+            name="producer"
+            defaultValue={coffee?.producer}
+          />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field>
+          <FieldLabel htmlFor="process">Process</FieldLabel>
+          <Input id="process" name="process" defaultValue={coffee?.process} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="variety">Variety</FieldLabel>
+          <Input id="variety" name="variety" defaultValue={coffee?.variety} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="harvest">Harvest</FieldLabel>
+          <Input id="harvest" name="harvest" defaultValue={coffee?.harvest} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="storage">Storage</FieldLabel>
+          <Input
+            id="storage"
+            name="storageLocation"
+            defaultValue={coffee?.storageLocation}
+          />
+        </Field>
+      </div>
+    </FieldGroup>
+  )
+}
 
 export function CoffeeCatalogScreen() {
-  const searchState = useSearch({ strict: false }) as {
-    q?: string
-    lotId?: string
-  }
+  const search = useSearch({ from: "/coffees" })
   const navigate = useNavigate({ from: "/coffees" })
   const queryClient = useQueryClient()
-  const lotsQuery = useQuery({
-    queryKey: queryKeys.coffeeLots(),
-    queryFn: listCoffeeLots,
+  const [createOpen, setCreateOpen] = useState(false)
+  const [noteBody, setNoteBody] = useState("")
+  const coffees = useQuery({
+    queryKey: queryKeys.coffees(search.q),
+    queryFn: ({ signal }) => listCoffees(search.q, signal),
   })
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [coffeeName, setCoffeeName] = useState("")
-  const [providerName, setProviderName] = useState("")
-  const lots = lotsQuery.data?.data ?? []
-  const search = searchState.q ?? ""
-  const visibleLots = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase()
-    if (!query) return lots
-    return lots.filter((lot) =>
-      [
-        lot.coffeeName,
-        lot.providerName,
-        lot.country,
-        lot.region,
-        lot.farm,
-        lot.process,
-        lot.lotCode,
-      ]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(query)
-    )
-  }, [lots, search])
-  const selected = lots.find((lot) => lot.id === searchState.lotId) ?? lots[0]
-  const totalOnHand = lots.reduce((total, lot) => total + lot.onHandKg, 0)
-  const providerCount = new Set(lots.map((lot) => lot.providerName)).size
-  const learningCoverage =
-    lots.length === 0
-      ? 0
-      : Math.round(
-          (lots.filter((lot) => lot.nextAction.trim().length > 0).length /
-            lots.length) *
-            100
-        )
-  const acquisitionMutation = useMutation({
-    mutationFn: createAcquisition,
-    onSuccess: (acquisition) => {
-      toast.success(`Lot ${acquisition.lot.internalCode} added`)
-      setSheetOpen(false)
-      setCoffeeName("")
-      setProviderName("")
-      void queryClient.invalidateQueries({ queryKey: queryKeys.coffeeLots() })
-      void navigate({
-        search: (previous) => ({
-          ...previous,
-          lotId: acquisition.lot.id,
-        }),
-        replace: true,
+  const selected = coffees.data?.find((coffee) => coffee.id === search.coffeeId)
+  const notes = useQuery({
+    queryKey: queryKeys.notes("coffee", selected?.id),
+    queryFn: ({ signal }) => listNotes("coffee", selected!.id, signal),
+    enabled: selected != null,
+  })
+  const createMutation = useMutation({
+    mutationFn: createCoffee,
+    onSuccess: (coffee) => {
+      toast.success(`Coffee #${coffee.id} saved`)
+      setCreateOpen(false)
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void navigate({ search: { q: search.q, coffeeId: coffee.id } })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const editMutation = useMutation({
+    mutationFn: (body: CoffeeCreate) =>
+      updateCoffee(selected!.id, selected!.revision, body),
+    onSuccess: () => {
+      toast.success("Coffee updated")
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+    },
+    onError: (error) => toast.error(error.message),
+  })
+  const noteMutation = useMutation({
+    mutationFn: createNote,
+    onSuccess: () => {
+      toast.success("Note saved")
+      setNoteBody("")
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.notes("coffee", selected?.id),
       })
     },
     onError: (error) => toast.error(error.message),
   })
-
-  const submitAcquisition = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const massKg = Number(form.get("receivedMassKg"))
-    const costPerKg = String(form.get("costPerKg") ?? "").trim()
-    if (!Number.isFinite(massKg) || massKg <= 0) {
-      toast.error("Received mass must be greater than zero")
-      return
-    }
-    acquisitionMutation.mutate({
-      providerName: providerName.trim(),
-      coffeeName: coffeeName.trim(),
-      supplierReference:
-        String(form.get("supplierReference") ?? "").trim() || undefined,
-      receivedMassMg: Math.round(massKg * 1_000_000),
-      costPerKgMinor: costPerKg
-        ? Math.round(Number(costPerKg) * 100)
-        : undefined,
-      currencyCode: String(form.get("currencyCode") || "USD"),
-      receivedAt: new Date().toISOString(),
-      sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-    })
-  }
+  if (coffees.error) throw coffees.error
 
   return (
     <div className="min-h-screen">
       <PageHeader
-        title="Green coffee catalog"
-        description="Provider → purchase → coffee lot · inventory, roast history and tasting feedback in one lineage"
+        title="Coffees"
+        description="One flat record per purchased green coffee: provider, origin, process, and remaining inventory."
         actions={
-          <Button onClick={() => setSheetOpen(true)}>
-            <PackagePlusIcon data-icon="inline-start" />
-            Add purchase
-          </Button>
+          <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+            <SheetTrigger
+              render={
+                <Button>
+                  <PlusIcon data-icon="inline-start" />
+                  Add coffee
+                </Button>
+              }
+            />
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Add green coffee</SheetTitle>
+                <SheetDescription>
+                  Record only what you know now; every field can be completed
+                  later.
+                </SheetDescription>
+              </SheetHeader>
+              <form
+                id="new-coffee-form"
+                className="px-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  createMutation.mutate(
+                    coffeeBody(new FormData(event.currentTarget))
+                  )
+                }}
+              >
+                <CoffeeFields />
+              </form>
+              <SheetFooter>
+                <Button
+                  type="submit"
+                  form="new-coffee-form"
+                  disabled={createMutation.isPending}
+                >
+                  <SaveIcon data-icon="inline-start" />
+                  Save coffee
+                </Button>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
         }
       />
-
-      <div className="px-5 py-6 sm:px-7">
-        <section
-          className="grid gap-4 sm:grid-cols-3"
-          aria-label="Green coffee inventory summary"
-        >
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Active lots"
-              value={lots.length}
-              detail={`Across ${providerCount} provider${providerCount === 1 ? "" : "s"}`}
+      <div className="flex flex-col gap-5 px-5 py-6 sm:px-7">
+        <Field className="max-w-xl">
+          <FieldLabel htmlFor="coffee-search" className="sr-only">
+            Search coffees
+          </FieldLabel>
+          <div className="relative">
+            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              id="coffee-search"
+              className="pl-9"
+              value={search.q ?? ""}
+              onChange={(event) =>
+                void navigate({
+                  search: {
+                    q: event.target.value || undefined,
+                    coffeeId: undefined,
+                  },
+                  replace: true,
+                })
+              }
+              placeholder="Coffee, provider, country, farm, process…"
             />
           </div>
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Green on hand"
-              value={formatMass(totalOnHand)}
-              detail="Across active inventory lots"
-            />
+        </Field>
+        {coffees.data?.length ? (
+          <div className="bg-card overflow-hidden rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Coffee</TableHead>
+                  <TableHead>Provider</TableHead>
+                  <TableHead>Origin</TableHead>
+                  <TableHead>Process</TableHead>
+                  <TableHead>Green remaining</TableHead>
+                  <TableHead>Roasts</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {coffees.data.map((coffee) => (
+                  <TableRow
+                    key={coffee.id}
+                    onClick={() =>
+                      void navigate({
+                        search: { q: search.q, coffeeId: coffee.id },
+                      })
+                    }
+                    className="cursor-pointer"
+                  >
+                    <TableCell className="font-medium">
+                      #{coffee.id} · {coffee.name}
+                    </TableCell>
+                    <TableCell>{coffee.provider || "—"}</TableCell>
+                    <TableCell>
+                      {[coffee.country, coffee.region, coffee.farm]
+                        .filter(Boolean)
+                        .join(" · ") || "—"}
+                    </TableCell>
+                    <TableCell>{coffee.process || "—"}</TableCell>
+                    <TableCell>
+                      {(coffee.remainingMassMg / 1_000).toLocaleString()} g
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{coffee.roastCount}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Learning coverage"
-              value={`${learningCoverage}%`}
-              detail="Lots with a tasting-derived next action"
-            />
-          </div>
-        </section>
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem]">
-          <section
-            className="bg-card min-w-0 overflow-hidden rounded-xl border"
-            aria-labelledby="coffee-lots-heading"
-          >
-            <div className="flex flex-col gap-4 border-b p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 id="coffee-lots-heading" className="font-semibold">
-                  Coffee lots
-                </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Physical green lots with procurement and storage context
-                </p>
-              </div>
-              <label className="relative block sm:w-80">
-                <span className="sr-only">Search coffee lots</span>
-                <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                <Input
-                  value={search}
-                  onChange={(event) => {
-                    const q = event.target.value || undefined
-                    void navigate({
-                      search: (previous) => ({ ...previous, q }),
-                      replace: true,
-                    })
-                  }}
-                  className="bg-background pl-9"
-                  placeholder="Search coffee, origin, provider…"
-                />
-              </label>
-            </div>
-
-            <div className="overflow-x-auto">
-              <div className="min-w-[860px]">
-                <div className="bg-muted text-muted-foreground grid grid-cols-[minmax(190px,1.3fr)_145px_170px_110px_100px_90px] gap-4 border-b px-5 py-3 text-[0.6875rem] font-semibold tracking-[0.08em] uppercase">
-                  <span>Coffee · lot</span>
-                  <span>Provider</span>
-                  <span>Origin · process</span>
-                  <span>On hand</span>
-                  <span>Roasts</span>
-                  <span>Best</span>
-                </div>
-                <div className="divide-y">
-                  {visibleLots.map((lot) => (
-                    <button
-                      key={lot.id}
-                      type="button"
-                      onClick={() => {
-                        void navigate({
-                          search: (previous) => ({
-                            ...previous,
-                            lotId: lot.id,
-                          }),
-                          replace: true,
-                        })
-                      }}
-                      aria-pressed={selected?.id === lot.id}
-                      className="hover:bg-secondary/40 aria-pressed:bg-accent/30 grid w-full grid-cols-[minmax(190px,1.3fr)_145px_170px_110px_100px_90px] items-center gap-4 px-5 py-4 text-left text-sm transition-colors"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold">
-                          {lot.coffeeName}
-                        </span>
-                        <span className="text-muted-foreground mt-1 block truncate text-xs">
-                          Lot {lot.lotCode} · {lot.harvest}
-                        </span>
-                      </span>
-                      <span className="truncate text-xs">
-                        {lot.providerName}
-                      </span>
-                      <span className="min-w-0 text-xs">
-                        <span className="block truncate font-medium">
-                          {lot.country} · {lot.region}
-                        </span>
-                        <span className="text-muted-foreground block truncate">
-                          {lot.process}
-                        </span>
-                      </span>
-                      <span className="font-mono font-medium tabular-nums">
-                        {formatMass(lot.onHandKg)}
-                      </span>
-                      <span className="font-mono tabular-nums">
-                        {lot.roastCount}
-                      </span>
-                      <span className="text-primary font-mono text-lg font-semibold tabular-nums">
-                        {formatScore(lot.bestScore)}
-                      </span>
-                    </button>
-                  ))}
-                  {!lotsQuery.isLoading && visibleLots.length === 0 ? (
-                    <Empty className="m-5 border">
-                      <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                          <SproutIcon />
-                        </EmptyMedia>
-                        <EmptyTitle>
-                          {search
-                            ? "No matching coffee lots"
-                            : "No coffee lots yet"}
-                        </EmptyTitle>
-                        <EmptyDescription>
-                          {search
-                            ? "Change the URL-backed search or clear it to see every lot."
-                            : "Add your first green coffee purchase to create its inventory lot."}
-                        </EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {lotsQuery.isError ? (
-            <Alert variant="destructive">
-              <AlertTitle>Catalog unavailable</AlertTitle>
-              <AlertDescription>{lotsQuery.error.message}</AlertDescription>
-            </Alert>
-          ) : selected ? (
-            <aside className="min-w-0">
-              <section
-                className="bg-card rounded-xl border p-5"
-                aria-labelledby="selected-lot-heading"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="bg-success flex size-10 items-center justify-center rounded-full">
-                    <SproutIcon className="size-5" />
-                  </span>
-                  <Badge variant="success">Active lot</Badge>
-                </div>
-                <h2
-                  id="selected-lot-heading"
-                  className="mt-4 text-lg font-semibold"
-                >
-                  {selected.coffeeName}
-                </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  {selected.farm} · {selected.region}, {selected.country}
-                </p>
-
-                <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4 border-t pt-5 text-sm">
-                  <div>
-                    <dt className="text-muted-foreground text-xs">Provider</dt>
-                    <dd className="mt-1 font-medium">
-                      {selected.providerName}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground text-xs">Purchase</dt>
-                    <dd className="mt-1 font-mono text-xs">
-                      {selected.providerReference}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground text-xs">Variety</dt>
-                    <dd className="mt-1 font-medium">{selected.variety}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground text-xs">Altitude</dt>
-                    <dd className="mt-1 font-medium">{selected.altitude}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground text-xs">Received</dt>
-                    <dd className="mt-1 font-mono">
-                      {formatMass(selected.receivedKg)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground text-xs">On hand</dt>
-                    <dd className="mt-1 font-mono">
-                      {formatMass(selected.onHandKg)}
-                    </dd>
-                  </div>
-                  <div className="col-span-2">
-                    <dt className="text-muted-foreground text-xs">Storage</dt>
-                    <dd className="mt-1 font-medium">{selected.storage}</dd>
-                  </div>
-                </dl>
-
-                <Button
-                  nativeButton={false}
-                  className="mt-5 w-full"
-                  render={
-                    <Link to="/preflight" search={{ lotId: selected.id }} />
-                  }
-                >
-                  Plan next roast
-                  <ArrowUpRightIcon data-icon="inline-end" />
-                </Button>
-                <Button
-                  nativeButton={false}
-                  variant="outline"
-                  className="mt-2 w-full"
-                  render={
-                    <Link
-                      to="/coffees/$lotId"
-                      params={{ lotId: selected.id }}
-                    />
-                  }
-                >
-                  Open lot notebook
-                </Button>
-              </section>
-
-              <section
-                className="bg-success mt-5 rounded-xl border p-5"
-                aria-labelledby="lot-learning-heading"
-              >
-                <TrendingUpIcon className="text-primary size-5" />
-                <h2 id="lot-learning-heading" className="mt-3 font-semibold">
-                  Next-roast conclusion
-                </h2>
-                <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
-                  {selected.nextAction}
-                </p>
-                <Button
-                  nativeButton={false}
-                  variant="outline"
-                  className="bg-card mt-4 w-full"
-                  render={<Link to="/compare" />}
-                >
-                  View lot history
-                </Button>
-              </section>
-            </aside>
-          ) : null}
-        </div>
+        ) : (
+          <Empty className="min-h-72 border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <BeanIcon />
+              </EmptyMedia>
+              <EmptyTitle>No coffees yet</EmptyTitle>
+              <EmptyDescription>
+                Add the green coffee you plan to roast.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
       </div>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="sm:max-w-md">
+      <Sheet
+        open={selected != null}
+        onOpenChange={(open) => {
+          if (!open)
+            void navigate({ search: { q: search.q, coffeeId: undefined } })
+        }}
+      >
+        <SheetContent>
           <SheetHeader>
-            <SheetTitle>Add a green coffee purchase</SheetTitle>
+            <SheetTitle>
+              {selected ? `#${selected.id} · ${selected.name}` : "Coffee"}
+            </SheetTitle>
             <SheetDescription>
-              Record the provider and coffee identity first. Purchase lines can
-              then allocate physical lots and inventory.
+              Edit its catalog and inventory details, or add observations below.
             </SheetDescription>
           </SheetHeader>
-          <form onSubmit={submitAcquisition}>
-            <FieldGroup className="overflow-y-auto px-4">
-              <Field>
-                <FieldLabel htmlFor="new-provider">Provider</FieldLabel>
-                <Input
-                  id="new-provider"
-                  value={providerName}
-                  onChange={(event) => setProviderName(event.target.value)}
-                  placeholder="Provider name"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="new-coffee">Coffee</FieldLabel>
-                <Input
-                  id="new-coffee"
-                  value={coffeeName}
-                  onChange={(event) => setCoffeeName(event.target.value)}
-                  placeholder="Coffee display name"
-                />
-                <FieldDescription>
-                  Use the name you expect to search for when planning future
-                  roasts.
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="new-reference">
-                  Supplier reference
-                </FieldLabel>
-                <Input
-                  id="new-reference"
-                  name="supplierReference"
-                  placeholder="Invoice or order reference"
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field>
-                  <FieldLabel htmlFor="new-mass">Received mass</FieldLabel>
-                  <Input
-                    id="new-mass"
-                    name="receivedMassKg"
-                    type="number"
-                    min="0.001"
-                    step="0.001"
-                    required
-                    placeholder="5.00"
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="new-cost">Cost per kg</FieldLabel>
-                  <Input
-                    id="new-cost"
-                    name="costPerKg"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="Optional"
-                  />
-                </Field>
-              </div>
-              <Field>
-                <FieldLabel htmlFor="new-currency">Currency</FieldLabel>
-                <Input
-                  id="new-currency"
-                  name="currencyCode"
-                  defaultValue="USD"
-                  minLength={3}
-                  maxLength={3}
-                />
-              </Field>
-            </FieldGroup>
-            <SheetFooter>
-              <Button
-                type="submit"
-                disabled={
-                  acquisitionMutation.isPending ||
-                  !providerName.trim() ||
-                  !coffeeName.trim()
-                }
+          {selected ? (
+            <>
+              <form
+                id="edit-coffee-form"
+                className="px-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  editMutation.mutate(
+                    coffeeBody(new FormData(event.currentTarget))
+                  )
+                }}
               >
-                <BoxesIcon data-icon="inline-start" />
-                {acquisitionMutation.isPending ? "Adding…" : "Add purchase"}
-              </Button>
-              <Button variant="outline" onClick={() => setSheetOpen(false)}>
-                Cancel
-              </Button>
-            </SheetFooter>
-          </form>
+                <CoffeeFields
+                  key={`${selected.id}-${selected.revision}`}
+                  coffee={selected}
+                />
+              </form>
+              <div className="flex flex-col gap-4 px-4">
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">Notes</h3>
+                  <Link
+                    to="/roasts"
+                    search={{
+                      coffeeId: selected.id,
+                      profileId: undefined,
+                      q: undefined,
+                      status: undefined,
+                      view: undefined,
+                    }}
+                    className={buttonVariants({
+                      variant: "outline",
+                      size: "sm",
+                    })}
+                  >
+                    {selected.roastCount} roasts
+                  </Link>
+                </div>
+                {notes.data?.map((note) => (
+                  <p key={note.id} className="text-sm whitespace-pre-wrap">
+                    {note.body}
+                  </p>
+                ))}
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const body = noteBody.trim()
+                    if (body)
+                      noteMutation.mutate({
+                        kind: "observation",
+                        body,
+                        source: "user",
+                        attributes: {},
+                        links: [
+                          { resourceType: "coffee", resourceId: selected.id },
+                        ],
+                      })
+                  }}
+                >
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="coffee-note">Add note</FieldLabel>
+                      <Textarea
+                        id="coffee-note"
+                        name="note"
+                        value={noteBody}
+                        onChange={(event) => setNoteBody(event.target.value)}
+                        placeholder="What should you remember about this coffee?"
+                      />
+                    </Field>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      disabled={noteMutation.isPending}
+                    >
+                      Save note
+                    </Button>
+                  </FieldGroup>
+                </form>
+              </div>
+              <SheetFooter>
+                <Button
+                  type="submit"
+                  form="edit-coffee-form"
+                  disabled={editMutation.isPending}
+                >
+                  <SaveIcon data-icon="inline-start" />
+                  Save changes
+                </Button>
+              </SheetFooter>
+            </>
+          ) : null}
         </SheetContent>
       </Sheet>
     </div>
