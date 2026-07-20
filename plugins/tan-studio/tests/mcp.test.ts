@@ -102,12 +102,37 @@ describe("Tan Studio MCP contract", () => {
       body: "Floral and bright; reduce the next roast level slightly.",
       kind: "tasting",
       ratingBasisPoints: 9_100,
-      source: "agent:codex",
+      source: "agent",
+      attributes: { agent: "codex" },
       links: [
         { resourceType: "roast", resourceId: 15 },
         { resourceType: "brew", resourceId: 31 },
       ],
     })
+  })
+
+  test("rejects note kinds the Rust service does not support", async () => {
+    let invoked = false
+    const { client } = await connect(
+      fakeApi({
+        createNote: async () => {
+          invoked = true
+          return { id: 1 } as never
+        },
+      })
+    )
+
+    const result = await client.callTool({
+      name: "tan_add_note",
+      arguments: {
+        body: "Do not send this to the API",
+        kind: "future-kind",
+        links: [{ resourceType: "roast", resourceId: 15 }],
+      },
+    })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toMatch(/invalid arguments/iu)
+    expect(invoked).toBe(false)
   })
 })
 

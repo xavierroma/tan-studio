@@ -15,20 +15,36 @@ export interface ConfigEnvironment {
   TAN_STUDIO_API_URL?: string
   TAN_STUDIO_API_TOKEN?: string
   TAN_STUDIO_TOKEN_FILE?: string
+  TAN_STUDIO_CONFIG_FILE?: string
   TAN_STUDIO_TIMEOUT_MS?: string
+}
+
+interface FileConfig {
+  url?: string
+  tokenFile?: string
+  timeoutMs?: number
 }
 
 export async function loadConfig(
   environment: ConfigEnvironment = process.env as ConfigEnvironment,
   userHome = homedir()
 ): Promise<TanStudioConfig> {
+  const fileConfig = await loadFileConfig(environment, userHome)
   const baseUrl = normalizeBaseUrl(
     environment.TAN_STUDIO_URL ??
       environment.TAN_STUDIO_API_URL ??
+      fileConfig.url ??
       DEFAULT_TAN_STUDIO_URL
   )
-  const timeoutMs = parseTimeout(environment.TAN_STUDIO_TIMEOUT_MS)
-  const token = await resolveToken(environment, userHome, baseUrl)
+  const timeoutMs = parseTimeout(
+    environment.TAN_STUDIO_TIMEOUT_MS ?? fileConfig.timeoutMs
+  )
+  const token = await resolveToken(
+    environment,
+    userHome,
+    baseUrl,
+    fileConfig.tokenFile
+  )
 
   return { baseUrl, token, timeoutMs }
 }
@@ -57,12 +73,14 @@ export function normalizeBaseUrl(value: string): string {
 async function resolveToken(
   environment: ConfigEnvironment,
   userHome: string,
-  baseUrl: string
+  baseUrl: string,
+  configuredTokenFile: string | undefined
 ): Promise<string> {
   const directToken = environment.TAN_STUDIO_API_TOKEN?.trim()
   if (directToken) return validateToken(directToken)
 
-  const explicitTokenFile = environment.TAN_STUDIO_TOKEN_FILE?.trim()
+  const explicitTokenFile =
+    environment.TAN_STUDIO_TOKEN_FILE?.trim() ?? configuredTokenFile
   const userTokenFile = join(userHome, ".config", "tan-studio", "token")
   const macLanTokenFile = join(
     userHome,
@@ -102,6 +120,44 @@ async function resolveToken(
   )
 }
 
+async function loadFileConfig(
+  environment: ConfigEnvironment,
+  userHome: string
+): Promise<FileConfig> {
+  const configFile =
+    environment.TAN_STUDIO_CONFIG_FILE?.trim() ??
+    join(userHome, ".config", "tan-studio", "codex-plugin.json")
+  if (!(await Bun.file(configFile).exists())) return {}
+
+  let value: unknown
+  try {
+    value = JSON.parse(await Bun.file(configFile).text())
+  } catch {
+    throw new Error(`Tan Studio plugin config is not valid JSON: ${configFile}`)
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Tan Studio plugin config must be an object: ${configFile}`)
+  }
+
+  const record = value as Record<string, unknown>
+  const allowedKeys = new Set(["url", "tokenFile", "timeoutMs"])
+  const unknownKey = Object.keys(record).find((key) => !allowedKeys.has(key))
+  if (unknownKey !== undefined) {
+    throw new Error(
+      `Unknown Tan Studio plugin config field ${JSON.stringify(unknownKey)}`
+    )
+  }
+
+  const url = optionalNonEmptyString(record.url, "url")
+  const tokenFile = optionalNonEmptyString(record.tokenFile, "tokenFile")
+  const timeoutMs = optionalInteger(record.timeoutMs, "timeoutMs")
+  return {
+    ...(url !== undefined ? { url } : {}),
+    ...(tokenFile !== undefined ? { tokenFile } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  }
+}
+
 function validateToken(token: string): string {
   if (
     token.length < 16 ||
@@ -113,7 +169,7 @@ function validateToken(token: string): string {
   return token
 }
 
-function parseTimeout(value: string | undefined): number {
+function parseTimeout(value: string | number | undefined): number {
   if (value === undefined) return DEFAULT_TIMEOUT_MS
 
   const timeout = Number(value)
@@ -123,4 +179,25 @@ function parseTimeout(value: string | undefined): number {
     )
   }
   return timeout
+}
+
+function optionalNonEmptyString(
+  value: unknown,
+  field: string
+): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(
+      `Tan Studio plugin config ${field} must be a non-empty string`
+    )
+  }
+  return value.trim()
+}
+
+function optionalInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value)) {
+    throw new Error(`Tan Studio plugin config ${field} must be an integer`)
+  }
+  return value as number
 }

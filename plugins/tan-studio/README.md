@@ -28,7 +28,7 @@ bun run --cwd plugins/tan-studio test
 bun run --cwd plugins/tan-studio build
 ```
 
-The plugin manifest is `.codex-plugin/plugin.json`; `.mcp.json` starts the bundled `dist/server.js` stdio server with Bun. Runtime dependencies are bundled so an installed plugin does not depend on the repository's `node_modules`. The MCP process inherits `TAN_STUDIO_URL`, `TAN_STUDIO_API_TOKEN`, `TAN_STUDIO_TOKEN_FILE`, and `TAN_STUDIO_TIMEOUT_MS`. See the skill's [configuration reference](skills/tan-studio/references/configuration.md) for credential discovery.
+The plugin manifest is `.codex-plugin/plugin.json`; `.mcp.json` starts the bundled `dist/server.js` stdio server with Bun. Runtime dependencies are bundled so an installed plugin does not depend on the repository's `node_modules`. The MCP process reads `~/.config/tan-studio/codex-plugin.json` and allows `TAN_STUDIO_URL`, `TAN_STUDIO_API_TOKEN`, `TAN_STUDIO_TOKEN_FILE`, `TAN_STUDIO_CONFIG_FILE`, and `TAN_STUDIO_TIMEOUT_MS` overrides. See the skill's [configuration reference](skills/tan-studio/references/configuration.md) for credential discovery.
 
 `src/generated/api.ts` is generated from `apps/web/src/generated/openapi.json`. Do not edit it manually. Root contract checks fail if either the web or plugin client drifts from the Rust service's OpenAPI document.
 

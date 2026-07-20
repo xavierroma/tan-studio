@@ -4,12 +4,25 @@ The plugin runs a local stdio MCP adapter and calls the same Tan Studio HTTP API
 
 ## Connection variables
 
-| Variable                | Meaning                                                                       | Default                         |
-| ----------------------- | ----------------------------------------------------------------------------- | ------------------------------- |
-| `TAN_STUDIO_URL`        | Tan Studio service origin. An optional trailing `/api/v1` is normalized away. | `http://tan-studio.local`       |
-| `TAN_STUDIO_API_TOKEN`  | Bearer token supplied directly to the process.                                | none                            |
-| `TAN_STUDIO_TOKEN_FILE` | Absolute path to a token file.                                                | token discovery described below |
-| `TAN_STUDIO_TIMEOUT_MS` | Request timeout from 250 to 60,000 ms.                                        | `5000`                          |
+| Variable                 | Meaning                                                                       | Default                                  |
+| ------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------- |
+| `TAN_STUDIO_URL`         | Tan Studio service origin. An optional trailing `/api/v1` is normalized away. | `http://tan-studio.local`                |
+| `TAN_STUDIO_API_TOKEN`   | Bearer token supplied directly to the process.                                | none                                     |
+| `TAN_STUDIO_TOKEN_FILE`  | Absolute path to a token file.                                                | token discovery described below          |
+| `TAN_STUDIO_CONFIG_FILE` | Persistent JSON configuration path.                                           | `~/.config/tan-studio/codex-plugin.json` |
+| `TAN_STUDIO_TIMEOUT_MS`  | Request timeout from 250 to 60,000 ms.                                        | `5000`                                   |
+
+Use the persistent config when Codex is launched from the desktop and cannot inherit shell variables:
+
+```json
+{
+  "url": "http://xrc.local:8080",
+  "tokenFile": "/absolute/path/to/a/token/file",
+  "timeoutMs": 5000
+}
+```
+
+Only `url`, `tokenFile`, and `timeoutMs` are accepted. Store the bearer token in the referenced mode-0600 file, never inside this JSON. Environment variables override file values.
 
 The portable default token file is:
 

@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import {
   DEFAULT_TAN_STUDIO_URL,
@@ -39,5 +42,62 @@ describe("Tan Studio plugin configuration", () => {
         "/unused"
       )
     ).rejects.toThrow("Invalid Tan Studio API token")
+  })
+
+  test("loads persistent non-secret config with environment overrides", async () => {
+    const userHome = await mkdtemp(join(tmpdir(), "tan-studio-plugin-"))
+    const configDirectory = join(userHome, ".config", "tan-studio")
+    const tokenFile = join(configDirectory, "service-token")
+    try {
+      await mkdir(configDirectory, { recursive: true })
+      await writeFile(tokenFile, "c".repeat(64), { mode: 0o600 })
+      await writeFile(
+        join(configDirectory, "codex-plugin.json"),
+        JSON.stringify({
+          url: "http://configured.local:8080/api/v1",
+          tokenFile,
+          timeoutMs: 7_500,
+        })
+      )
+
+      expect(await loadConfig({}, userHome)).toEqual({
+        baseUrl: "http://configured.local:8080",
+        token: "c".repeat(64),
+        timeoutMs: 7_500,
+      })
+      expect(
+        await loadConfig(
+          {
+            TAN_STUDIO_URL: "http://override.local:9000",
+            TAN_STUDIO_API_TOKEN: "d".repeat(64),
+            TAN_STUDIO_TIMEOUT_MS: "9000",
+          },
+          userHome
+        )
+      ).toEqual({
+        baseUrl: "http://override.local:9000",
+        token: "d".repeat(64),
+        timeoutMs: 9_000,
+      })
+    } finally {
+      await rm(userHome, { recursive: true, force: true })
+    }
+  })
+
+  test("rejects secret-like or unknown persistent config fields", async () => {
+    const userHome = await mkdtemp(join(tmpdir(), "tan-studio-plugin-"))
+    const configDirectory = join(userHome, ".config", "tan-studio")
+    try {
+      await mkdir(configDirectory, { recursive: true })
+      await writeFile(
+        join(configDirectory, "codex-plugin.json"),
+        JSON.stringify({ token: "must-not-live-here" })
+      )
+      expect(loadConfig({}, userHome)).rejects.toThrow(
+        "Unknown Tan Studio plugin config field"
+      )
+    } finally {
+      await rm(userHome, { recursive: true, force: true })
+    }
   })
 })

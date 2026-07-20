@@ -21,6 +21,13 @@ const shortId = z
 const optionalSearch = z.string().trim().min(1).max(200).optional()
 const optionalFilterId = shortId.optional()
 const resultLimit = z.number().int().min(1).max(200).default(50)
+const noteKind = z.enum([
+  "observation",
+  "tasting",
+  "annotation",
+  "recommendation",
+  "general",
+])
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -244,7 +251,7 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
         "Persist one note and link it atomically to one or more profiles, coffees, roasts, or brews. Use for observations and tasting feedback.",
       inputSchema: {
         body: z.string().trim().min(1).max(10_000),
-        kind: z.string().trim().min(1).max(100).default("observation"),
+        kind: noteKind.default("observation"),
         ratingPercent: z.number().min(0).max(100).optional(),
         links: z
           .array(
@@ -264,7 +271,8 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
           body,
           kind,
           links,
-          source: "agent:codex",
+          source: "agent",
+          attributes: { agent: "codex" },
           ...(ratingPercent !== undefined
             ? { ratingBasisPoints: percentToBasisPoints(ratingPercent) }
             : {}),

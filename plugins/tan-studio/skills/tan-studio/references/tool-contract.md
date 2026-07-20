@@ -16,12 +16,12 @@ MCP resources mirror common reads at `tan://pantry`, `tan://device`, `tan://prof
 
 ## Write tools
 
-| Tool               | Effect                                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `tan_record_brew`  | Creates one brew linked to an existing roast. Omitted values use backend defaults.               |
-| `tan_add_note`     | Creates one note and atomically links it to 1–10 resources. Source is recorded as `agent:codex`. |
-| `tan_create_label` | Creates one roast-linked label request/artifact; it does not imply physical printing.            |
-| `tan_sync_device`  | Imports Kaffeelogic profiles/logs into Tan Studio and does not write to the roaster.             |
+| Tool               | Effect                                                                                                    |
+| ------------------ | --------------------------------------------------------------------------------------------------------- |
+| `tan_record_brew`  | Creates one brew linked to an existing roast. Omitted values use backend defaults.                        |
+| `tan_add_note`     | Creates one note and atomically links it to 1–10 resources. Source is `agent`; metadata identifies Codex. |
+| `tan_create_label` | Creates one roast-linked label request/artifact; it does not imply physical printing.                     |
+| `tan_sync_device`  | Imports Kaffeelogic profiles/logs into Tan Studio and does not write to the roaster.                      |
 
 There is deliberately no generic HTTP tool, SQL tool, raw serial tool, or device-write tool.
 
