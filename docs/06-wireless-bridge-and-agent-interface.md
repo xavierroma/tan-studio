@@ -13,8 +13,9 @@ It deliberately separates verified facts from inference. No official Wireless Co
 
 - Build a **Tan Bridge**, not a second Tan Studio server. It owns the Nano USB connection, the SASSI session, and a bounded durable recovery buffer. It does not own the coffee/roast/brew/note database.
 - Keep the existing Rust Tan Studio service as the canonical backend, wherever it runs. Add a transport-neutral `RoasterLink` port with direct USB, official Kaffelogic LAN, and Tan Bridge adapters.
-- Prototype the bridge on a separately powered Raspberry Pi Zero 2 W because Linux and USB OTG let it test either USB role. Existing Rust serial/SASSI code is reusable only if the Nano remains a CDC device in accessory mode.
-- Target an ESP32-S3 USB-OTG design for the eventual tiny appliance. It integrates 2.4 GHz Wi-Fi and native full-speed USB host/device support and avoids Linux, microSD, and long boot time.
+- Use an **M5Stack AtomS3 Lite (SKU C124)** as the selected bridge prototype. It is an enclosed 24 × 24 × 9.5 mm ESP32-S3 appliance with one USB-C receptacle, 8 MB flash, 2.4 GHz Wi-Fi, a button, and an RGB status LED.
+- Connect it to the Nano with one short USB-C data cable. In normal operation it has no second cable, power supply, FeatherWing, SD card, or external computer.
+- Implement it first as a native USB device/sink. This is the topology most consistent with the unpowered official accessory and the Nano's RP2040 host capability, but remains an inference until the Atom/Nano enumeration probe succeeds.
 - Do not power a prototype from the Nano until VBUS direction, USB-C CC roles, voltage under load, available current, inrush, and backfeed behavior have been measured.
 - Keep OpenAPI 3.1 as the one public data contract. Generate the web client, CLI client, and MCP adapter from it.
 - Give Codex both interfaces: `tan` CLI for scripts, diagnostics, and exact reproduction; MCP for discoverable, typed, workflow-level tools. MCP is the preferred interactive interface.
@@ -62,6 +63,8 @@ The Nano presents an RP2040 USB CDC serial device to a computer during the verif
 
 Only a USB-C CC/power measurement and protocol trace can distinguish them. A conventional UART-only Wi-Fi board cannot simply be wired to the Nano's USB connector. Tan Bridge therefore needs a pluggable USB-role adapter until the topology is known.
 
+The [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf) confirms that its USB 1.1 controller and PHY support both host and device modes. Combined with the official module's lack of another documented power input, this makes Nano-as-host/source and bridge-as-device/sink the leading hypothesis. It is not proof of the Nano firmware's accessory-mode behavior.
+
 The module's visible size and function are compatible with a Wi-Fi microcontroller, flash, a regulator/power switch, USB-C role circuitry, and an antenna. That is an engineering inference, not identification of the official PCB.
 
 ### 2.4 Still unknown
@@ -77,23 +80,72 @@ The module's visible size and function are compatible with a Wi-Fi microcontroll
 
 These cannot be responsibly filled in from product photographs. They require an official module and controlled measurements.
 
-## 3. Candidate hardware
+## 3. Selected hardware and alternatives
 
 | Candidate | Prototype fit | Product fit | Main trade-off |
 | --- | --- | --- | --- |
-| Raspberry Pi Zero 2 W | Best first prototype | Poor final dongle | Reuses Linux/Rust code, but is 65 × 30 mm, uses microSD, boots slowly, and has a materially larger power envelope. |
-| ESP32-S3 | Moderate firmware effort | Best current target | Integrated Wi-Fi and USB host/device OTG in a small MCU, but requires purpose-built CDC/SASSI firmware and board. |
+| **M5Stack AtomS3 Lite C124** | **Selected** | **Strong** | Enclosed single-cable ESP32-S3 device; no PSRAM and a published 0–40 °C operating range. |
+| Seeed XIAO ESP32S3 | Strong fallback | Strong after enclosure | More RAM and an external antenna, but it is a bare board requiring an enclosure. |
+| Raspberry Pi Zero 2 W | Useful diagnostic fallback | Poor final dongle | Linux makes tracing easy, but it needs separate power, microSD, and a larger enclosure. |
 | Raspberry Pi Pico 2 W | Plausible alternative | Possible | Native USB host/device and Wi-Fi fit the bridge, but ESP-IDF currently offers more direct CDC examples. |
 
-The [Raspberry Pi Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/) has a 1 GHz quad-core Cortex-A53, 512 MB RAM, 2.4 GHz Wi-Fi, micro-USB OTG, and a 65 × 30 mm board. It is ideal for proving the network boundary because Tan Studio's Rust device code can be extracted or reused on ARM64. It is not a sensible assumption for USB-port power: Raspberry Pi documents a substantially larger recommended supply than a tiny Wi-Fi module, and microSD is vulnerable to abrupt power loss.
+### 3.1 Purchase
 
-The [ESP32-S3](https://documentation.espressif.com/esp32-s3_datasheet_en.pdf) integrates 2.4 GHz Wi-Fi and USB OTG. Espressif supplies both a [USB Host library](https://docs.espressif.com/projects/esp-usb/en/latest/esp32s3/usb_host.html) and [TinyUSB device support](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/usb_device.html). The official [ESP32-S3-USB-OTG board](https://documentation.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32s3/esp32-s3-usb-otg/user_guide.html) is the right laboratory platform for validating the measured Nano topology before designing a board.
+Buy:
+
+1. two [M5Stack AtomS3 Lite ESP32-S3 development kits](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit), SKU C124—one working bridge and one recovery/development spare;
+2. one short, certified USB 2.0 USB-C-to-USB-C cable with data conductors, ideally 150–300 mm;
+3. for bring-up only, an inline USB-C meter that reports VBUS voltage/current and preserves CC plus USB 2.0 data.
+
+Only one Atom and one cable remain attached in normal operation. No programmer is required: initial firmware uses the same USB-C bootloader, and later releases use signed OTA with USB recovery.
+
+The Seeed [XIAO ESP32S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) is the fallback if the integrated Atom antenna is inadequate near the roaster. It supplies 8 MB flash, 8 MB PSRAM, and an external 2.4 GHz antenna in a smaller bare board, but loses the Atom's finished enclosure, status button/LED ergonomics, and mechanical simplicity.
+
+Do not buy an Atom Lite based on the older ESP32, an AtomS3 screen model, a USB host FeatherWing, a generic UART-to-Wi-Fi adapter, or a driver-based USB device server. The exact selected part is **AtomS3 Lite / C124**.
+
+### 3.2 Verified AtomS3 Lite fit
+
+The [M5Stack product documentation](https://docs.m5stack.com/en/core/AtomS3%20Lite) and published [schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/471/Sch_M5_AtomS3_v1.0.pdf) establish:
+
+| Requirement | AtomS3 Lite evidence | Result |
+| --- | --- | --- |
+| One operational cable | One USB-C receptacle accepts both power and data. | Pass |
+| USB accessory/sink role | CC1 and CC2 each have 5.11 kΩ pull-downs to ground. | Pass for leading topology |
+| Native USB data | D−/D+ connect directly to ESP32-S3 GPIO19/GPIO20 with ESD protection. | Pass |
+| Protected VBUS input | USB VBUS enters `VIN_5V` through a 6 V/1 A resettable fuse. | Pass; Nano source capacity still must be measured |
+| MCU | Dual-core ESP32-S3FN8 at up to 240 MHz. | Pass |
+| Network | Integrated 2.4 GHz Wi-Fi and 3D antenna. | Pass |
+| Persistent storage | 8 MB SPI flash. | Pass |
+| Volatile memory | ESP32-S3 internal 512 KB SRAM; no PSRAM on C124. | Pass with bounded streaming buffers |
+| Recovery interaction | Physical button, reset/download behavior, RGB LED. | Pass |
+| Physical envelope | 24 × 24 × 9.5 mm, 5.3 g, supplied enclosure. | Better than official 49 × 25 × 11 mm envelope |
+| Temperature | Published operating range 0–40 °C. | Conditional: keep off the hot roaster shell |
+
+The ESP32-S3 provides full-speed USB OTG and 2.4 GHz 802.11 b/g/n. Its [datasheet](https://documentation.espressif.com/esp32-s3_datasheet_en.pdf) gives worst-case 100%-duty-cycle Wi-Fi transmit peaks of 283–340 mA at 3.3 V depending on mode and power. Actual bridge traffic is intermittent, but Nano VBUS voltage, current, inrush, and brownout behavior remain a hardware acceptance gate. Firmware disables the RGB except for brief status indications and may reduce transmit power after a measured link-budget test.
+
+Eight megabytes is sufficient without PSRAM because SASSI packets are at most 4,064 bytes and files are streamed rather than retained in RAM. The initial flash budget is:
+
+```text
+bootloader + partition/NVS/keys       <= 512 KiB
+firmware OTA A                          2 MiB
+firmware OTA B                          2 MiB
+append-only event/file spool          ~3 MiB
+crash/recovery reserve               remainder
+```
+
+The exact partition CSV is fixed only after the firmware and TLS footprint are measured. A KLOG larger than available spool capacity is streamed and content-addressed in chunks; retention gaps are explicit rather than silently dropping data.
+
+### 3.3 Alternatives not selected
+
+The [Raspberry Pi Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/) has a 1 GHz quad-core Cortex-A53, 512 MB RAM, 2.4 GHz Wi-Fi, and micro-USB OTG. It remains useful if Linux tracing is required, but it does not meet the single-cable, Nano-powered product requirement and introduces microSD power-loss risk.
+
+The [ESP32-S3](https://documentation.espressif.com/esp32-s3_datasheet_en.pdf) integrates 2.4 GHz Wi-Fi and USB OTG. Espressif supplies both a [USB Host library](https://docs.espressif.com/projects/esp-usb/en/latest/esp32s3/usb_host.html) and [TinyUSB device support](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/usb_device.html). The official ESP32-S3-USB-OTG board remains a laboratory fallback if measurements disprove the USB-device topology; it is not the one-cable product.
 
 The [Raspberry Pi Pico 2](https://www.raspberrypi.com/products/raspberry-pi-pico-2/) family is a credible MCU alternative with native USB host/device support; the Pico 2 W adds 2.4 GHz Wi-Fi. It remains a fallback until the USB-role experiment and a small CDC proof compare its implementation cost with ESP-IDF.
 
-### 3.1 Prototype power rule
+### 3.4 Prototype power rule
 
-The first Pi and ESP32-S3 experiments use independent, current-limited power. The Nano USB connection is data-only or protected by a USB power switch that prevents backfeed. USB-C cables and adapters must not be modified casually: CC resistors determine roles, and removing only VBUS can change attachment behavior.
+The Atom is electrically a USB-C sink and cannot back-power the Nano through its connector. Initial Nano attachment still uses an inline meter and a current-limited/protected test path because the Nano source capacity is undocumented. USB-C cables and adapters must not be modified casually: CC resistors determine roles, and removing only VBUS can change attachment behavior.
 
 Before a Nano-powered design is allowed, record:
 
@@ -105,14 +157,14 @@ Before a Nano-powered design is allowed, record:
 - roaster behavior across bridge reset and hot-plug;
 - backfeed current with either side independently powered.
 
-The measurement setup uses a USB-C protocol/power analyzer, an inline current meter with logging, a current-limited bench supply, and a known safe electronic load. The Nano is never used as the first unknown load source.
+The measurement setup uses an inline USB-C current meter that preserves CC/data, with an analyzer or current-limited fixture if the first observation is abnormal. The first firmware disables Wi-Fi until USB enumeration and idle draw are recorded, then enables Wi-Fi association and transmit in staged steps.
 
 ## 4. Runtime architecture
 
 ```mermaid
 flowchart LR
-    N["Kaffelogic Nano"] -->|"USB CDC + SASSI"| B["Tan Bridge"]
-    B -->|"authenticated TLS stream"| S["Tan Studio Rust service"]
+    N["Kaffelogic Nano"] -->|"USB gadget + SASSI hypothesis"| B["AtomS3 Lite Tan Bridge"]
+    B -->|"paired HTTPS + event stream"| S["Tan Studio Rust service"]
     O["Official Wireless Module"] -->|"SASSI bridge / TCP 9056"| S
     D["Direct USB"] --> S
     S --> DB["Canonical SQLite database"]
@@ -168,9 +220,24 @@ Domain and application services depend only on `RoasterLink`. None may inspect s
 
 The spool exists only to survive Wi-Fi/backend interruption. Once the backend acknowledges a cursor and the retention floor permits it, the bridge may discard old entries. A small SQLite database is acceptable on the Pi prototype; an embedded append-only flash journal with checksums and wear management is preferred on the MCU.
 
-### 5.3 Native bridge protocol
+### 5.3 Native bridge API
 
-The bridge initiates an outbound TLS connection to its paired backend. This avoids inbound router configuration and lets the same design work on one LAN or across a future relay.
+On the home LAN, the Atom is available as `tan-bridge-<short-id>.local`. The Rust backend discovers it with mDNS, pins its device identity during a physical-button pairing window, and then pulls or pushes through a small paired HTTPS API. The bridge is never exposed through router port forwarding.
+
+Minimum resources:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /bridge/v1/status` | Firmware, uptime, USB/Nano state, roast state, spool bounds, and capabilities. |
+| `GET /bridge/v1/files` | Cursor-paginated profile/log manifest with path, size, modification evidence, and SHA-256. |
+| `GET /bridge/v1/files/{hash}` | Bounded, resumable immutable file/chunk download. |
+| `GET /bridge/v1/events` | Ordered WebSocket stream for live roast, device status, files, and job progress. |
+| `POST /bridge/v1/synchronize` | Idempotently refresh the device file/status snapshot. |
+| `POST /bridge/v1/commands` | Capability-gated verified command; read-only commands are the only initial capability. |
+
+There is no generic socket, raw serial endpoint, SQL, shell, or arbitrary device-file write. Profile push is added later as an explicit verified command with content hash, destination, precondition, idempotency key, and result receipt.
+
+For future cross-network monitoring, the bridge may additionally initiate an outbound authenticated TLS stream to the backend or relay. That mode reuses the same envelopes and avoids inbound router configuration.
 
 Minimum messages:
 
@@ -193,45 +260,44 @@ The first release is observation and synchronization only. Device mutation stays
 ### 5.4 LAN discovery and pairing
 
 - Advertise `_tan-bridge._tcp` over mDNS with only product, protocol major, and pairing state.
-- First pairing requires physical access: hold the bridge button or scan a one-time QR code printed/displayed by the bridge setup flow.
+- First pairing requires physical access: hold the Atom button to open a short trust-on-first-use pairing window. The backend pins the generated device key and the bridge pins the backend key.
 - Exchange long-lived device credentials during pairing; do not use a permanent factory password.
 - Do not put tokens in URLs, mDNS TXT records, logs, or diagnostics.
 - Reject backend commands when the authenticated identity, capability scope, revision, or idempotency key is missing.
+- Button hold at power-up starts a temporary `TanBridge-<short-id>` provisioning AP. Its captive page stores the home SSID and password in encrypted NVS; the AP stops after provisioning.
+- RGB patterns distinguish provisioning, Wi-Fi connected, backend paired, Nano connected, active roast, recoverable fault, and recovery mode. The LED is normally off.
 
 An optional Kaffelogic Studio compatibility mode may later emulate the official discovery and TCP 9056 behavior. It is separate from the native secure protocol, LAN-only, disabled by default, and cannot be claimed until packet captures prove compatibility.
 
-## 6. Reverse-engineering programme
+## 6. Bring-up and reverse-engineering programme
 
-All experiments are non-destructive until an official module owner authorizes a teardown.
+### Phase A — passive Atom/Nano USB probe
 
-### Phase A — black-box official module
+1. Flash the Atom from the Mac with ESP-IDF and Espressif's TinyUSB CDC-device stack. Wi-Fi and all application writes remain disabled.
+2. Record its Mac-side descriptors, idle draw, reset behavior, and USB logs.
+3. Connect Atom to the powered Nano through the inline CC/current meter. Confirm VBUS direction and voltage before Wi-Fi is enabled.
+4. Log every standard USB setup request, configuration selection, CDC control request, and received byte without transmitting application data.
+5. If the Nano enumerates CDC, enable only the verified SASSI handshake response and status/file reads.
+6. If it enumerates but rejects the class, vary only descriptors/classes supported by the ESP32-S3 device stack and retain each observation. Do not guess device actions.
+7. If the Nano never sources VBUS or enumerates the sink, stop: the one-cable Atom topology is disproven for this Nano and the USB-host fallback must be reconsidered.
 
-1. Photograph markings and record external dimensions without publishing unique identifiers.
-2. Use a USB-C analyzer to establish source/sink and host/device roles.
-3. Measure power during boot, AP mode, association, idle, traffic, reconnect, and firmware update.
-4. Put the module, Nano, and Studio on an isolated lab network.
-5. Capture DHCP, DNS, mDNS/multicast, TCP 9056, timing, and reconnect behavior. Redact Wi-Fi credentials and device serials.
-6. Capture legitimate Studio workflows: discovery, profile list/read, log list/read, live roast, disconnect/reconnect, and safe preference reads.
-7. Compare TCP packets with direct USB SASSI fixtures and identify exact bridge transformations.
-8. Test Studio absent, backend absent, LAN loss, AP loss, and power loss during a roast.
+### Phase B — local bridge proof
 
-### Phase B — Pi Zero proof
+1. Implement the SASSI actor and stream every byte through the same redacted golden fixtures used by the Rust codec.
+2. Enable Wi-Fi association in a staged power test, followed by mDNS and the read-only bridge API.
+3. List and download all Nano profiles and logs. Hash and losslessly parse them against direct-Mac USB imports.
+4. Stream a complete roast to the Mac-hosted Tan Studio service.
+5. Disconnect Wi-Fi mid-roast, reconnect, replay the spool, and prove a gap-free final KLOG.
+6. Reboot both sides independently and prove idempotent file synchronization.
+7. Measure current, brownouts, heap high-water mark, flash wear, boot time, radio reliability, and enclosure temperature.
 
-1. Measure the official USB topology. If the Nano remains a CDC device, extract the existing USB/SASSI session behind `RoasterLink`; otherwise implement only the required USB gadget adapter and reuse the verified SASSI codec/state behavior.
-2. Run a minimal `tan-bridge` image on a separately powered Zero 2 W.
-3. Stream device snapshots and a complete roast to a Mac-hosted Tan Studio service.
-4. Disconnect Wi-Fi mid-roast, reconnect, replay the spool, and prove a gap-free final KLOG.
-5. Reboot both sides independently and prove idempotent file synchronization.
-6. Measure CPU, memory, network volume, storage writes, boot time, and power.
+### Phase C — appliance hardening
 
-### Phase C — ESP32-S3 proof
-
-1. Reproduce the measured Nano USB role with the ESP32-S3 host library or TinyUSB device stack.
-2. Implement the required CDC transfers/descriptors and reproduce the verified SASSI handshake.
-3. List and download profiles/logs with golden-fixture parity against Rust.
-4. Implement the bounded spool and native authenticated protocol.
-5. Add signed OTA, watchdog, recovery button, AP provisioning, and fault injection.
-6. Only after electrical validation, design a current-limited USB-C board and enclosure.
+1. Add mutual pairing, encrypted NVS, signed A/B OTA, watchdog, rollback, and physical recovery.
+2. Add AP provisioning, bounded append-only spool, explicit retention gaps, and redacted diagnostics.
+3. Run malformed USB/SASSI/API fuzz fixtures, power interruption, packet loss, and 24-hour soak tests.
+4. Keep profile push and other device mutations absent until their protocol is captured from legitimate direct-Studio operation and replay-tested.
+5. If the Atom meets electrical, thermal, radio, and recovery acceptance, it remains the production home bridge; a custom PCB is optional rather than required.
 
 ### Exit criteria
 
@@ -397,16 +463,22 @@ There is no destructive device scope in the first release. Profile/device mutati
 3. Implement `tan` read commands, JSON output, auth discovery, and contract tests.
 4. Implement MCP read tools/resources with the official Rust SDK; register it in project Codex configuration.
 5. Add idempotent note and brew writes, then prepare/commit roast planning.
-6. Build the separately powered Pi Zero bridge proof and `TanBridgeRoasterLink`.
-7. Capture an official module and implement `OfficialWifiRoasterLink` from replayable fixtures.
-8. Validate ESP32-S3 CDC host and bridge protocol; only then design final hardware.
+6. Add an ESP-IDF `firmware/tan-bridge-esp32s3` workspace targeting AtomS3 Lite C124, with reproducible toolchain and signed artifacts.
+7. Run the passive USB-role/current probe, then implement read-only SASSI, the LAN API, and `TanBridgeRoasterLink` only if it passes.
+8. Prove direct/bridge profile-log parity and live-roast recovery; then harden pairing, OTA, spool, watchdog, and diagnostics.
+9. Add verified profile push. Official TCP 9056 compatibility remains optional and separate from the native Tan Bridge API.
 
-The CLI/MCP work can proceed without bridge hardware. The Pi proof can proceed without an official module. Claiming official Studio compatibility or Nano-powered operation cannot.
+The CLI/MCP work can proceed without bridge hardware. Firmware scaffolding can proceed before delivery, but claiming Nano-powered operation cannot precede the real current/enumeration test. An official module is not required for the passive Atom/Nano probe or the native Tan Bridge protocol.
 
 ## 10. Sources
 
 - [Kaffelogic Wireless Connect Module](https://www.kaffelogic.com/products/wireless-connect-module)
 - [Kaffelogic Wireless Module manual V2.03](https://cdn.shopify.com/s/files/1/0278/9169/5713/files/KL_-_Wireless_Manual_V2.03_WEB.pdf?v=1771384146)
+- [M5Stack AtomS3 Lite C124](https://docs.m5stack.com/en/core/AtomS3%20Lite)
+- [M5Stack AtomS3 Lite store page](https://shop.m5stack.com/products/atoms3-lite-esp32s3-dev-kit)
+- [M5Stack AtomS3 Lite schematic](https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/471/Sch_M5_AtomS3_v1.0.pdf)
+- [Seeed XIAO ESP32S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html)
+- [RP2040 datasheet](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf)
 - [Raspberry Pi Zero 2 W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)
 - [ESP32-S3 datasheet](https://documentation.espressif.com/esp32-s3_datasheet_en.pdf)
 - [Espressif USB Host library](https://docs.espressif.com/projects/esp-usb/en/latest/esp32s3/usb_host.html)
