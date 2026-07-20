@@ -209,6 +209,10 @@ export function RoastChart({
 
     chart.setOption({
       animation: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      // Keep hover rendering on the base canvas. ECharts' separate hover layer
+      // can clear sibling series in macOS WebKit once a chart is sufficiently
+      // dense, even though the underlying data remains present.
+      hoverLayerThreshold: Number.MAX_SAFE_INTEGER,
       aria: {
         enabled: true,
         description:
@@ -322,6 +326,13 @@ export function RoastChart({
               type: series.dashed ? "dashed" : "solid",
             },
             itemStyle: { color: colors[series.colorIndex] },
+            // The axis tooltip and crosshair remain active; only the visual
+            // emphasis transition is disabled so inspection cannot hide lines.
+            emphasis: { disabled: true },
+            blur: {
+              lineStyle: { opacity: 1 },
+              itemStyle: { opacity: 1 },
+            },
             ...(index === 0
               ? {
                   markLine: {
