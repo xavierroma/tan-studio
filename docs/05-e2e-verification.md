@@ -123,3 +123,9 @@ The Nano enumerated as a macOS USB CDC modem and the packaged Tan Studio applica
 The final release candidate also exercised recovery from a half-open negotiation: the Refresh action closed the incomplete serial session, rediscovered the same CDC device, renegotiated SASSI, and returned the verified model, firmware, packet limit `4064`, 16-profile count, and 15-log count. Incomplete negotiations now time out and rescan instead of leaving the UI permanently stuck.
 
 This read-only USB path is now E2E-passing. Device writes remain disabled until legitimate Studio traffic establishes the exact profile-write, command, acknowledgement, and recovery behavior. A supervised new roast, incremental live-log notification, cable interruption during a roast, and post-roast automatic synchronization remain the live-monitoring acceptance gates.
+
+## macOS LAN service
+
+The production headless service was installed as the per-user `com.xavierroma.tanstudio.lan` LaunchAgent and verified through both the Mac's mDNS name and numeric LAN address on port 8080. The same listener serves the production React assets and `/api/v1`; the HTML response contains the in-memory LAN bootstrap, while direct API clients require the generated bearer token.
+
+Verification covered a full stop/start cycle, automatic restart readiness, real history ordering from roast 15 through roast 1, the existing production database, and the connected Nano identity. Unauthenticated API requests returned 401, a hostile Host returned 403, and the allowed LAN authority returned a healthy database plus the expected API data. The Mac application firewall was disabled during this check. Browser-plugin navigation to a private LAN address was blocked by the test environment's enterprise network policy, so rendered browser automation was not used to bypass that boundary.

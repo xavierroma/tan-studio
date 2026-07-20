@@ -82,6 +82,22 @@ bun run deploy:pi
 
 Docker is used on the build Mac for a reproducible ARM64 artifact; the Pi runs native binaries under systemd. See [the Pi deployment guide](deploy/raspberry-pi/README.md).
 
+## Website on the Mac LAN
+
+Until the Raspberry Pi is available, the same headless Rust service can run persistently on the Mac and serve both the UI and API:
+
+```sh
+bun run lan:install
+bun run lan:status
+```
+
+The installer builds an immutable release under the application's support directory, reuses the desktop database, generates a private LAN session token, and registers a per-user `launchd` service. It prints both the `.local` and numeric LAN URLs plus the token file required by non-browser API clients. Keep the desktop application closed while LAN mode is running because only one process can own the Nano USB serial port.
+
+```sh
+bun run lan:stop
+bun run lan:start
+```
+
 ## References
 
 - [Existing Studio feature discovery](docs/01-current-product-discovery.md)
