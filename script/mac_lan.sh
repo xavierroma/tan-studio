@@ -62,8 +62,9 @@ tan_start() {
   fi
   if ! launchctl print "$TAN_LAUNCH_DOMAIN/$TAN_LABEL" >/dev/null 2>&1; then
     launchctl bootstrap "$TAN_LAUNCH_DOMAIN" "$TAN_PLIST"
+  else
+    launchctl kickstart -k "$TAN_LAUNCH_DOMAIN/$TAN_LABEL"
   fi
-  launchctl kickstart -k "$TAN_LAUNCH_DOMAIN/$TAN_LABEL"
   if ! tan_wait_healthy; then
     tail -n 40 "$TAN_LOG_DIRECTORY/service.error.log" >&2 || true
     return 1

@@ -26,7 +26,7 @@ const client = new Client({ name: "tan-studio-live-test", version: "0.1.0" })
 try {
   await client.connect(transport)
   const tools = await client.listTools()
-  assert.equal(tools.tools.length, 11)
+  assert.equal(tools.tools.length, 15)
   const resources = await client.listResources()
   assert.equal(resources.resources.length, 2)
   const templates = await client.listResourceTemplates()

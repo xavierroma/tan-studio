@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { randomBytes } from "node:crypto"
-import { mkdtemp, mkdir, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -91,9 +91,12 @@ try {
   const toolNames = tools.tools.map((tool) => tool.name).sort()
   assert.deepEqual(toolNames, [
     "tan_add_note",
+    "tan_attach_file",
+    "tan_create_coffee",
     "tan_create_label",
     "tan_get_context",
     "tan_get_roast",
+    "tan_list_attachments",
     "tan_list_pantry",
     "tan_record_brew",
     "tan_search_coffees",
@@ -101,6 +104,7 @@ try {
     "tan_search_roasts",
     "tan_status",
     "tan_sync_device",
+    "tan_update_coffee",
   ])
 
   const resources = await primaryClient.listResources()
@@ -136,6 +140,59 @@ try {
     limit: 1,
   })
   assert.equal(arrayField(coffees, "items").length, 1)
+
+  const agentCoffee = await callOk(primaryClient, "tan_create_coffee", {
+    name: "Agent Researched Coffee",
+    provider: "Typed MCP Provider",
+    providerUrl: "https://example.com/coffee/agent-researched",
+    country: "Testland",
+    region: "Typed Valley",
+    process: "Honey",
+    variety: "Fixture",
+    purchasedGrams: 250,
+    remainingGrams: 250,
+    metadata: { provenance: "MCP E2E fixture" },
+  })
+  assert.equal(numericField(agentCoffee, "purchasedMassMg"), 250_000)
+  const agentCoffeeUpdated = await callOk(primaryClient, "tan_update_coffee", {
+    coffeeId: numericField(agentCoffee, "id"),
+    revision: numericField(agentCoffee, "revision"),
+    farm: "Fixture Farm",
+    remainingGrams: 225.5,
+  })
+  assert.equal(stringField(agentCoffeeUpdated, "farm"), "Fixture Farm")
+  assert.equal(numericField(agentCoffeeUpdated, "remainingMassMg"), 225_500)
+
+  const attachmentPath = join(temporaryRoot, "provider-sheet.pdf")
+  await writeFile(
+    attachmentPath,
+    new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])
+  )
+  const attachment = await callOk(primaryClient, "tan_attach_file", {
+    filePath: attachmentPath,
+    title: "Provider sheet",
+    mediaType: "application/pdf",
+    sourceUrl: "https://example.com/coffee/agent-researched",
+    description: "Disposable MCP upload fixture",
+    links: [
+      {
+        resourceType: "coffee",
+        resourceId: numericField(agentCoffee, "id"),
+      },
+    ],
+  })
+  assert.equal(numericField(attachment, "byteLength"), 8)
+  assert.equal(stringField(attachment, "mediaType"), "application/pdf")
+  const agentAttachments = await callOk(primaryClient, "tan_list_attachments", {
+    resourceType: "coffee",
+    resourceId: numericField(agentCoffee, "id"),
+  })
+  assert.deepEqual(
+    arrayField(agentAttachments, "items").map((item) =>
+      numericField(item, "id")
+    ),
+    [numericField(attachment, "id")]
+  )
   const roasts = await callOk(primaryClient, "tan_search_roasts", {
     profileId: numericField(profile, "id"),
     coffeeId: numericField(coffee, "id"),
@@ -279,10 +336,12 @@ try {
         created: {
           profile: numericField(profile, "id"),
           coffee: numericField(coffee, "id"),
+          agentCoffee: numericField(agentCoffee, "id"),
           roast: numericField(roast, "id"),
           brew: numericField(brew, "id"),
           note: numericField(note, "id"),
           label: numericField(label, "id"),
+          attachment: numericField(attachment, "id"),
         },
         verifiedFailures: [
           "missing-resource",
