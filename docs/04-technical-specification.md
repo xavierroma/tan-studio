@@ -267,6 +267,8 @@ The OpenAPI document is the agent tool source. Useful patterns:
 
 Future AI profile proposals are structured drafts. They may create notes or child-profile proposals after validation and user approval. They cannot issue device commands.
 
+The concrete Codex surface is a generated `tan` CLI plus a curated MCP adapter over the same API client. The CLI is the reproducible diagnostics and automation surface; MCP is the preferred interactive surface. The always-on USB/Wi-Fi appliance is a device gateway and does not expose agent tools or own domain data. See [Tan Bridge and agent interface](06-wireless-bridge-and-agent-interface.md).
+
 ## 9. Native formats
 
 ### 9.1 KPRO

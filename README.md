@@ -16,7 +16,7 @@ Settings singleton
 
 All public resources use short positive integer IDs. KLOG/KPRO source files, telemetry, and device synchronization remain internal lossless evidence.
 
-See the current [product requirements](docs/03-product-requirements-document.md) and [technical specification](docs/04-technical-specification.md).
+See the current [product requirements](docs/03-product-requirements-document.md), [technical specification](docs/04-technical-specification.md), and [wireless bridge and agent-interface decision](docs/06-wireless-bridge-and-agent-interface.md).
 
 ## Workspace
 
@@ -105,4 +105,5 @@ bun run lan:start
 - [Current product requirements](docs/03-product-requirements-document.md)
 - [Current technical specification](docs/04-technical-specification.md)
 - [Real-device and Studio parity evidence](docs/05-e2e-verification.md)
+- [Wireless bridge hardware and Codex CLI/MCP interface](docs/06-wireless-bridge-and-agent-interface.md)
 - [Editable Excalidraw board](mockups/kaffelogic-modern-studio.excalidraw)
