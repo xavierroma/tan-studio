@@ -32,6 +32,8 @@ The plugin manifest is `.codex-plugin/plugin.json`; `.mcp.json` starts the bundl
 
 `src/generated/api.ts` is generated from `apps/web/src/generated/openapi.json`. Do not edit it manually. Root contract checks fail if either the web or plugin client drifts from the Rust service's OpenAPI document.
 
+The repeatable isolated and live MCP test clients are documented in the repository's [Codex MCP test plan](../../docs/07-codex-mcp-test-plan.md). They speak MCP over stdio; they are not a separate end-user CLI.
+
 ## Boundary
 
 The plugin exposes workflow tools and read resources only. It does not expose arbitrary REST calls, SQL, raw serial access, or speculative Kaffeelogic write commands. Agent-facing masses, temperatures, ratings, and label dimensions use human units and are converted to exact integer API units at the MCP-controller boundary, then validated again by the Rust API.
