@@ -18,28 +18,61 @@ import {
 import type { ComponentType } from "react"
 
 const navigation = [
-  { label: "Roast", to: "/roast", icon: FlameIcon },
-  { label: "Roasts", to: "/roasts", icon: BookOpenTextIcon },
-  { label: "Profiles", to: "/profiles", icon: ChartNoAxesCombinedIcon },
-  { label: "Coffees", to: "/coffees", icon: CoffeeIcon },
-  { label: "Brews", to: "/brews", icon: CupSodaIcon },
-  { label: "Devices", to: "/devices", icon: CableIcon },
+  {
+    label: "Roast",
+    to: "/roast",
+    icon: FlameIcon,
+    search: { profileId: undefined, coffeeId: undefined },
+  },
+  {
+    label: "Roasts",
+    to: "/roasts",
+    icon: BookOpenTextIcon,
+    search: {
+      q: undefined,
+      status: undefined,
+      profileId: undefined,
+      coffeeId: undefined,
+      sort: undefined,
+      hidden: undefined,
+      view: undefined,
+    },
+  },
+  {
+    label: "Profiles",
+    to: "/profiles",
+    icon: ChartNoAxesCombinedIcon,
+    search: { profileId: undefined },
+  },
+  {
+    label: "Coffees",
+    to: "/coffees",
+    icon: CoffeeIcon,
+    search: { q: undefined, coffeeId: undefined },
+  },
+  {
+    label: "Brews",
+    to: "/brews",
+    icon: CupSodaIcon,
+    search: { roastId: undefined, brewId: undefined, tab: undefined },
+  },
+  { label: "Devices", to: "/devices", icon: CableIcon, search: {} },
 ] as const
 
 function NavLink({
   label,
   to,
   icon: Icon,
+  search,
   compact = false,
-}: {
-  label: string
-  to: (typeof navigation)[number]["to"]
+}: (typeof navigation)[number] & {
   icon: ComponentType<{ "data-icon"?: string; className?: string }>
   compact?: boolean
 }) {
   const link = (
     <Link
       to={to}
+      search={search}
       activeOptions={{ exact: to !== "/roasts" }}
       className={
         compact
