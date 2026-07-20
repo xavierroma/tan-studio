@@ -14,6 +14,8 @@ Use the Tan Studio MCP tools as the authoritative interface to the user's coffee
 3. Call `tan_get_context` before comparing outcomes or recommending a change.
 4. Use `tan_get_roast` with telemetry only when curve data materially affects the answer.
 
+Use `tan_create_coffee` for a new provider listing and `tan_update_coffee` for later corrections. Keep the provider page URL and source-specific facts in metadata, leave unknown fields unset, and use the current revision returned by search before updating.
+
 Use `tan_list_pantry` for “what should I brew?” questions. Respect each roast's rest state, estimated remaining mass, and latest tasting feedback.
 
 ## Record user observations
@@ -25,6 +27,7 @@ Treat the user's stated measurements and sensory observations as facts. Keep sug
 - Link a tasting note to the brew and roast when both are known.
 - Preserve the user's wording in unstructured notes; do not manufacture flavor notes, scores, measurements, or inventory amounts.
 - Report the persisted numeric ID after a successful write.
+- Use `tan_attach_file` after saving a provider PDF, brew photo, or roast photo/video locally. Link it to every known relevant resource; use `tan_list_attachments` to verify the relationship.
 
 Read [references/tool-contract.md](references/tool-contract.md) before a write or telemetry request if field semantics or units are unclear.
 

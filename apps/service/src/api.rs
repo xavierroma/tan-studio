@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -38,6 +39,7 @@ pub struct ApiState {
     pub(crate) device: Arc<NanoDeviceManager>,
     pub(crate) session_id: String,
     pub(crate) cursor_key: Arc<[u8]>,
+    pub(crate) attachment_root: Arc<PathBuf>,
 }
 
 impl ApiState {
@@ -48,12 +50,34 @@ impl ApiState {
     ) -> Result<Self, ApiError> {
         let session_id = Uuid::now_v7().to_string();
         let cursor_key: Arc<[u8]> = config.launch_token.as_bytes().to_vec().into();
+        let attachment_root = config
+            .database_path
+            .parent()
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "attachment_store_unavailable",
+                    "Attachment store unavailable",
+                    "The database path has no directory for local attachments.",
+                )
+            })?
+            .join("attachments");
+        std::fs::create_dir_all(attachment_root.join(".tmp")).map_err(|error| {
+            tracing::error!(%error, "attachment_store_initialization_failed");
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "attachment_store_unavailable",
+                "Attachment store unavailable",
+                "Tan Studio could not initialize its local attachment store.",
+            )
+        })?;
         Ok(Self {
             config: Arc::new(config),
             database,
             device,
             session_id,
             cursor_key,
+            attachment_root: Arc::new(attachment_root),
         })
     }
 }
@@ -130,6 +154,23 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/notes/{id}/links",
             axum::routing::put(crate::core_api::notes_put_links),
+        )
+        .route(
+            "/attachments",
+            get(crate::core_api::attachments_list).post(crate::core_api::attachments_create),
+        )
+        .route(
+            "/attachments/{id}",
+            get(crate::core_api::attachments_get).patch(crate::core_api::attachments_patch),
+        )
+        .route(
+            "/attachments/{id}/links",
+            axum::routing::put(crate::core_api::attachments_put_links),
+        )
+        .route(
+            "/attachments/{id}/content",
+            get(crate::core_api::attachments_get_content)
+                .put(crate::core_api::attachments_put_content),
         )
         .route(
             "/labels",
@@ -284,15 +325,19 @@ async fn api_security(
         .with_request(path, correlation)
         .into_response();
     }
-    if matches!(
-        *request.method(),
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    ) && request
+    let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        != Some("application/json")
+        .and_then(|value| value.split(';').next());
+    let attachment_upload = request.method() == Method::PUT
+        && content_type == Some("application/octet-stream")
+        && is_attachment_content_path(&path);
+    if matches!(
+        *request.method(),
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) && content_type != Some("application/json")
+        && !attachment_upload
     {
         return ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -323,6 +368,14 @@ async fn api_security(
         }
     }
     response
+}
+
+fn is_attachment_content_path(path: &str) -> bool {
+    ["/api/v1/attachments/", "/attachments/"]
+        .into_iter()
+        .find_map(|prefix| path.strip_prefix(prefix))
+        .and_then(|suffix| suffix.strip_suffix("/content"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 async fn api_not_found(request: Request<Body>) -> ApiError {
@@ -2713,6 +2766,37 @@ mod tests {
         (status, payload)
     }
 
+    async fn api_binary_request(
+        app: &Router,
+        method: Method,
+        path: &str,
+        body: Body,
+        revision: Option<i64>,
+    ) -> (StatusCode, HeaderMap, axum::body::Bytes) {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "127.0.0.1:4317")
+            .header(header::ORIGIN, "http://127.0.0.1:1420")
+            .header(header::AUTHORIZATION, "Bearer test-contract-token")
+            .header("x-tan-studio-client", "tan-studio-browser-dev")
+            .header(header::CONTENT_TYPE, "application/octet-stream");
+        if let Some(revision) = revision {
+            request = request.header(header::IF_MATCH, format!("\"revision:{revision}\""));
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = to_bytes(response.into_body(), 2 * 1024 * 1024)
+            .await
+            .unwrap();
+        (status, headers, bytes)
+    }
+
     #[tokio::test]
     async fn core_api_persists_the_complete_roast_to_brew_workflow() {
         let directory = tempdir().unwrap();
@@ -2837,6 +2921,64 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CREATED, "{note}");
         assert_eq!(note["links"].as_array().unwrap().len(), 4);
+
+        let (status, attachment) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/attachments",
+            Some(json!({
+                "title": "Finished beans",
+                "filename": "beans.jpg",
+                "mediaType": "image/jpeg",
+                "sourceUrl": "https://example.test/beans",
+                "links": [
+                    {"resourceType": "coffee", "resourceId": coffee_id},
+                    {"resourceType": "roast", "resourceId": roast_id},
+                    {"resourceType": "brew", "resourceId": brew_id}
+                ]
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{attachment}");
+        let attachment_id = attachment["id"].as_i64().unwrap();
+        let attachment_revision = attachment["revision"].as_i64().unwrap();
+        let content = b"not-a-real-jpeg-but-deterministic";
+        let (status, _, uploaded) = api_binary_request(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::from(content.as_slice()),
+            Some(attachment_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let uploaded: Value = serde_json::from_slice(&uploaded).unwrap();
+        assert_eq!(uploaded["byteLength"], content.len() as i64);
+        assert_eq!(uploaded["sha256"].as_str().unwrap().len(), 64);
+
+        let (status, listed) = api_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments?resourceType=coffee&resourceId={coffee_id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+
+        let (status, headers, downloaded) = api_binary_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::empty(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
+        assert_eq!(downloaded.as_ref(), content);
 
         let (status, label) = api_request(
             &app,

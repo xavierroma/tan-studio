@@ -138,8 +138,27 @@ function minutesLabel(elapsedMs: number) {
   return `${sign}${Math.floor(absolute / 60)}:${String(absolute % 60).padStart(2, "0")}`
 }
 
-function defaultSelection(channels: readonly ChartChannel[]) {
+function defaultSelection(
+  channels: readonly ChartChannel[],
+  points: readonly ChartPoint[]
+) {
   const available = new Map(channels.map((channel) => [channel.name, channel]))
+  if (channels.length === 0) {
+    const selected = new Set<SeriesKey>(["temp"])
+    if (points.some((point) => point.profileC != null)) selected.add("profile")
+    if (points.some((point) => point.rorCPerMin != null))
+      selected.add("actual_ROR")
+    if (points.some((point) => point.desiredRorCPerMin != null))
+      selected.add("desired_ROR")
+    if (
+      !points.some(
+        (point) => point.rorCPerMin != null || point.desiredRorCPerMin != null
+      ) &&
+      points.some((point) => point.actualFanRpm != null)
+    )
+      selected.add("actual_fan_RPM")
+    return selected
+  }
   return new Set(
     seriesDefinitions
       .filter((series) => available.get(series.key)?.hiddenByDefault !== true)
@@ -163,7 +182,17 @@ export function RoastChart({
     [channels]
   )
   const [visible, setVisible] = useState<Set<SeriesKey>>(() =>
-    defaultSelection(channels)
+    defaultSelection(channels, points)
+  )
+  const [includeCooldown, setIncludeCooldown] = useState(false)
+  const hasCooldownSamples =
+    durationMs != null && points.some((point) => point.elapsedMs > durationMs)
+  const displayedPoints = useMemo(
+    () =>
+      !live && durationMs != null && !includeCooldown
+        ? points.filter((point) => point.elapsedMs <= durationMs)
+        : points,
+    [durationMs, includeCooldown, live, points]
   )
 
   useEffect(() => {
@@ -186,12 +215,18 @@ export function RoastChart({
     ]
     const hasVisibleRate = seriesDefinitions
       .filter((series) => series.axis === 1 && visible.has(series.key))
-      .some((series) => points.some((point) => series.value(point) != null))
+      .some((series) =>
+        displayedPoints.some((point) => series.value(point) != null)
+      )
     const hasVisibleFan =
       showFanAxis &&
       visible.has("actual_fan_RPM") &&
-      points.some((point) => point.actualFanRpm != null)
-    const xValues = points.flatMap((point) =>
+      displayedPoints.some((point) => point.actualFanRpm != null)
+    const hasVisiblePower =
+      visible.has("power_kW") &&
+      displayedPoints.some((point) => point.powerKw != null)
+    const hasLowerPanel = hasVisibleRate || hasVisibleFan || hasVisiblePower
+    const xValues = displayedPoints.flatMap((point) =>
       seriesDefinitions
         .filter((series) => visible.has(series.key))
         .map(
@@ -222,14 +257,25 @@ export function RoastChart({
         color: foreground,
         fontFamily: "Geist Variable, sans-serif",
       },
-      grid: {
-        top: 26,
-        right: hasVisibleRate && hasVisibleFan ? 112 : 62,
-        bottom: 52,
-        left: 52,
-      },
+      grid: hasLowerPanel
+        ? [
+            {
+              top: 24,
+              right: hasVisibleFan ? 72 : 56,
+              height: "57%",
+              left: 58,
+            },
+            {
+              top: "70%",
+              right: hasVisibleFan ? 72 : 56,
+              bottom: 54,
+              left: 58,
+            },
+          ]
+        : { top: 24, right: 56, bottom: 52, left: 58 },
       tooltip: {
         trigger: "axis",
+        axisPointer: { type: "line" },
         backgroundColor: card,
         borderColor: border,
         textStyle: { color: foreground },
@@ -237,9 +283,14 @@ export function RoastChart({
           typeof value === "number" ? value.toFixed(2) : String(value),
       },
       dataZoom: [
-        { type: "inside", filterMode: "none" },
+        {
+          type: "inside",
+          filterMode: "none",
+          xAxisIndex: hasLowerPanel ? [0, 1] : [0],
+        },
         {
           type: "slider",
+          xAxisIndex: hasLowerPanel ? [0, 1] : [0],
           height: 16,
           bottom: 8,
           borderColor: border,
@@ -247,24 +298,54 @@ export function RoastChart({
           showDetail: false,
         },
       ],
-      xAxis: {
-        type: "value",
-        min: minimumX,
-        max: maximumX,
-        axisLabel: {
-          color: muted,
-          formatter: (value: number) => minutesLabel(value),
-          hideOverlap: true,
+      xAxis: [
+        {
+          type: "value",
+          gridIndex: 0,
+          min: minimumX,
+          max: maximumX,
+          axisLabel: hasLowerPanel
+            ? { show: false }
+            : {
+                color: muted,
+                formatter: (value: number) => minutesLabel(value),
+                hideOverlap: true,
+              },
+          axisLine: { lineStyle: { color: border } },
+          axisTick: { show: false },
+          splitLine: {
+            lineStyle: { color: border, type: "dashed", opacity: 0.48 },
+          },
         },
-        axisLine: { lineStyle: { color: border } },
-        axisTick: { show: false },
-        splitLine: {
-          lineStyle: { color: border, type: "dashed", opacity: 0.55 },
-        },
-      },
+        ...(hasLowerPanel
+          ? [
+              {
+                type: "value" as const,
+                gridIndex: 1,
+                min: minimumX,
+                max: maximumX,
+                axisLabel: {
+                  color: muted,
+                  formatter: (value: number) => minutesLabel(value),
+                  hideOverlap: true,
+                },
+                axisLine: { lineStyle: { color: border } },
+                axisTick: { show: false },
+                splitLine: {
+                  lineStyle: {
+                    color: border,
+                    type: "dashed" as const,
+                    opacity: 0.48,
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
       yAxis: [
         {
           type: "value",
+          gridIndex: 0,
           min: 0,
           max: 250,
           name: "°C",
@@ -278,6 +359,7 @@ export function RoastChart({
         },
         {
           type: "value",
+          gridIndex: hasLowerPanel ? 1 : 0,
           min: -10,
           max: 40,
           name: "°C/min",
@@ -286,17 +368,25 @@ export function RoastChart({
           axisLabel: { color: muted },
           axisLine: { show: false },
           axisTick: { show: false },
-          splitLine: { show: false },
+          splitLine: {
+            lineStyle: { color: border, type: "dashed", opacity: 0.34 },
+          },
         },
-        { type: "value", min: 0, max: 1.5, show: false },
         {
           type: "value",
+          gridIndex: hasLowerPanel ? 1 : 0,
+          min: 0,
+          max: 1.5,
+          show: false,
+        },
+        {
+          type: "value",
+          gridIndex: hasLowerPanel ? 1 : 0,
           min: 0,
           max: 18_000,
           name: "RPM",
           show: hasVisibleFan,
           position: "right",
-          offset: hasVisibleRate ? 52 : 0,
           nameTextStyle: { color: muted },
           axisLabel: { color: muted },
           axisLine: { show: false },
@@ -308,21 +398,25 @@ export function RoastChart({
         .filter((series) => visible.has(series.key))
         .map((series, index) => {
           const offset = channelByName.get(series.key)?.offsetMs ?? 0
+          const lowerSeries = series.axis > 0
           return {
             name: series.label,
             type: "line" as const,
             yAxisIndex: series.axis,
+            xAxisIndex: lowerSeries && hasLowerPanel ? 1 : 0,
             showSymbol: false,
             connectNulls: false,
             smooth: series.axis <= 1 ? 0.12 : false,
-            data: points.map((point) => [
+            data: displayedPoints.map((point) => [
               point.elapsedMs + offset,
               series.value(point),
             ]),
             lineStyle: {
               color: colors[series.colorIndex],
               width:
-                series.key === "temp" || series.key === "mean_temp" ? 2.4 : 1.5,
+                series.key === "temp" || series.key === "actual_ROR"
+                  ? 2.5
+                  : 1.7,
               type: series.dashed ? "dashed" : "solid",
             },
             itemStyle: { color: colors[series.colorIndex] },
@@ -383,7 +477,7 @@ export function RoastChart({
     cooldownEndMs,
     durationMs,
     events,
-    points,
+    displayedPoints,
     showFanAxis,
     visible,
   ])
@@ -417,6 +511,17 @@ export function RoastChart({
             {series.label}
           </label>
         ))}
+        {hasCooldownSamples ? (
+          <label className="text-muted-foreground ml-auto flex cursor-pointer items-center gap-2 text-xs">
+            <Checkbox
+              checked={includeCooldown}
+              onCheckedChange={(checked) =>
+                setIncludeCooldown(checked === true)
+              }
+            />
+            Include cooldown
+          </label>
+        ) : null}
       </div>
       <div
         ref={chartNode}

@@ -11,10 +11,11 @@ Profile 1-N Roast N-1 Coffee
 Roast   1-N Brew
 Roast   1-N Label
 Note    N-M Profile | Coffee | Roast | Brew
+Attachment N-M Profile | Coffee | Roast | Brew
 Settings singleton
 ```
 
-All public resources use short positive integer IDs. KLOG/KPRO source files, telemetry, and device synchronization remain internal lossless evidence.
+All public resources use short positive integer IDs. Attachment metadata and relationships live in SQLite while file bytes use a local SHA-256 content-addressed store. KLOG/KPRO source files, telemetry, and device synchronization remain internal lossless evidence.
 
 See the current [product requirements](docs/03-product-requirements-document.md), [technical specification](docs/04-technical-specification.md), and [wireless bridge and agent-interface decision](docs/06-wireless-bridge-and-agent-interface.md).
 

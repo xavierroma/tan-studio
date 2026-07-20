@@ -17,6 +17,8 @@ export type Brew = components["schemas"]["BrewResource"]
 export type BrewCreate = components["schemas"]["BrewCreate"]
 export type Note = components["schemas"]["NoteResource"]
 export type NoteCreate = components["schemas"]["NoteCreate"]
+export type Attachment = components["schemas"]["AttachmentResource"]
+export type AttachmentCreate = components["schemas"]["AttachmentCreate"]
 export type LabelRecord = components["schemas"]["LabelResource"]
 export type LabelCreate = components["schemas"]["LabelCreate"]
 export type Settings = components["schemas"]["SettingsResource"]
@@ -242,6 +244,68 @@ export async function updateNote(
   )
 }
 
+export async function listAttachments(
+  resourceType?: string,
+  resourceId?: number,
+  signal?: AbortSignal
+) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET("/api/v1/attachments", {
+      params: {
+        query: {
+          ...(resourceType ? { resourceType } : {}),
+          ...(resourceId ? { resourceId } : {}),
+        },
+      },
+      ...(signal ? { signal } : {}),
+    })
+  ).items
+}
+
+export async function createAttachment(input: AttachmentCreate) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/attachments", { body: input })
+  )
+}
+
+export async function putAttachmentContent(attachment: Attachment, file: File) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.PUT("/api/v1/attachments/{id}/content", {
+      params: {
+        path: { id: attachment.id },
+        header: matchRevision(attachment.revision),
+      },
+      headers: { "Content-Type": "application/octet-stream" },
+      body: "",
+      bodySerializer: () => file,
+    })
+  )
+}
+
+export async function uploadAttachment(
+  input: Omit<AttachmentCreate, "filename" | "mediaType">,
+  file: File
+) {
+  const attachment = await createAttachment({
+    ...input,
+    filename: file.name,
+    mediaType: file.type || "application/octet-stream",
+  })
+  return putAttachmentContent(attachment, file)
+}
+
+export async function getAttachmentContent(attachment: Attachment) {
+  requireCompanion()
+  const result = await companionClient.GET("/api/v1/attachments/{id}/content", {
+    params: { path: { id: attachment.id } },
+    parseAs: "blob",
+  })
+  return unwrapResponse(result as Parameters<typeof unwrapResponse<Blob>>[0])
+}
+
 export async function listLabels(roastId?: number, signal?: AbortSignal) {
   requireCompanion()
   return unwrapResponse(
@@ -309,6 +373,8 @@ export const queryKeys = {
   brews: (roastId?: number) => ["brews", roastId ?? "all"] as const,
   notes: (resourceType?: string, resourceId?: number) =>
     ["notes", resourceType ?? "all", resourceId ?? "all"] as const,
+  attachments: (resourceType?: string, resourceId?: number) =>
+    ["attachments", resourceType ?? "all", resourceId ?? "all"] as const,
   labels: (roastId?: number) => ["labels", roastId ?? "all"] as const,
   settings: () => ["settings"] as const,
   device: () => ["device"] as const,

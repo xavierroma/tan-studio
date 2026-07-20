@@ -1,12 +1,19 @@
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::Response,
     Json,
 };
 use chrono::{DateTime, TimeDelta, Utc};
+use futures_util::StreamExt;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 use utoipa::OpenApi;
+use uuid::Uuid;
 
 use crate::{
     api::ApiState,
@@ -791,6 +798,346 @@ pub async fn notes_delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(get, path = "/api/v1/attachments", tag = "attachments", operation_id = "listAttachments", params(ListQuery), responses((status = 200, body = AttachmentPage)))]
+pub async fn attachments_list(
+    State(state): State<ApiState>,
+    Query(query): Query<ListQuery>,
+) -> ApiResult<Json<AttachmentPage>> {
+    let connection = state.database.connection();
+    let pattern = format!(
+        "%{}%",
+        escape_like(query.q.as_deref().unwrap_or_default().trim())
+    );
+    let ids = match (query.resource_type.as_deref(), query.resource_id) {
+        (Some(kind), Some(resource_id)) => {
+            let column = link_column(kind)?;
+            let mut statement = connection.prepare(&format!(
+                "SELECT DISTINCT a.id FROM attachments a
+                 JOIN attachment_links l ON l.attachment_id=a.id
+                 WHERE l.{column}=? AND (?='%%' OR a.title LIKE ? ESCAPE '\\' OR a.filename LIKE ? ESCAPE '\\' OR a.description LIKE ? ESCAPE '\\')
+                 ORDER BY a.created_at_ms DESC, a.id DESC LIMIT 1000"
+            ))?;
+            let ids = statement
+                .query_map(
+                    params![resource_id, pattern, pattern, pattern, pattern],
+                    |row| row.get::<_, i64>(0),
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            ids
+        }
+        (None, None) => {
+            let mut statement = connection.prepare(
+                "SELECT id FROM attachments
+                 WHERE (?='%%' OR title LIKE ? ESCAPE '\\' OR filename LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')
+                 ORDER BY created_at_ms DESC, id DESC LIMIT 1000",
+            )?;
+            let ids = statement
+                .query_map(params![pattern, pattern, pattern, pattern], |row| {
+                    row.get::<_, i64>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            ids
+        }
+        _ => {
+            return Err(ApiError::validation(
+                "resourceType and resourceId must be supplied together.",
+            ))
+        }
+    };
+    Ok(Json(AttachmentPage {
+        items: ids
+            .into_iter()
+            .map(|id| get_attachment(&connection, id))
+            .collect::<ApiResult<_>>()?,
+    }))
+}
+
+#[utoipa::path(post, path = "/api/v1/attachments", tag = "attachments", operation_id = "createAttachment", request_body = AttachmentCreate, responses((status = 201, body = AttachmentResource), (status = 422, body = ProblemDetails)))]
+pub async fn attachments_create(
+    State(state): State<ApiState>,
+    Json(input): Json<AttachmentCreate>,
+) -> ApiResult<(StatusCode, Json<AttachmentResource>)> {
+    validate_attachment_fields(
+        &input.title,
+        &input.filename,
+        &input.media_type,
+        input.source_url.as_deref(),
+        &input.description,
+        &input.links,
+    )?;
+    let mut connection = state.database.connection();
+    let transaction = connection.transaction()?;
+    validate_links(&transaction, &input.links)?;
+    let now = now_ms();
+    transaction.execute(
+        "INSERT INTO attachments(title, filename, media_type, source_url, description, captured_at_ms, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            input.title.trim(),
+            input.filename.trim(),
+            input.media_type.trim().to_ascii_lowercase(),
+            input.source_url.as_deref().map(str::trim),
+            input.description.trim(),
+            optional_instant(input.captured_at.as_deref())?,
+            now,
+            now
+        ],
+    )?;
+    let id = transaction.last_insert_rowid();
+    insert_attachment_links(&transaction, id, &input.links)?;
+    transaction.commit()?;
+    Ok((StatusCode::CREATED, Json(get_attachment(&connection, id)?)))
+}
+
+#[utoipa::path(get, path = "/api/v1/attachments/{id}", tag = "attachments", operation_id = "getAttachment", params(("id" = i64, Path)), responses((status = 200, body = AttachmentResource), (status = 404, body = ProblemDetails)))]
+pub async fn attachments_get(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<AttachmentResource>> {
+    Ok(Json(get_attachment(&state.database.connection(), id)?))
+}
+
+#[utoipa::path(patch, path = "/api/v1/attachments/{id}", tag = "attachments", operation_id = "updateAttachment", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = AttachmentPatch, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
+pub async fn attachments_patch(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Json(input): Json<AttachmentPatch>,
+) -> ApiResult<Json<AttachmentResource>> {
+    let expected = expected_revision(&headers)?;
+    let connection = state.database.connection();
+    let current = get_attachment(&connection, id)?;
+    let title = input.title.unwrap_or(current.title);
+    let filename = input.filename.unwrap_or(current.filename);
+    let media_type = input.media_type.unwrap_or(current.media_type);
+    let source_url = input.source_url.unwrap_or(current.source_url);
+    let description = input.description.unwrap_or(current.description);
+    let captured_at = input.captured_at.unwrap_or(current.captured_at);
+    validate_attachment_fields(
+        &title,
+        &filename,
+        &media_type,
+        source_url.as_deref(),
+        &description,
+        &current.links,
+    )?;
+    let changed = connection.execute(
+        "UPDATE attachments SET title=?, filename=?, media_type=?, source_url=?, description=?, captured_at_ms=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+        params![title.trim(), filename.trim(), media_type.trim().to_ascii_lowercase(), source_url.as_deref().map(str::trim), description.trim(), optional_instant(captured_at.as_deref())?, now_ms(), id, expected],
+    )?;
+    if changed == 0 {
+        return Err(ApiError::revision());
+    }
+    Ok(Json(get_attachment(&connection, id)?))
+}
+
+#[utoipa::path(put, path = "/api/v1/attachments/{id}/links", tag = "attachments", operation_id = "replaceAttachmentLinks", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = AttachmentLinksPut, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
+pub async fn attachments_put_links(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    Json(input): Json<AttachmentLinksPut>,
+) -> ApiResult<Json<AttachmentResource>> {
+    let expected = expected_revision(&headers)?;
+    let mut connection = state.database.connection();
+    let transaction = connection.transaction()?;
+    get_attachment(&transaction, id)?;
+    validate_links(&transaction, &input.links)?;
+    let changed = transaction.execute(
+        "UPDATE attachments SET updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+        params![now_ms(), id, expected],
+    )?;
+    if changed == 0 {
+        return Err(ApiError::revision());
+    }
+    transaction.execute("DELETE FROM attachment_links WHERE attachment_id=?", [id])?;
+    insert_attachment_links(&transaction, id, &input.links)?;
+    transaction.commit()?;
+    Ok(Json(get_attachment(&connection, id)?))
+}
+
+const MAX_ATTACHMENT_BYTES: u64 = 512 * 1024 * 1024;
+
+#[utoipa::path(put, path = "/api/v1/attachments/{id}/content", tag = "attachments", operation_id = "putAttachmentContent", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body(content = String, content_type = "application/octet-stream"), responses((status = 200, body = AttachmentResource), (status = 413, body = ProblemDetails), (status = 412, body = ProblemDetails)))]
+pub async fn attachments_put_content(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+    body: Body,
+) -> ApiResult<Json<AttachmentResource>> {
+    let expected = expected_revision(&headers)?;
+    if headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|value| value == 0 || value > MAX_ATTACHMENT_BYTES)
+    {
+        return Err(attachment_size_error());
+    }
+    let previous_hash = {
+        let connection = state.database.connection();
+        let current = get_attachment(&connection, id)?;
+        if current.revision != expected {
+            return Err(ApiError::revision());
+        }
+        current.sha256
+    };
+
+    let temporary_path = state
+        .attachment_root
+        .join(".tmp")
+        .join(Uuid::now_v7().to_string());
+    let mut file = tokio::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary_path)
+        .await
+        .map_err(|error| attachment_io_error(error, "create"))?;
+    let mut stream = body.into_data_stream();
+    let mut hasher = Sha256::new();
+    let mut byte_length = 0_u64;
+    let write_result: ApiResult<()> = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|error| attachment_io_error(error, "receive"))?;
+            byte_length = byte_length.saturating_add(chunk.len() as u64);
+            if byte_length > MAX_ATTACHMENT_BYTES {
+                return Err(attachment_size_error());
+            }
+            hasher.update(&chunk);
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| attachment_io_error(error, "write"))?;
+        }
+        if byte_length == 0 {
+            return Err(attachment_size_error());
+        }
+        file.sync_all()
+            .await
+            .map_err(|error| attachment_io_error(error, "flush"))?;
+        Ok(())
+    }
+    .await;
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = tokio::fs::remove_file(&temporary_path).await;
+        return Err(error);
+    }
+
+    let hash = hex::encode(hasher.finalize());
+    let object_directory = state.attachment_root.join("objects").join(&hash[..2]);
+    tokio::fs::create_dir_all(&object_directory)
+        .await
+        .map_err(|error| attachment_io_error(error, "create"))?;
+    let object_path = object_directory.join(&hash);
+    if tokio::fs::try_exists(&object_path)
+        .await
+        .map_err(|error| attachment_io_error(error, "inspect"))?
+    {
+        tokio::fs::remove_file(&temporary_path)
+            .await
+            .map_err(|error| attachment_io_error(error, "deduplicate"))?;
+    } else {
+        tokio::fs::rename(&temporary_path, &object_path)
+            .await
+            .map_err(|error| attachment_io_error(error, "commit"))?;
+    }
+
+    let updated = {
+        let connection = state.database.connection();
+        let changed = connection.execute(
+            "UPDATE attachments SET byte_length=?, sha256=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+            params![byte_length as i64, hash, now_ms(), id, expected],
+        )?;
+        if changed == 0 {
+            return Err(ApiError::revision());
+        }
+        get_attachment(&connection, id)?
+    };
+
+    if let Some(previous_hash) = previous_hash.filter(|value| value != &hash) {
+        let still_referenced = {
+            let connection = state.database.connection();
+            connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM attachments WHERE sha256=?)",
+                [&previous_hash],
+                |row| row.get::<_, bool>(0),
+            )?
+        };
+        if !still_referenced {
+            let old_path = state
+                .attachment_root
+                .join("objects")
+                .join(&previous_hash[..2])
+                .join(previous_hash);
+            let _ = tokio::fs::remove_file(old_path).await;
+        }
+    }
+    Ok(Json(updated))
+}
+
+#[utoipa::path(get, path = "/api/v1/attachments/{id}/content", tag = "attachments", operation_id = "getAttachmentContent", params(("id" = i64, Path)), responses((status = 200, body = String, content_type = "application/octet-stream"), (status = 404, body = ProblemDetails)))]
+pub async fn attachments_get_content(
+    State(state): State<ApiState>,
+    Path(id): Path<i64>,
+) -> ApiResult<Response> {
+    let (hash, filename, media_type, byte_length) = {
+        let connection = state.database.connection();
+        let attachment = get_attachment(&connection, id)?;
+        (
+            attachment.sha256.ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::CONFLICT,
+                    "attachment_content_missing",
+                    "Attachment content missing",
+                    "This attachment record does not have local file content yet.",
+                )
+            })?,
+            attachment.filename,
+            attachment.media_type,
+            attachment.byte_length.unwrap_or(0),
+        )
+    };
+    let object_path = state
+        .attachment_root
+        .join("objects")
+        .join(&hash[..2])
+        .join(&hash);
+    let file = tokio::fs::File::open(object_path)
+        .await
+        .map_err(|error| attachment_io_error(error, "open"))?;
+    let mut response = Response::new(Body::from_stream(ReaderStream::new(file)));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&media_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    if let Ok(value) = HeaderValue::from_str(&byte_length.to_string()) {
+        response.headers_mut().insert(header::CONTENT_LENGTH, value);
+    }
+    let safe_filename: String = filename
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, ' ' | '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if let Ok(value) =
+        HeaderValue::from_str(&format!("inline; filename=\"{}\"", safe_filename.trim()))
+    {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, value);
+    }
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(&format!("\"sha256:{hash}\"")).expect("hex hash is a valid header"),
+    );
+    Ok(response)
+}
+
 #[utoipa::path(get, path = "/api/v1/labels", tag = "labels", operation_id = "listLabels", params(ListQuery), responses((status = 200, body = LabelPage)))]
 pub async fn labels_list(
     State(state): State<ApiState>,
@@ -1200,6 +1547,51 @@ fn get_note(connection: &Connection, id: i64) -> ApiResult<NoteResource> {
     Ok(note)
 }
 
+fn get_attachment(connection: &Connection, id: i64) -> ApiResult<AttachmentResource> {
+    let mut attachment = connection
+        .query_row("SELECT * FROM attachments WHERE id=?", [id], |row| {
+            Ok(AttachmentResource {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                filename: row.get("filename")?,
+                media_type: row.get("media_type")?,
+                byte_length: row.get("byte_length")?,
+                sha256: row.get("sha256")?,
+                source_url: row.get("source_url")?,
+                description: row.get("description")?,
+                captured_at: row.get::<_, Option<i64>>("captured_at_ms")?.map(iso),
+                links: vec![],
+                created_at: iso(row.get("created_at_ms")?),
+                updated_at: iso(row.get("updated_at_ms")?),
+                revision: row.get("revision")?,
+            })
+        })
+        .optional()?
+        .ok_or_else(|| ApiError::not_found("attachment", &id.to_string()))?;
+    let mut statement = connection.prepare(
+        "SELECT profile_id, coffee_id, roast_id, brew_id FROM attachment_links WHERE attachment_id=? ORDER BY id",
+    )?;
+    attachment.links = statement
+        .query_map([id], |row| {
+            let values = [
+                ("profile", row.get::<_, Option<i64>>(0)?),
+                ("coffee", row.get::<_, Option<i64>>(1)?),
+                ("roast", row.get::<_, Option<i64>>(2)?),
+                ("brew", row.get::<_, Option<i64>>(3)?),
+            ];
+            let (resource_type, resource_id) = values
+                .into_iter()
+                .find_map(|(kind, value)| value.map(|resource_id| (kind.to_owned(), resource_id)))
+                .expect("attachment link constraint");
+            Ok(NoteLink {
+                resource_type,
+                resource_id,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(attachment)
+}
+
 fn get_label(connection: &Connection, id: i64) -> ApiResult<LabelResource> {
     connection
         .query_row("SELECT * FROM labels WHERE id=?", [id], |row| {
@@ -1320,6 +1712,22 @@ fn insert_links(connection: &Connection, note_id: i64, links: &[NoteLink]) -> Ap
     }
     Ok(())
 }
+fn insert_attachment_links(
+    connection: &Connection,
+    attachment_id: i64,
+    links: &[NoteLink],
+) -> ApiResult<()> {
+    for link in links {
+        let column = link_column(&link.resource_type)?;
+        connection.execute(
+            &format!(
+                "INSERT OR IGNORE INTO attachment_links(attachment_id, {column}) VALUES (?, ?)"
+            ),
+            params![attachment_id, link.resource_id],
+        )?;
+    }
+    Ok(())
+}
 fn validate_links(connection: &Connection, links: &[NoteLink]) -> ApiResult<()> {
     if links.is_empty() {
         return Err(ApiError::validation(
@@ -1411,6 +1819,72 @@ fn validate_note(
         ));
     }
     Ok(())
+}
+
+fn validate_attachment_fields(
+    title: &str,
+    filename: &str,
+    media_type: &str,
+    source_url: Option<&str>,
+    description: &str,
+    links: &[NoteLink],
+) -> ApiResult<()> {
+    if title.trim().is_empty() || title.len() > 300 {
+        return Err(ApiError::validation(
+            "title is required and must be at most 300 characters.",
+        ));
+    }
+    if filename.trim().is_empty() || filename.len() > 255 || filename.contains(['/', '\\', '\0']) {
+        return Err(ApiError::validation(
+            "filename must be a simple local filename of at most 255 characters.",
+        ));
+    }
+    if media_type.trim().is_empty()
+        || media_type.len() > 200
+        || !media_type.contains('/')
+        || media_type.contains(['\r', '\n', '\0'])
+    {
+        return Err(ApiError::validation("mediaType is invalid."));
+    }
+    if source_url.is_some_and(|url| {
+        url.len() > 4_096
+            || !(url.starts_with("https://") || url.starts_with("http://"))
+            || url.contains(['\r', '\n', '\0'])
+    }) {
+        return Err(ApiError::validation(
+            "sourceUrl must be an HTTP(S) URL of at most 4096 characters.",
+        ));
+    }
+    if description.len() > 100_000 {
+        return Err(ApiError::validation(
+            "description must be at most 100,000 characters.",
+        ));
+    }
+    if links.is_empty() {
+        return Err(ApiError::validation(
+            "An attachment must link to at least one resource.",
+        ));
+    }
+    Ok(())
+}
+
+fn attachment_size_error() -> ApiError {
+    ApiError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "attachment_size_invalid",
+        "Attachment size invalid",
+        "Attachment content must be between 1 byte and 512 MiB.",
+    )
+}
+
+fn attachment_io_error(error: impl std::fmt::Display, action: &'static str) -> ApiError {
+    tracing::error!(%error, action, "attachment_store_operation_failed");
+    ApiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "attachment_store_error",
+        "Attachment store error",
+        "Tan Studio could not complete the local attachment file operation.",
+    )
 }
 fn validate_profile_values(level: Option<i64>, load: Option<i64>) -> ApiResult<()> {
     if level.is_some_and(|v| !(0..=10_000).contains(&v)) {

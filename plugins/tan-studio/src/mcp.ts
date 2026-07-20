@@ -28,6 +28,31 @@ const noteKind = z.enum([
   "recommendation",
   "general",
 ])
+const resourceLink = z.object({
+  resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
+  resourceId: shortId,
+})
+const coffeeFields = {
+  provider: z.string().trim().max(300).optional(),
+  providerUrl: z.url().optional(),
+  providerProductId: z.string().trim().max(300).optional(),
+  purchaseReference: z.string().trim().max(300).optional(),
+  purchasedAt: z.iso.datetime({ offset: true }).optional(),
+  purchasedGrams: z.number().nonnegative().max(1_000_000).optional(),
+  remainingGrams: z.number().nonnegative().max(1_000_000).optional(),
+  country: z.string().trim().max(200).optional(),
+  region: z.string().trim().max(300).optional(),
+  farm: z.string().trim().max(300).optional(),
+  producer: z.string().trim().max(300).optional(),
+  washingStation: z.string().trim().max(300).optional(),
+  process: z.string().trim().max(300).optional(),
+  variety: z.string().trim().max(300).optional(),
+  altitudeMinMeters: z.number().int().min(-500).max(10_000).optional(),
+  altitudeMaxMeters: z.number().int().min(-500).max(10_000).optional(),
+  harvest: z.string().trim().max(300).optional(),
+  storageLocation: z.string().trim().max(300).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+} as const
 const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -138,6 +163,90 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
           status,
         })
         return success("Matching roasts", boundedPage(page, limit))
+      })
+  )
+
+  server.registerTool(
+    "tan_create_coffee",
+    {
+      title: "Create green coffee",
+      description:
+        "Create a flat green-coffee catalog record from provider research or user-provided facts. Preserve provenance in providerUrl and metadata; never invent unknown details.",
+      inputSchema: {
+        name: z.string().trim().min(1).max(200),
+        ...coffeeFields,
+      },
+      annotations: writeAnnotations,
+    },
+    async ({
+      name,
+      purchasedGrams,
+      remainingGrams,
+      altitudeMinMeters,
+      altitudeMaxMeters,
+      ...input
+    }) =>
+      protect(async () => {
+        const coffee = await api.createCoffee({
+          name,
+          ...withoutUndefined(input),
+          ...(purchasedGrams !== undefined
+            ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
+            : {}),
+          ...(remainingGrams !== undefined
+            ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
+            : {}),
+          ...(altitudeMinMeters !== undefined
+            ? { altitudeMinM: altitudeMinMeters }
+            : {}),
+          ...(altitudeMaxMeters !== undefined
+            ? { altitudeMaxM: altitudeMaxMeters }
+            : {}),
+        })
+        return success(`Created coffee ${coffee.id}`, coffee)
+      })
+  )
+
+  server.registerTool(
+    "tan_update_coffee",
+    {
+      title: "Update green coffee",
+      description:
+        "Update a green-coffee record using its current revision from tan_search_coffees. Only supplied fields change.",
+      inputSchema: {
+        coffeeId: shortId,
+        revision: z.number().int().positive(),
+        name: z.string().trim().min(1).max(200).optional(),
+        ...coffeeFields,
+      },
+      annotations: writeAnnotations,
+    },
+    async ({
+      coffeeId,
+      revision,
+      purchasedGrams,
+      remainingGrams,
+      altitudeMinMeters,
+      altitudeMaxMeters,
+      ...input
+    }) =>
+      protect(async () => {
+        const coffee = await api.updateCoffee(coffeeId, revision, {
+          ...withoutUndefined(input),
+          ...(purchasedGrams !== undefined
+            ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
+            : {}),
+          ...(remainingGrams !== undefined
+            ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
+            : {}),
+          ...(altitudeMinMeters !== undefined
+            ? { altitudeMinM: altitudeMinMeters }
+            : {}),
+          ...(altitudeMaxMeters !== undefined
+            ? { altitudeMaxM: altitudeMaxMeters }
+            : {}),
+        })
+        return success(`Updated coffee ${coffee.id}`, coffee)
       })
   )
 
@@ -253,15 +362,7 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
         body: z.string().trim().min(1).max(10_000),
         kind: noteKind.default("observation"),
         ratingPercent: z.number().min(0).max(100).optional(),
-        links: z
-          .array(
-            z.object({
-              resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
-              resourceId: shortId,
-            })
-          )
-          .min(1)
-          .max(10),
+        links: z.array(resourceLink).min(1).max(10),
       },
       annotations: writeAnnotations,
     },
@@ -278,6 +379,67 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
             : {}),
         })
         return success(`Recorded note ${note.id}`, note)
+      })
+  )
+
+  server.registerTool(
+    "tan_list_attachments",
+    {
+      title: "List attachments",
+      description:
+        "List photos, videos, PDFs, and documents linked to a profile, coffee, roast, or brew.",
+      inputSchema: {
+        resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
+        resourceId: shortId,
+      },
+      annotations: readOnlyAnnotations,
+    },
+    async ({ resourceType, resourceId }) =>
+      protect(async () =>
+        success(
+          `${resourceType} ${resourceId} attachments`,
+          await api.listAttachments(resourceType, resourceId)
+        )
+      )
+  )
+
+  server.registerTool(
+    "tan_attach_file",
+    {
+      title: "Attach local file",
+      description:
+        "Upload one local photo, video, PDF, or document to Tan Studio and link it to one or more profiles, coffees, roasts, or brews.",
+      inputSchema: {
+        filePath: z.string().trim().min(1).max(4_096),
+        title: z.string().trim().min(1).max(300).optional(),
+        mediaType: z.string().trim().min(3).max(200).optional(),
+        sourceUrl: z.url().optional(),
+        description: z.string().trim().max(10_000).optional(),
+        capturedAt: z.iso.datetime({ offset: true }).optional(),
+        links: z.array(resourceLink).min(1).max(20),
+      },
+      annotations: writeAnnotations,
+    },
+    async ({
+      filePath,
+      title,
+      mediaType,
+      sourceUrl,
+      description,
+      capturedAt,
+      links,
+    }) =>
+      protect(async () => {
+        const stored = await api.attachLocalFile({
+          filePath,
+          ...(title !== undefined ? { title } : {}),
+          ...(mediaType !== undefined ? { mediaType } : {}),
+          ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(capturedAt !== undefined ? { capturedAt } : {}),
+          links,
+        })
+        return success(`Attached file ${stored.id}`, stored)
       })
   )
 
@@ -340,6 +502,14 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
 
   registerResources(server, api)
   return server
+}
+
+function withoutUndefined<T extends Record<string, unknown>>(
+  value: T
+): Partial<{ [Key in keyof T]: Exclude<T[Key], undefined> }> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  ) as Partial<{ [Key in keyof T]: Exclude<T[Key], undefined> }>
 }
 
 function registerResources(server: McpServer, api: TanStudioGateway): void {

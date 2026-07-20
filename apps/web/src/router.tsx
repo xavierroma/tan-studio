@@ -46,6 +46,8 @@ const rootRoute = createRootRoute({
             status: undefined,
             profileId: undefined,
             coffeeId: undefined,
+            sort: undefined,
+            hidden: undefined,
             view: undefined,
           }}
           className={buttonVariants()}
@@ -68,6 +70,8 @@ const indexRoute = createRoute({
         status: undefined,
         profileId: undefined,
         coffeeId: undefined,
+        sort: undefined,
+        hidden: undefined,
         view: undefined,
       },
     })
@@ -95,6 +99,20 @@ const roastLibraryRoute = createRoute({
     status: typeof search.status === "string" ? search.status : undefined,
     profileId: integer(search.profileId),
     coffeeId: integer(search.coffeeId),
+    sort:
+      typeof search.sort === "string" &&
+      /^(id|roastedAt|coffee|profile|level|load|status)\.(asc|desc)$/u.test(
+        search.sort
+      )
+        ? search.sort
+        : undefined,
+    hidden:
+      typeof search.hidden === "string" &&
+      /^(roastedAt|coffee|profile|level|load|activity|status)(,(roastedAt|coffee|profile|level|load|activity|status))*$/u.test(
+        search.hidden
+      )
+        ? search.hidden
+        : undefined,
     view: search.view === "pantry" ? ("pantry" as const) : undefined,
   }),
   component: lazyRouteComponent(
@@ -142,6 +160,7 @@ const brewsRoute = createRoute({
   path: "/brews",
   validateSearch: (search: Record<string, unknown>) => ({
     roastId: integer(search.roastId),
+    brewId: integer(search.brewId),
     tab: search.tab === "defaults" ? ("defaults" as const) : undefined,
   }),
   component: lazyRouteComponent(

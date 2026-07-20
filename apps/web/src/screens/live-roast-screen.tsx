@@ -149,6 +149,18 @@ export function LiveRoastScreen() {
     })
   }
   const connected = device.data?.connection === "connected"
+  const profileItems =
+    profiles.data?.map((profile) => ({
+      value: String(profile.id),
+      label: `#${profile.id} · ${profile.name}`,
+    })) ?? []
+  const coffeeItems = [
+    { value: "none", label: "Assign later" },
+    ...(coffees.data?.map((coffee) => ({
+      value: String(coffee.id),
+      label: `#${coffee.id} · ${coffee.name}`,
+    })) ?? []),
+  ]
 
   return (
     <div className="min-h-screen">
@@ -202,6 +214,7 @@ export function LiveRoastScreen() {
               <Field>
                 <FieldLabel htmlFor="roast-profile">Profile</FieldLabel>
                 <Select
+                  items={profileItems}
                   value={
                     selectedProfile ? String(selectedProfile.id) : undefined
                   }
@@ -221,9 +234,9 @@ export function LiveRoastScreen() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {profiles.data?.map((profile) => (
-                        <SelectItem key={profile.id} value={String(profile.id)}>
-                          #{profile.id} · {profile.name}
+                      {profileItems.map((profile) => (
+                        <SelectItem key={profile.value} value={profile.value}>
+                          {profile.label}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -236,6 +249,7 @@ export function LiveRoastScreen() {
               <Field>
                 <FieldLabel htmlFor="roast-coffee">Green coffee</FieldLabel>
                 <Select
+                  items={coffeeItems}
                   value={search.coffeeId ? String(search.coffeeId) : "none"}
                   onValueChange={(value) =>
                     void navigate({
@@ -252,10 +266,9 @@ export function LiveRoastScreen() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="none">Assign later</SelectItem>
-                      {coffees.data?.map((coffee) => (
-                        <SelectItem key={coffee.id} value={String(coffee.id)}>
-                          #{coffee.id} · {coffee.name}
+                      {coffeeItems.map((coffee) => (
+                        <SelectItem key={coffee.value} value={coffee.value}>
+                          {coffee.label}
                         </SelectItem>
                       ))}
                     </SelectGroup>

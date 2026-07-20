@@ -4,6 +4,70 @@
  */
 
 export interface paths {
+    "/api/v1/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAttachments"];
+        put?: never;
+        post: operations["createAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateAttachment"];
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAttachmentContent"];
+        put: operations["putAttachmentContent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attachments/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["replaceAttachmentLinks"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/brews": {
         parameters: {
             query?: never;
@@ -444,6 +508,47 @@ export interface components {
             database: components["schemas"]["SimpleAdapter"];
             printing: components["schemas"]["SimpleAdapter"];
             usb: components["schemas"]["DeviceSnapshot"];
+        };
+        AttachmentCreate: {
+            capturedAt?: string | null;
+            description?: string;
+            filename: string;
+            links: components["schemas"]["NoteLink"][];
+            mediaType: string;
+            sourceUrl?: string | null;
+            title: string;
+        };
+        AttachmentLinksPut: {
+            links: components["schemas"]["NoteLink"][];
+        };
+        AttachmentPage: {
+            items: components["schemas"]["AttachmentResource"][];
+        };
+        AttachmentPatch: {
+            capturedAt?: string | null;
+            description?: string | null;
+            filename?: string | null;
+            mediaType?: string | null;
+            sourceUrl?: string | null;
+            title?: string | null;
+        };
+        AttachmentResource: {
+            /** Format: int64 */
+            byteLength?: number | null;
+            capturedAt?: string | null;
+            createdAt: string;
+            description: string;
+            filename: string;
+            /** Format: int64 */
+            id: number;
+            links: components["schemas"]["NoteLink"][];
+            mediaType: string;
+            /** Format: int64 */
+            revision: number;
+            sha256?: string | null;
+            sourceUrl?: string | null;
+            title: string;
+            updatedAt: string;
         };
         BootstrapResponse: {
             adapters: components["schemas"]["AdapterSet"];
@@ -1073,6 +1178,235 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listAttachments: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                profileId?: number | null;
+                coffeeId?: number | null;
+                roastId?: number | null;
+                resourceType?: string | null;
+                resourceId?: number | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentPage"];
+                };
+            };
+        };
+    };
+    createAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachmentCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResource"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResource"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    updateAttachment: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachmentPatch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getAttachmentContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    putAttachmentContent: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    replaceAttachmentLinks: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachmentLinksPut"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     listBrews: {
         parameters: {
             query?: {

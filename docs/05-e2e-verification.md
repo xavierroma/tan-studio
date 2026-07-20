@@ -92,6 +92,7 @@ The following flows were exercised against the Rust API, generated TypeScript cl
 - Brew defaults persist through `/api/v1/settings`, survive reload, and prefill V60, dose, water, grinder, kettle, water, and temperature without duplicating those resources into separate tables.
 - An invalid brew roast reference produces a visible recoverable error and does not create a record.
 - The universal Note resource can link one note to any combination of profiles, coffees, roasts, and brews. Create, patch, replace-links, and delete behavior is covered through the real HTTP contract.
+- The universal Attachment resource can link local photos, videos, PDFs, or documents to any combination of profiles, coffees, roasts, and brews. Metadata and optimistic concurrency stay in SQLite; streamed bytes are deduplicated by SHA-256 in the local file store. The generated client and Codex MCP expose the same create, list, update, link, upload, and download contract.
 - A generated label is a durable resource linked to its roast. The application renders deterministic physical-size SVG and QR content and distinguishes generated/submitted status from physically confirmed printing.
 - Pantry queries derive remaining mass and rest/peak timing from roasts and brews, so an LLM can answer which coffee is available without reconstructing client state.
 - The React client consumes the OpenAPI-generated client; it does not hand-maintain endpoint response types.

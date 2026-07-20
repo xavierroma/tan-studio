@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import { OpenApiTanStudioGateway } from "../src/api"
 import { TanStudioGatewayError } from "../src/gateway"
@@ -8,6 +11,15 @@ const config = {
   token: "b".repeat(64),
   timeoutMs: 1_000,
 }
+const temporaryDirectories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true }))
+  )
+})
 
 describe("generated OpenAPI transport", () => {
   test("sends the service token only as a bearer header", async () => {
@@ -55,5 +67,64 @@ describe("generated OpenAPI transport", () => {
       retryable: false,
       status: 404,
     })
+  })
+
+  test("creates metadata then streams local attachment bytes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tan-studio-api-"))
+    temporaryDirectories.push(directory)
+    const filePath = join(directory, "provider.pdf")
+    await Bun.write(filePath, "provider-pdf-content")
+    const requests: Request[] = []
+    const api = new OpenApiTanStudioGateway(config, async (request) => {
+      const captured = new Request(request)
+      requests.push(captured.clone())
+      if (captured.method === "POST") {
+        const body = (await captured.json()) as Record<string, unknown>
+        return Response.json({
+          id: 7,
+          revision: 1,
+          createdAt: "2026-07-20T00:00:00Z",
+          updatedAt: "2026-07-20T00:00:00Z",
+          byteLength: null,
+          sha256: null,
+          sourceUrl: null,
+          description: "",
+          capturedAt: null,
+          ...body,
+        })
+      }
+      expect(await captured.text()).toBe("provider-pdf-content")
+      return Response.json({
+        id: 7,
+        title: "Provider print sheet",
+        filename: "provider.pdf",
+        mediaType: "application/pdf",
+        byteLength: 20,
+        sha256: "a".repeat(64),
+        sourceUrl: null,
+        description: "",
+        capturedAt: null,
+        links: [{ resourceType: "coffee", resourceId: 4 }],
+        createdAt: "2026-07-20T00:00:00Z",
+        updatedAt: "2026-07-20T00:00:00Z",
+        revision: 2,
+      })
+    })
+
+    const result = await api.attachLocalFile({
+      filePath,
+      title: "Provider print sheet",
+      sourceUrl: "https://example.test/coffee",
+      links: [{ resourceType: "coffee", resourceId: 4 }],
+    })
+
+    expect(result).toMatchObject({ id: 7, revision: 2 })
+    expect(requests).toHaveLength(2)
+    expect(requests[0]?.url).toEndWith("/api/v1/attachments")
+    expect(requests[1]?.url).toEndWith("/api/v1/attachments/7/content")
+    expect(requests[1]?.headers.get("content-type")).toBe(
+      "application/octet-stream"
+    )
+    expect(requests[1]?.headers.get("if-match")).toBe('"revision:1"')
   })
 })

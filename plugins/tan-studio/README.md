@@ -36,4 +36,4 @@ The repeatable isolated and live MCP test clients are documented in the reposito
 
 ## Boundary
 
-The plugin exposes workflow tools and read resources only. It does not expose arbitrary REST calls, SQL, raw serial access, or speculative Kaffeelogic write commands. Agent-facing masses, temperatures, ratings, and label dimensions use human units and are converted to exact integer API units at the MCP-controller boundary, then validated again by the Rust API.
+The plugin exposes curated workflow tools and read resources only, including coffee creation/update and local attachment upload through the typed API. It does not expose arbitrary REST calls, SQL, raw serial access, or speculative Kaffeelogic write commands. Agent-facing masses, temperatures, ratings, and label dimensions use human units and are converted to exact integer API units at the MCP-controller boundary, then validated again by the Rust API.

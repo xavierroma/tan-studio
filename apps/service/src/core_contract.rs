@@ -9,7 +9,7 @@ use crate::error::{FieldError, ProblemDetails};
     info(
         title = "Tan Studio API",
         version = "1.1.0",
-        description = "The local-first, LLM-friendly API for profiles, coffees, roasts, brews, notes, labels and settings. Short integer IDs are stable user references."
+        description = "The local-first, LLM-friendly API for profiles, coffees, roasts, brews, notes, attachments, labels and settings. Short integer IDs are stable user references."
     ),
     paths(
         crate::api::system_bootstrap,
@@ -47,6 +47,13 @@ use crate::error::{FieldError, ProblemDetails};
         crate::core_api::notes_patch,
         crate::core_api::notes_put_links,
         crate::core_api::notes_delete,
+        crate::core_api::attachments_list,
+        crate::core_api::attachments_create,
+        crate::core_api::attachments_get,
+        crate::core_api::attachments_patch,
+        crate::core_api::attachments_put_links,
+        crate::core_api::attachments_put_content,
+        crate::core_api::attachments_get_content,
         crate::core_api::labels_list,
         crate::core_api::labels_create,
         crate::core_api::labels_get,
@@ -62,13 +69,14 @@ use crate::error::{FieldError, ProblemDetails};
         RestWindow, PantryResource, PantryRoast,
         BrewResource, BrewCreate, BrewPatch, BrewPage,
         NoteResource, NoteCreate, NotePatch, NoteLinksPut, NoteLink, NotePage,
+        AttachmentResource, AttachmentCreate, AttachmentPatch, AttachmentLinksPut, AttachmentPage,
         LabelResource, LabelCreate, LabelPage,
         SettingsResource, SettingsPatch
     )),
     tags(
         (name = "system"), (name = "device"), (name = "profiles"),
         (name = "coffees"), (name = "roasts"), (name = "brews"),
-        (name = "notes"), (name = "labels"), (name = "settings"),
+        (name = "notes"), (name = "attachments"), (name = "labels"), (name = "settings"),
         (name = "contract")
     )
 )]
@@ -543,6 +551,60 @@ pub struct NoteLinksPut {
 #[serde(rename_all = "camelCase")]
 pub struct NotePage {
     pub items: Vec<NoteResource>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentResource {
+    pub id: i64,
+    pub title: String,
+    pub filename: String,
+    pub media_type: String,
+    pub byte_length: Option<i64>,
+    pub sha256: Option<String>,
+    pub source_url: Option<String>,
+    pub description: String,
+    pub captured_at: Option<String>,
+    pub links: Vec<NoteLink>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentCreate {
+    pub title: String,
+    pub filename: String,
+    pub media_type: String,
+    pub source_url: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    pub captured_at: Option<String>,
+    pub links: Vec<NoteLink>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentPatch {
+    pub title: Option<String>,
+    pub filename: Option<String>,
+    pub media_type: Option<String>,
+    pub source_url: Option<Option<String>>,
+    pub description: Option<String>,
+    pub captured_at: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentLinksPut {
+    pub links: Vec<NoteLink>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentPage {
+    pub items: Vec<AttachmentResource>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

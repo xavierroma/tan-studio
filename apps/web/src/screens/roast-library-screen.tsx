@@ -1,10 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { buttonVariants } from "@tan-studio/ui/components/button"
 import {
@@ -14,16 +9,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
-import { Field, FieldLabel } from "@tan-studio/ui/components/field"
-import { Input } from "@tan-studio/ui/components/input"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@tan-studio/ui/components/select"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import {
   Table,
@@ -34,36 +19,30 @@ import {
   TableRow,
 } from "@tan-studio/ui/components/table"
 import { Tabs, TabsList, TabsTrigger } from "@tan-studio/ui/components/tabs"
-import { ArchiveIcon, FlameIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { ArchiveIcon, FlameIcon, PlusIcon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
-import { getPantry, listRoasts, queryKeys } from "@/lib/api"
+import { RoastDataTable } from "@/components/roast-data-table"
+import {
+  getPantry,
+  listCoffees,
+  listProfiles,
+  listRoasts,
+  queryKeys,
+} from "@/lib/api"
 
 type RoastSearch = {
   q: string | undefined
   status: string | undefined
   profileId: number | undefined
   coffeeId: number | undefined
+  sort: string | undefined
+  hidden: string | undefined
   view: "pantry" | undefined
-}
-
-function date(value?: string | null) {
-  if (!value) return "Date unavailable"
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value))
 }
 
 function grams(value?: number | null) {
   return value == null ? "—" : `${(value / 1_000).toLocaleString()} g`
-}
-
-function statusVariant(status: string) {
-  if (status === "completed") return "success" as const
-  if (status === "planned") return "info" as const
-  if (status === "interrupted") return "warning" as const
-  return "secondary" as const
 }
 
 export function RoastLibraryScreen() {
@@ -94,7 +73,17 @@ export function RoastLibraryScreen() {
     queryFn: ({ signal }) => getPantry(signal),
     enabled: pantryView,
   })
-  const error = roasts.error ?? pantry.error
+  const profiles = useQuery({
+    queryKey: queryKeys.profiles(),
+    queryFn: ({ signal }) => listProfiles(undefined, signal),
+    enabled: !pantryView,
+  })
+  const coffees = useQuery({
+    queryKey: queryKeys.coffees(),
+    queryFn: ({ signal }) => listCoffees(undefined, signal),
+    enabled: !pantryView,
+  })
+  const error = roasts.error ?? pantry.error ?? profiles.error ?? coffees.error
   if (error) throw error
 
   const roastItems = roasts.data ?? []
@@ -137,82 +126,11 @@ export function RoastLibraryScreen() {
           </TabsList>
         </Tabs>
 
-        {!pantryView ? (
-          <div className="flex flex-col gap-3">
-            {search.profileId || search.coffeeId ? (
-              <Alert>
-                <SearchIcon />
-                <AlertTitle>Relationship filter</AlertTitle>
-                <AlertDescription>
-                  Showing roasts linked to{" "}
-                  {search.profileId
-                    ? `profile #${search.profileId}`
-                    : `coffee #${search.coffeeId}`}
-                  .{" "}
-                  <button
-                    type="button"
-                    className="underline"
-                    onClick={() =>
-                      updateSearch({
-                        profileId: undefined,
-                        coffeeId: undefined,
-                      })
-                    }
-                  >
-                    Clear filter
-                  </button>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-            <div className="grid gap-3 sm:grid-cols-[minmax(16rem,1fr)_13rem]">
-              <Field>
-                <FieldLabel htmlFor="roast-search" className="sr-only">
-                  Search roasts
-                </FieldLabel>
-                <div className="relative">
-                  <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                  <Input
-                    id="roast-search"
-                    value={search.q ?? ""}
-                    onChange={(event) =>
-                      updateSearch({ q: event.target.value || undefined })
-                    }
-                    className="pl-9"
-                    placeholder="Roast #, profile, coffee, provider…"
-                  />
-                </div>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="roast-status" className="sr-only">
-                  Roast status
-                </FieldLabel>
-                <Select
-                  value={search.status ?? "all"}
-                  onValueChange={(value) =>
-                    updateSearch({
-                      status:
-                        value === "all" ? undefined : (value ?? undefined),
-                    })
-                  }
-                >
-                  <SelectTrigger id="roast-status" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="all">Every status</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="interrupted">Interrupted</SelectItem>
-                      <SelectItem value="planned">Planned</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </div>
-        ) : null}
-
-        {(pantryView ? pantry.isPending : roasts.isPending) ? (
+        {(
+          pantryView
+            ? pantry.isPending
+            : roasts.isPending || profiles.isPending || coffees.isPending
+        ) ? (
           <Skeleton className="h-72 rounded-xl" />
         ) : null}
 
@@ -245,62 +163,20 @@ export function RoastLibraryScreen() {
         ) : null}
 
         {!pantryView && roastItems.length > 0 ? (
-          <div className="bg-card overflow-hidden rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">Roast</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Coffee</TableHead>
-                  <TableHead>Profile</TableHead>
-                  <TableHead>Level</TableHead>
-                  <TableHead>Load</TableHead>
-                  <TableHead>Activity</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {roastItems.map((roast) => (
-                  <TableRow key={roast.id}>
-                    <TableCell>
-                      <Link
-                        to="/roasts/$roastId"
-                        params={{ roastId: String(roast.id) }}
-                        className="font-semibold underline-offset-4 hover:underline"
-                      >
-                        #{roast.id}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {date(roast.roastedAt)}
-                    </TableCell>
-                    <TableCell>
-                      {roast.coffee?.name ?? (
-                        <span className="text-muted-foreground">
-                          Unassigned
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>{roast.profile?.name ?? "—"}</TableCell>
-                    <TableCell>
-                      {roast.levelThousandths == null
-                        ? "—"
-                        : (roast.levelThousandths / 1_000).toFixed(1)}
-                    </TableCell>
-                    <TableCell>{grams(roast.greenInputMassMg)}</TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {roast.brewCount} brews · {roast.noteCount} notes
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariant(roast.status)}>
-                        {roast.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <RoastDataTable
+            data={roastItems}
+            profiles={profiles.data ?? []}
+            coffees={coffees.data ?? []}
+            search={{
+              q: search.q,
+              status: search.status,
+              profileId: search.profileId,
+              coffeeId: search.coffeeId,
+              sort: search.sort,
+              hidden: search.hidden,
+            }}
+            updateSearch={updateSearch}
+          />
         ) : null}
 
         {pantryView && pantryItems.length > 0 ? (

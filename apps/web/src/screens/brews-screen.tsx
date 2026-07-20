@@ -32,11 +32,17 @@ import {
   TabsTrigger,
 } from "@tan-studio/ui/components/tabs"
 import { Textarea } from "@tan-studio/ui/components/textarea"
-import { CoffeeIcon, SaveIcon, Settings2Icon } from "lucide-react"
+import {
+  CoffeeIcon,
+  PaperclipIcon,
+  SaveIcon,
+  Settings2Icon,
+} from "lucide-react"
 import type { FormEvent } from "react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
+import { AttachmentPanel } from "@/components/attachment-panel"
 import {
   createBrew,
   getSettings,
@@ -128,6 +134,12 @@ export function BrewsScreen() {
   }
 
   const defaults = settings.data
+  const roastItems =
+    roasts.data?.map((roast) => ({
+      value: String(roast.id),
+      label: `#${roast.id} · ${roast.coffee?.name ?? "Unassigned coffee"}`,
+    })) ?? []
+  const selectedBrew = brews.data?.find((brew) => brew.id === search.brewId)
   return (
     <div className="min-h-screen">
       <PageHeader
@@ -152,6 +164,7 @@ export function BrewsScreen() {
             void navigate({
               search: {
                 roastId: search.roastId,
+                brewId: undefined,
                 tab: value === "defaults" ? "defaults" : undefined,
               },
               replace: true,
@@ -180,6 +193,7 @@ export function BrewsScreen() {
                     <Field>
                       <FieldLabel htmlFor="brew-roast">Roast</FieldLabel>
                       <Select
+                        items={roastItems}
                         name="roastId"
                         required
                         value={
@@ -188,7 +202,11 @@ export function BrewsScreen() {
                         onValueChange={(value) =>
                           value &&
                           void navigate({
-                            search: { roastId: Number(value), tab: undefined },
+                            search: {
+                              roastId: Number(value),
+                              brewId: undefined,
+                              tab: undefined,
+                            },
                           })
                         }
                       >
@@ -197,13 +215,9 @@ export function BrewsScreen() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {roasts.data?.map((roast) => (
-                              <SelectItem
-                                key={roast.id}
-                                value={String(roast.id)}
-                              >
-                                #{roast.id} ·{" "}
-                                {roast.coffee?.name ?? "Unassigned coffee"}
+                            {roastItems.map((roast) => (
+                              <SelectItem key={roast.value} value={roast.value}>
+                                {roast.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -364,6 +378,7 @@ export function BrewsScreen() {
                         <TableHead>Roast</TableHead>
                         <TableHead>Recipe</TableHead>
                         <TableHead>When</TableHead>
+                        <TableHead className="text-right">Media</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -390,10 +405,39 @@ export function BrewsScreen() {
                               dateStyle: "medium",
                             }).format(new Date(brew.brewedAt))}
                           </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                void navigate({
+                                  search: {
+                                    roastId: search.roastId,
+                                    brewId: brew.id,
+                                    tab: undefined,
+                                  },
+                                })
+                              }
+                            >
+                              <PaperclipIcon data-icon="inline-start" />
+                              Attach
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
+                  {selectedBrew ? (
+                    <div className="border-t p-5">
+                      <AttachmentPanel
+                        resourceType="brew"
+                        resourceId={selectedBrew.id}
+                        title={`Brew #${selectedBrew.id} photos`}
+                        compact
+                      />
+                    </div>
+                  ) : null}
                 </section>
               </div>
             ) : null}

@@ -79,7 +79,7 @@ The old TypeScript companion is not part of either production topology. Its migr
 
 ## 4. Public relational model
 
-Only seven public tables exist.
+Only eight public resource families exist.
 
 ```mermaid
 erDiagram
@@ -93,6 +93,11 @@ erDiagram
     coffees ||--o{ note_links : "N-M"
     roasts ||--o{ note_links : "N-M"
     brews ||--o{ note_links : "N-M"
+    attachments ||--|{ attachment_links : "1-N"
+    profiles ||--o{ attachment_links : "N-M"
+    coffees ||--o{ attachment_links : "N-M"
+    roasts ||--o{ attachment_links : "N-M"
+    brews ||--o{ attachment_links : "N-M"
 ```
 
 ### 4.1 `profiles`
@@ -151,7 +156,15 @@ Purpose: free-form evidence and reasoning.
 
 Kinds are observation, tasting, annotation, recommendation, or general. Sources are user, import, device, or agent. A note must have at least one valid link.
 
-### 4.6 `labels`
+### 4.6 `attachments` and `attachment_links`
+
+Purpose: provider documents and process/result photos or videos linked to core records.
+
+`attachments` fields: integer ID, title, safe filename, media type, byte length, SHA-256, source URL, description, capture time, timestamps, revision. `attachment_links` uses the same exactly-one-target N-M pattern as notes.
+
+File bytes are streamed to a temporary file, flushed, hashed, and atomically renamed into a local content-addressed object path. SQLite never stores large blobs. A metadata record without a hash is an explicit pending upload that an agent may safely retry. Each file is limited to 512 MiB.
+
+### 4.7 `labels`
 
 Purpose: label generation/submission history for a roast.
 
@@ -159,7 +172,7 @@ Fields: integer ID, roast ID, copies, physical dimensions, canonical label conte
 
 Status may be generated, submitted, spooled, deviceAccepted, physicallyConfirmed, failed, or unknown. The implemented UI creates `generated` records only.
 
-### 4.7 `settings`
+### 4.8 `settings`
 
 Purpose: singleton user defaults.
 
@@ -229,6 +242,10 @@ CI/release checks regenerate the files and fail on an uncommitted contract diff.
 | `GET/POST /notes` | filter / create multi-linked note |
 | `GET/PATCH/DELETE /notes/{id}` | detail / edit / delete |
 | `PUT /notes/{id}/links` | atomically replace relationship set |
+| `GET/POST /attachments` | filter / create typed attachment metadata |
+| `GET/PATCH /attachments/{id}` | detail / revision-guarded metadata edit |
+| `PUT /attachments/{id}/links` | atomically replace attachment relationships |
+| `GET/PUT /attachments/{id}/content` | authenticated streaming download/upload |
 | `GET/POST /labels` | filter / create generated label record |
 | `GET /labels/{id}` | label detail |
 | `GET/PATCH /settings` | defaults / revision-guarded update |
@@ -262,6 +279,7 @@ The OpenAPI document is the agent tool source. Useful patterns:
 - call `/coffees/{id}/roasts` or `/profiles/{id}/roasts` for upstream history;
 - create a Brew and its initial note in one request;
 - create one Note with several links when a conclusion applies across the chain;
+- create attachment metadata and then stream file content; link the resulting short ID to each relevant coffee, roast, or brew;
 - send `If-Match` for all editable resources;
 - never write directly to SQLite or native files.
 

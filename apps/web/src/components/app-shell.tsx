@@ -77,6 +77,8 @@ export function AppShell() {
               status: undefined,
               profileId: undefined,
               coffeeId: undefined,
+              sort: undefined,
+              hidden: undefined,
               view: undefined,
             }}
             className="mt-4 flex flex-col items-center gap-2"

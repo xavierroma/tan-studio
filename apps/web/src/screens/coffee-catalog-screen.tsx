@@ -41,6 +41,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
+import { AttachmentPanel } from "@/components/attachment-panel"
 import {
   createCoffee,
   createNote,
@@ -442,6 +443,8 @@ export function CoffeeCatalogScreen() {
                       profileId: undefined,
                       q: undefined,
                       status: undefined,
+                      sort: undefined,
+                      hidden: undefined,
                       view: undefined,
                     }}
                     className={buttonVariants({
@@ -493,6 +496,13 @@ export function CoffeeCatalogScreen() {
                     </Button>
                   </FieldGroup>
                 </form>
+                <Separator />
+                <AttachmentPanel
+                  resourceType="coffee"
+                  resourceId={selected.id}
+                  title="Documents & media"
+                  compact
+                />
               </div>
               <SheetFooter>
                 <Button

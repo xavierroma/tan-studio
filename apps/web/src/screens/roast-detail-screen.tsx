@@ -49,6 +49,7 @@ import { toast } from "sonner"
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import { RoastChart } from "@/components/roast-chart"
+import { AttachmentPanel } from "@/components/attachment-panel"
 import {
   createNote,
   getRoast,
@@ -104,6 +105,13 @@ function elapsed(value?: number | null) {
   const seconds = Math.round(value / 1_000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
+
+const noteKindItems = [
+  { value: "observation", label: "Observation" },
+  { value: "tasting", label: "Tasting" },
+  { value: "recommendation", label: "Recommendation" },
+  { value: "general", label: "General" },
+]
 
 export function RoastDetailScreen() {
   const params = useParams({ from: "/roasts/$roastId" })
@@ -174,6 +182,18 @@ export function RoastDetailScreen() {
 
   const item = roast.data
   const points = chartPoints(series.data ?? null)
+  const profileItems =
+    profiles.data?.map((profile) => ({
+      value: String(profile.id),
+      label: `#${profile.id} · ${profile.name}`,
+    })) ?? []
+  const coffeeItems = [
+    { value: "none", label: "Unassigned" },
+    ...(coffees.data?.map((coffee) => ({
+      value: String(coffee.id),
+      label: `#${coffee.id} · ${coffee.name}`,
+    })) ?? []),
+  ]
   const submitNote = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -232,6 +252,8 @@ export function RoastDetailScreen() {
                 status: undefined,
                 profileId: undefined,
                 coffeeId: undefined,
+                sort: undefined,
+                hidden: undefined,
                 view: undefined,
               }}
               className={buttonVariants({ variant: "outline" })}
@@ -265,6 +287,7 @@ export function RoastDetailScreen() {
                     <Field>
                       <FieldLabel htmlFor="profileId">Profile</FieldLabel>
                       <Select
+                        items={profileItems}
                         name="profileId"
                         defaultValue={String(item.profile?.id ?? "")}
                       >
@@ -273,12 +296,12 @@ export function RoastDetailScreen() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {profiles.data?.map((profile) => (
+                            {profileItems.map((profile) => (
                               <SelectItem
-                                key={profile.id}
-                                value={String(profile.id)}
+                                key={profile.value}
+                                value={profile.value}
                               >
-                                {profile.name}
+                                {profile.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -288,6 +311,7 @@ export function RoastDetailScreen() {
                     <Field>
                       <FieldLabel htmlFor="coffeeId">Coffee</FieldLabel>
                       <Select
+                        items={coffeeItems}
                         name="coffeeId"
                         defaultValue={String(item.coffee?.id ?? "none")}
                       >
@@ -296,13 +320,12 @@ export function RoastDetailScreen() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            <SelectItem value="none">Unassigned</SelectItem>
-                            {coffees.data?.map((coffee) => (
+                            {coffeeItems.map((coffee) => (
                               <SelectItem
-                                key={coffee.id}
-                                value={String(coffee.id)}
+                                key={coffee.value}
+                                value={coffee.value}
                               >
-                                {coffee.name}
+                                {coffee.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>
@@ -414,7 +437,24 @@ export function RoastDetailScreen() {
             {series.isPending ? (
               <Skeleton className="m-5 h-96" />
             ) : points.length > 0 ? (
-              <RoastChart points={points} height={440} showFanAxis />
+              <RoastChart
+                points={points}
+                events={item.events.map((event) => ({
+                  id: event.id,
+                  elapsedMs: event.elapsedMs,
+                  label: event.kind.replaceAll("_", " "),
+                  temperatureC:
+                    event.temperatureMilliC == null
+                      ? null
+                      : event.temperatureMilliC / 1_000,
+                  kind: "device" as const,
+                }))}
+                {...(item.durationMs == null
+                  ? {}
+                  : { durationMs: item.durationMs })}
+                height={520}
+                showFanAxis
+              />
             ) : (
               <p className="text-muted-foreground p-8 text-center text-sm">
                 Telemetry appears after the Nano log is synchronized.
@@ -443,7 +483,7 @@ export function RoastDetailScreen() {
             <div className="mt-4 flex flex-col gap-2">
               <Link
                 to="/brews"
-                search={{ roastId: item.id, tab: undefined }}
+                search={{ roastId: item.id, brewId: undefined, tab: undefined }}
                 className={buttonVariants()}
               >
                 <CoffeeIcon data-icon="inline-start" />
@@ -503,6 +543,13 @@ export function RoastDetailScreen() {
             </section>
           ) : null}
 
+          <AttachmentPanel
+            resourceType="roast"
+            resourceId={item.id}
+            title="Roast media"
+            description="Attach process photos, finished beans, videos, or supporting documents."
+          />
+
           <section className="bg-card rounded-xl border p-5">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold">Notes</h2>
@@ -527,18 +574,21 @@ export function RoastDetailScreen() {
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="note-kind">Type</FieldLabel>
-                  <Select name="kind" defaultValue="observation">
+                  <Select
+                    items={noteKindItems}
+                    name="kind"
+                    defaultValue="observation"
+                  >
                     <SelectTrigger id="note-kind" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="observation">Observation</SelectItem>
-                        <SelectItem value="tasting">Tasting</SelectItem>
-                        <SelectItem value="recommendation">
-                          Recommendation
-                        </SelectItem>
-                        <SelectItem value="general">General</SelectItem>
+                        {noteKindItems.map((kind) => (
+                          <SelectItem key={kind.value} value={kind.value}>
+                            {kind.label}
+                          </SelectItem>
+                        ))}
                       </SelectGroup>
                     </SelectContent>
                   </Select>

@@ -57,6 +57,7 @@ import {
   createChildProfile,
   getProfile,
   listProfiles,
+  listRoasts,
   queryKeys,
 } from "@/lib/api"
 import type { ChartPoint } from "@/types"
@@ -169,6 +170,11 @@ export function ProfileEditorScreen() {
     queryFn: ({ signal }) => getProfile(selectedId!, signal),
     enabled: selectedId != null,
   })
+  const profileRoasts = useQuery({
+    queryKey: queryKeys.roasts({ profileId: selectedId }),
+    queryFn: ({ signal }) => listRoasts({ profileId: selectedId }, signal),
+    enabled: selectedId != null,
+  })
   const child = useMutation({
     mutationFn: (input: Parameters<typeof createChildProfile>[1]) =>
       createChildProfile(selectedId!, input),
@@ -241,6 +247,14 @@ export function ProfileEditorScreen() {
   const children =
     list.data?.filter((candidate) => candidate.parentProfileId === item.id) ??
     []
+  const profileItems =
+    list.data?.map((candidate) => ({
+      value: String(candidate.id),
+      label: `#${candidate.id} · ${candidate.name}`,
+    })) ?? []
+  const latestRoasts = (profileRoasts.data ?? [])
+    .toSorted((left, right) => right.id - left.id)
+    .slice(0, 5)
   const submitChild = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -370,6 +384,7 @@ export function ProfileEditorScreen() {
           <Field>
             <FieldLabel htmlFor="profile-picker">Inspect profile</FieldLabel>
             <Select
+              items={profileItems}
               value={String(item.id)}
               onValueChange={(value) =>
                 value && void navigate({ search: { profileId: Number(value) } })
@@ -380,9 +395,9 @@ export function ProfileEditorScreen() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {list.data?.map((candidate) => (
-                    <SelectItem key={candidate.id} value={String(candidate.id)}>
-                      #{candidate.id} · {candidate.name}
+                  {profileItems.map((candidate) => (
+                    <SelectItem key={candidate.value} value={candidate.value}>
+                      {candidate.label}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -466,7 +481,7 @@ export function ProfileEditorScreen() {
               </AlertDescription>
             </Alert>
           </section>
-          <aside className="bg-card rounded-xl border p-5">
+          <aside className="bg-card self-start rounded-xl border p-5">
             <h2 className="font-semibold">Relationships</h2>
             <div className="mt-4 flex flex-col gap-3 text-sm">
               {parent ? (
@@ -480,7 +495,7 @@ export function ProfileEditorScreen() {
               ) : (
                 <span className="text-muted-foreground">No parent profile</span>
               )}
-              {children.map((candidate) => (
+              {children.slice(0, 3).map((candidate) => (
                 <Link
                   key={candidate.id}
                   to="/profiles"
@@ -490,6 +505,33 @@ export function ProfileEditorScreen() {
                   Child · #{candidate.id} {candidate.name}
                 </Link>
               ))}
+              {latestRoasts.length ? (
+                <div className="border-t pt-3">
+                  <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+                    Latest roasts
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {latestRoasts.map((roast) => (
+                      <Link
+                        key={roast.id}
+                        to="/roasts/$roastId"
+                        params={{ roastId: String(roast.id) }}
+                        className="flex items-center justify-between gap-3 underline-offset-4 hover:underline"
+                      >
+                        <span>
+                          Roast #{roast.id}
+                          {roast.coffee ? ` · ${roast.coffee.name}` : ""}
+                        </span>
+                        <Badge variant="secondary">{roast.status}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">
+                  No roasts use this profile yet
+                </span>
+              )}
               <Link
                 to="/roasts"
                 search={{
@@ -497,6 +539,8 @@ export function ProfileEditorScreen() {
                   coffeeId: undefined,
                   q: undefined,
                   status: undefined,
+                  sort: undefined,
+                  hidden: undefined,
                   view: undefined,
                 }}
                 className={buttonVariants({ variant: "outline", size: "sm" })}

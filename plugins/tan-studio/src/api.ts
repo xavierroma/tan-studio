@@ -1,13 +1,21 @@
 import createClient from "openapi-fetch"
+import { basename, isAbsolute } from "node:path"
 
 import type { paths } from "./generated/api"
 import type { TanStudioConfig } from "./config"
 import {
   TanStudioGatewayError,
+  type Attachment,
+  type AttachmentCreate,
+  type AttachmentFileInput,
+  type AttachmentPage,
   type Bootstrap,
   type Brew,
   type BrewCreate,
   type CoffeePage,
+  type Coffee,
+  type CoffeeCreate,
+  type CoffeePatch,
   type Context,
   type Device,
   type Label,
@@ -172,12 +180,87 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     return unwrap(await this.client.POST("/api/v1/brews", { body: input }))
   }
 
+  async createCoffee(input: CoffeeCreate): Promise<Coffee> {
+    return unwrap(await this.client.POST("/api/v1/coffees", { body: input }))
+  }
+
+  async updateCoffee(
+    id: number,
+    revision: number,
+    input: CoffeePatch
+  ): Promise<Coffee> {
+    return unwrap(
+      await this.client.PATCH("/api/v1/coffees/{id}", {
+        params: {
+          path: { id },
+          header: { "If-Match": `"revision:${revision}"` },
+        },
+        body: input,
+      })
+    )
+  }
+
   async createNote(input: NoteCreate): Promise<Note> {
     return unwrap(await this.client.POST("/api/v1/notes", { body: input }))
   }
 
   async createLabel(input: LabelCreate): Promise<Label> {
     return unwrap(await this.client.POST("/api/v1/labels", { body: input }))
+  }
+
+  async listAttachments(
+    resourceType: string,
+    resourceId: number
+  ): Promise<AttachmentPage> {
+    return unwrap(
+      await this.client.GET("/api/v1/attachments", {
+        params: { query: { resourceType, resourceId } },
+      })
+    )
+  }
+
+  async attachLocalFile(input: AttachmentFileInput): Promise<Attachment> {
+    if (!isAbsolute(input.filePath)) {
+      throw new Error("filePath must be absolute")
+    }
+    const file = Bun.file(input.filePath)
+    if (!(await file.exists())) throw new Error("Attachment file not found")
+    if (file.size < 1 || file.size > 512 * 1024 * 1024) {
+      throw new Error("Attachment must be between 1 byte and 512 MiB")
+    }
+    const attachment = await this.createAttachment({
+      title: input.title ?? basename(input.filePath),
+      filename: basename(input.filePath),
+      mediaType: input.mediaType ?? (file.type || "application/octet-stream"),
+      sourceUrl: input.sourceUrl ?? null,
+      description: input.description ?? "",
+      capturedAt: input.capturedAt ?? null,
+      links: input.links,
+    })
+    return this.putAttachmentContent(attachment, file)
+  }
+
+  private async createAttachment(input: AttachmentCreate): Promise<Attachment> {
+    return unwrap(
+      await this.client.POST("/api/v1/attachments", { body: input })
+    )
+  }
+
+  private async putAttachmentContent(
+    attachment: Attachment,
+    content: Blob
+  ): Promise<Attachment> {
+    return unwrap(
+      await this.client.PUT("/api/v1/attachments/{id}/content", {
+        params: {
+          path: { id: attachment.id },
+          header: { "If-Match": `"revision:${attachment.revision}"` },
+        },
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "",
+        bodySerializer: () => content,
+      })
+    )
   }
 }
 
