@@ -406,19 +406,19 @@ Do not turn every REST operation into an MCP tool. Expose a small, task-shaped s
 
 | MCP tool | Behavior | Annotation |
 | --- | --- | --- |
+| `tan_status` | Service capabilities, recovery state, and device/sync health. | read-only |
 | `tan_get_context` | Resolve short IDs and return a compact profile/coffee/roast/brew chain. | read-only |
-| `tan_search_roasts` | Typed filters, sorting, pagination, and summary metrics. | read-only |
+| `tan_search_profiles` | Find profile summaries by text or relationship. | read-only |
+| `tan_search_coffees` | Find flat coffee-catalog records by text or relationship. | read-only |
+| `tan_search_roasts` | Typed filters and lightweight roast summaries without telemetry. | read-only |
 | `tan_get_roast` | Roast detail; telemetry summary by default, bounded series on request. | read-only |
 | `tan_list_pantry` | Available roasted coffee, rest window, estimated remaining amount. | read-only |
-| `tan_explain_profile` | Profile parameters, parent/children, and historical roast outcomes. | read-only |
-| `tan_prepare_roast` | Validate coffee/profile/defaults and create an uncommitted proposal. | read-only computation |
-| `tan_commit_roast_plan` | Commit an accepted proposal with revision and idempotency guard. | private write, non-destructive |
 | `tan_record_brew` | Atomically create a brew, apply declared defaults, and optionally attach a note. | private write, non-destructive |
 | `tan_add_note` | Add one note linked atomically to one or more resources. | private write, non-destructive |
 | `tan_create_label` | Create a label artifact/record; does not claim physical printing. | private write, non-destructive |
-| `tan_device_status` | Device, transport, roast activity, and sync health. | read-only |
-| `tan_sync_device` | Start a read-only synchronization job and return its ID. | private write/job, non-destructive |
-| `tan_bridge_status` | Link, firmware, spool, cursor, and last-contact health. | read-only |
+| `tan_sync_device` | Run read-only-toward-device synchronization and return the resulting snapshot. | private write, idempotent |
+
+This is the implemented v0 contract. `tan_explain_profile`, `tan_prepare_roast`, `tan_commit_roast_plan`, and `tan_bridge_status` remain deferred until their backend use cases and OpenAPI operations exist; the plugin never simulates missing endpoints.
 
 There is intentionally no `tan_execute_sql`, generic `tan_http_request`, raw serial tool, arbitrary device action, or direct profile-write tool.
 
@@ -434,7 +434,6 @@ tan://roasts/{id}/context
 tan://brews/{id}
 tan://pantry
 tan://device
-tan://bridge
 ```
 
 Raw telemetry is not embedded by default. A resource returns summaries, units, provenance, related IDs, revision, and links to explicitly bounded series requests.
@@ -475,21 +474,23 @@ Audit metadata records `actorType` (`human`, `agent`, `device`, or `system`), a 
 
 ```mermaid
 flowchart TD
-    OA["Rust DTOs + utoipa OpenAPI 3.1"] --> TS["Generated TypeScript web client"]
-    OA --> RC["Generated Rust API client"]
-    RC --> CLI["Clap tan CLI"]
-    RC --> MS["Rust MCP adapter"]
-    CLI --> API["Tan Studio HTTP API"]
-    MS --> API
+    OA["Rust DTOs + utoipa OpenAPI 3.1"] --> WC["Generated TypeScript web client"]
+    OA --> MC["Generated TypeScript OpenAPI adapter"]
+    MS["MCP controller"] --> GP["TanStudioGateway port"]
+    GP --> MC
+    WC --> API["Tan Studio HTTP API"]
+    MC --> API
+    API --> DB["SQLite + domain services"]
+    API --> USB["Kaffeelogic adapter"]
 ```
 
-Use the official [MCP Rust SDK](https://github.com/modelcontextprotocol/rust-sdk) rather than hand-writing JSON-RPC. Run the local MCP server over stdio for Codex on the same machine. A future remote Streamable HTTP deployment uses HTTPS, scoped credentials, exact host/origin validation, and the same backend authorization; it is not exposed by the tiny bridge.
+Use the official [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) over stdio rather than hand-writing JSON-RPC. The MCP controller depends only on a `TanStudioGateway` port. Its production implementation calls the generated OpenAPI client, which means MCP and web requests enter the same Rust REST controllers and application services. The adapter contains no domain or persistence logic. The Rust HTTP service remains the first-class product and sole authority for validation, defaults, SQLite, files, printing, and USB. A repository architecture test prevents the MCP controller from importing the HTTP implementation or backend adapters. A future remote Streamable HTTP MCP deployment uses HTTPS, scoped credentials, exact host/origin validation, and the same backend authorization; it is not exposed by the tiny bridge.
 
-CLI/MCP commands use a generated client or generated DTOs plus a checked compatibility layer. CI fails if the committed OpenAPI document, generated clients, CLI schemas, or MCP tool schemas drift.
+CLI/MCP commands use a generated client or generated DTOs plus a checked compatibility layer. CI fails if the committed OpenAPI document or generated web/MCP clients drift. The production adapter pins MCP SDK v1 while the upstream v2 SDK remains pre-alpha.
 
 ### 8.6 Agent scopes
 
-Initial scopes are deliberately narrow:
+The target agent scopes are deliberately narrow:
 
 ```text
 read
@@ -502,12 +503,14 @@ device:sync:read
 
 There is no destructive device scope in the first release. Profile/device mutation, firmware installation, roast stop, filesystem delete/format, or network credential changes are separate future capabilities with physical/human confirmation.
 
+The current headless service has one broad LAN bearer token. The plugin uses it only for the curated operations above. Issuing revocable per-agent tokens with these scopes is a backend hardening milestone, not a capability the v0 plugin claims to provide.
+
 ## 9. Implementation sequence
 
 1. Extract `RoasterLink`; keep direct USB behavior and tests unchanged.
-2. Generate a Rust client from the existing OpenAPI document.
-3. Implement `tan` read commands, JSON output, auth discovery, and contract tests.
-4. Implement MCP read tools/resources with the official Rust SDK; register it in project Codex configuration.
+2. Generate a dedicated TypeScript MCP client from the existing OpenAPI document.
+3. Implement MCP read tools/resources with the official TypeScript SDK; register it in project Codex configuration.
+4. Implement `tan` read commands, JSON output, auth discovery, and contract tests as a reproducible shell/CI interface.
 5. Add idempotent note and brew writes, then prepare/commit roast planning.
 6. Add an ESP-IDF `firmware/tan-bridge-esp32s3` workspace targeting AtomS3 Lite C124, with reproducible toolchain and signed artifacts.
 7. Run the passive USB-role/current probe, then implement read-only SASSI, the LAN API, and `TanBridgeRoasterLink` only if it passes.
@@ -531,6 +534,6 @@ The CLI/MCP work can proceed without bridge hardware. Firmware scaffolding can p
 - [ESP-IDF USB Device Stack](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/usb_device.html)
 - [ESP32-S3-USB-OTG development board](https://documentation.espressif.com/projects/espressif-esp-dev-kits/en/latest/esp32s3/esp32-s3-usb-otg/user_guide.html)
 - [Raspberry Pi Pico 2](https://www.raspberrypi.com/products/raspberry-pi-pico-2/)
-- [Official MCP Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)
+- [Official MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 - [OpenAI: Build your MCP server](https://developers.openai.com/apps-sdk/build/mcp-server)
 - [OpenAI Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp)

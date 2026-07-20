@@ -3,6 +3,8 @@ tmp/
 node_modules/
 .node_modules.backup-*/
 dist/
+!plugins/tan-studio/dist/
+!plugins/tan-studio/dist/server.js
 .turbo/
 coverage/
 *.tsbuildinfo

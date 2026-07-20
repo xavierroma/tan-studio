@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tan-studio": {
+      "cwd": ".",
+      "command": "bun",
+      "args": ["run", "./dist/server.js"]
+    }
+  }
+}

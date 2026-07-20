@@ -1,0 +1,13 @@
+interface:
+  display_name: "Tan Studio"
+  short_description: "Manage coffee roasts, brews, and tasting notes"
+  brand_color: "#A9785B"
+  default_prompt: "Use $tan-studio to show what is ready in my pantry and recommend what to brew."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "tan-studio"
+      description: "Typed access to the user's local Tan Studio service"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true

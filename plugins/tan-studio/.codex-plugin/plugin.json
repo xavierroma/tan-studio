@@ -1,0 +1,30 @@
+{
+  "name": "tan-studio",
+  "version": "0.1.0",
+  "description": "Manage coffee roasts, brews, tasting notes, and the Kaffeelogic device through Tan Studio's typed local API.",
+  "author": {
+    "name": "Xavier Roma"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tan Studio",
+    "shortDescription": "Manage coffee roasts and brews from Codex.",
+    "longDescription": "Connect Codex to a local Tan Studio service to inspect profiles, coffees, roasts, pantry state, and device status; record brews and tasting notes; and create roast labels through a generated OpenAPI client.",
+    "developerName": "Xavier Roma",
+    "category": "Lifestyle",
+    "capabilities": [
+      "Roast and pantry search",
+      "Coffee, profile, and roast context",
+      "Brew and tasting-note capture",
+      "Roast label creation",
+      "Read-only Kaffeelogic synchronization"
+    ],
+    "defaultPrompt": [
+      "What coffee is ready to brew today?",
+      "Record a brew and my tasting notes.",
+      "Compare my recent roasts of this coffee."
+    ],
+    "brandColor": "#A9785B"
+  },
+  "mcpServers": "./.mcp.json"
+}

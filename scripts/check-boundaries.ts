@@ -57,11 +57,37 @@ for (const rule of rules) {
   }
 }
 
+const pluginControllerFiles = [
+  "plugins/tan-studio/src/mcp.ts",
+  "plugins/tan-studio/src/results.ts",
+  "plugins/tan-studio/src/units.ts",
+]
+const pluginControllerImports = new Set([
+  "@modelcontextprotocol/sdk/server/mcp.js",
+  "@modelcontextprotocol/sdk/types.js",
+  "./gateway",
+  "./results",
+  "./units",
+  "zod",
+])
+
+for (const file of pluginControllerFiles) {
+  const source = await Bun.file(file).text()
+  for (const match of source.matchAll(importPattern)) {
+    const specifier = match[1]
+    if (specifier && !pluginControllerImports.has(specifier)) {
+      violations.push(
+        `${file}: disallowed controller import ${JSON.stringify(specifier)} — MCP controllers may depend on the TanStudioGateway port, never its HTTP implementation or backend adapters.`
+      )
+    }
+  }
+}
+
 if (violations.length > 0) {
   console.error(violations.join("\n"))
   process.exit(1)
 }
 
 console.info(
-  `Architecture boundaries verified across ${rules.length} inward layers.`
+  `Architecture boundaries verified across ${rules.length} inward layers and the MCP controller port.`
 )
