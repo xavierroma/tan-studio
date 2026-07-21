@@ -7,7 +7,6 @@ import {
   TooltipTrigger,
 } from "@tan-studio/ui/components/tooltip"
 import {
-  BeanIcon,
   BookOpenTextIcon,
   CableIcon,
   ChartNoAxesCombinedIcon,
@@ -117,9 +116,13 @@ export function AppShell() {
             className="mt-4 flex flex-col items-center gap-2"
             aria-label="Tan Studio home"
           >
-            <span className="bg-primary text-primary-foreground flex size-10 items-center justify-center rounded-full shadow-sm">
-              <BeanIcon className="size-5" />
-            </span>
+            <img
+              src="/tan-studio-logo.png"
+              alt=""
+              width={48}
+              height={48}
+              className="border-border size-12 rounded-2xl border object-cover shadow-sm"
+            />
             <span className="text-center text-[0.5625rem] leading-tight font-bold tracking-[0.12em] uppercase">
               Tan
               <br />

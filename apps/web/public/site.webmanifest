@@ -1,0 +1,21 @@
+{
+  "name": "Tan Studio",
+  "short_name": "Tan Studio",
+  "description": "A local-first workspace for Kaffeelogic roasting",
+  "start_url": "/roasts",
+  "display": "standalone",
+  "background_color": "#f6f0e7",
+  "theme_color": "#f6f0e7",
+  "icons": [
+    {
+      "src": "/tan-studio-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/tan-studio-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

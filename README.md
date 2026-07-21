@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/tan-studio-beach-bean.png" alt="Tan Studio" width="180" />
+</p>
+
 # Tan Studio
 
 Tan Studio is a calm, local-first Kaffelogic Nano 7 notebook. A React/Vite interface talks to one strongly typed Rust service, whether it runs as a Tauri macOS sidecar or an always-on Raspberry Pi appliance.
