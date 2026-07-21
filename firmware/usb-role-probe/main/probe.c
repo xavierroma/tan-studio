@@ -310,9 +310,18 @@ static void send_diagnostic(void)
         previous_available ? "true" : "false", previous_json, current_json);
 
     if (length > 0 && (size_t)length < sizeof(response)) {
-        tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0,
-                                   (const uint8_t *)response, (size_t)length);
-        tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(100));
+        size_t offset = 0U;
+        while (offset < (size_t)length) {
+            size_t queued = tinyusb_cdcacm_write_queue(
+                TINYUSB_CDC_ACM_0, (const uint8_t *)&response[offset],
+                (size_t)length - offset);
+            if (queued == 0U ||
+                tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0,
+                                           pdMS_TO_TICKS(250)) != ESP_OK) {
+                return;
+            }
+            offset += queued;
+        }
     }
 }
 

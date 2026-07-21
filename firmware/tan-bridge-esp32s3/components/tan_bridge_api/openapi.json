@@ -1,0 +1,351 @@
+{
+  "openapi": "3.1.0",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Tan Bridge native API",
+    "version": "1.0.0-alpha.1",
+    "description": "Paired, read-only native contract. No network handler is enabled in the first-Nano firmware."
+  },
+  "servers": [{ "url": "https://tan-bridge-{shortId}.local" }],
+  "security": [{ "pairedMutualTls": [] }],
+  "paths": {
+    "/bridge/v1/status": {
+      "get": {
+        "operationId": "getBridgeStatus",
+        "responses": {
+          "200": {
+            "description": "Current bounded bridge status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BridgeStatus" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bridge/v1/files": {
+      "get": {
+        "operationId": "listBridgeFiles",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 128 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One immutable manifest page",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BridgeFilePage" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bridge/v1/files/{hash}": {
+      "get": {
+        "operationId": "downloadBridgeFile",
+        "parameters": [
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/Sha256" }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^bytes=[0-9]+-[0-9]*$" }
+          }
+        ],
+        "responses": {
+          "206": {
+            "description": "Bounded immutable byte range",
+            "headers": {
+              "Content-Range": {
+                "required": true,
+                "schema": { "type": "string" }
+              },
+              "Digest": {
+                "required": true,
+                "schema": { "type": "string", "pattern": "^sha-256=" }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "contentEncoding": "binary", "maxLength": 65536 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/bridge/v1/events": {
+      "get": {
+        "operationId": "observeBridgeEvents",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Authenticated WebSocket; each text message is a BridgeEvent"
+          },
+          "409": {
+            "description": "Requested cursor predates the retention floor",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RetentionGap" }
+              }
+            }
+          }
+        },
+        "x-websocket-message": { "$ref": "#/components/schemas/BridgeEvent" }
+      }
+    },
+    "/bridge/v1/synchronize": {
+      "post": {
+        "operationId": "synchronizeBridge",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": { "type": "string", "minLength": 16, "maxLength": 128 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SynchronizeRequest" }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Read-only synchronization accepted or replayed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SynchronizeReceipt" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "pairedMutualTls": { "type": "mutualTLS" }
+    },
+    "schemas": {
+      "BridgeId": {
+        "type": "string",
+        "pattern": "^[a-z2-7]{16,52}$"
+      },
+      "BootId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "Sha256": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "UsbState": {
+        "type": "string",
+        "enum": [
+          "booting",
+          "usbDetached",
+          "usbEnumerated",
+          "observing",
+          "readOnlyReady",
+          "recovering",
+          "faulted"
+        ]
+      },
+      "BuildIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["firmwareVersion", "gitCommit", "espIdfVersion", "binarySha256"],
+        "properties": {
+          "firmwareVersion": { "type": "string", "maxLength": 64 },
+          "gitCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "espIdfVersion": { "type": "string", "const": "5.5.5" },
+          "binarySha256": { "$ref": "#/components/schemas/Sha256" }
+        }
+      },
+      "NanoCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model", "platform", "capabilityBits", "sassiVersion", "maximumPacketBytes", "maximumFilenameBytes"],
+        "properties": {
+          "model": { "type": "string", "maxLength": 64 },
+          "platform": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "capabilityBits": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+          "sassiVersion": { "type": "integer", "minimum": 0, "maximum": 65535 },
+          "maximumPacketBytes": { "type": "integer", "minimum": 1, "maximum": 4064 },
+          "maximumFilenameBytes": { "type": "integer", "minimum": 1, "maximum": 192 }
+        }
+      },
+      "SpoolBounds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lowCursor", "highCursor", "capacityBytes", "usedBytes", "retentionGap"],
+        "properties": {
+          "lowCursor": { "type": "integer", "minimum": 0 },
+          "highCursor": { "type": "integer", "minimum": 0 },
+          "capacityBytes": { "type": "integer", "minimum": 0 },
+          "usedBytes": { "type": "integer", "minimum": 0 },
+          "retentionGap": { "type": "boolean" }
+        }
+      },
+      "FeatureFlags": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sassiTransmit", "wifi", "api", "pairing", "ota"],
+        "properties": {
+          "sassiTransmit": { "type": "boolean" },
+          "wifi": { "type": "boolean" },
+          "api": { "type": "boolean" },
+          "pairing": { "type": "boolean" },
+          "ota": { "type": "boolean" }
+        }
+      },
+      "BridgeStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "bridgeId", "bootId", "uptimeMs", "usbState", "nano", "spool", "features", "build"],
+        "properties": {
+          "schemaVersion": { "type": "integer", "const": 1 },
+          "bridgeId": { "$ref": "#/components/schemas/BridgeId" },
+          "bootId": { "$ref": "#/components/schemas/BootId" },
+          "uptimeMs": { "type": "integer", "minimum": 0 },
+          "usbState": { "$ref": "#/components/schemas/UsbState" },
+          "nano": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/NanoCapabilities" },
+              { "type": "null" }
+            ]
+          },
+          "spool": { "$ref": "#/components/schemas/SpoolBounds" },
+          "features": { "$ref": "#/components/schemas/FeatureFlags" },
+          "build": { "$ref": "#/components/schemas/BuildIdentity" }
+        }
+      },
+      "BridgeFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path", "sizeBytes", "modifiedEvidence", "sha256"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["profile", "log"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 192 },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "modifiedEvidence": { "type": "string", "maxLength": 64 },
+          "sha256": { "$ref": "#/components/schemas/Sha256" }
+        }
+      },
+      "BridgeFilePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["items", "nextCursor"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": { "$ref": "#/components/schemas/BridgeFile" }
+          },
+          "nextCursor": { "type": ["string", "null"], "maxLength": 128 }
+        }
+      },
+      "DeviceStatusPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["usbState"],
+        "properties": { "usbState": { "$ref": "#/components/schemas/UsbState" } }
+      },
+      "FileChangedPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sha256", "kind"],
+        "properties": {
+          "sha256": { "$ref": "#/components/schemas/Sha256" },
+          "kind": { "type": "string", "enum": ["profile", "log"] }
+        }
+      },
+      "RetentionGap": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["requestedAfter", "availableFrom"],
+        "properties": {
+          "requestedAfter": { "type": "integer", "minimum": 0 },
+          "availableFrom": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "SynchronizationPayload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId", "state"],
+        "properties": {
+          "jobId": { "type": "string", "format": "uuid" },
+          "state": { "type": "string", "enum": ["accepted", "running", "complete", "failed"] }
+        }
+      },
+      "BridgeEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schemaVersion", "bridgeId", "bootId", "seq", "monotonicMs", "type", "payload"],
+        "properties": {
+          "schemaVersion": { "type": "integer", "const": 1 },
+          "bridgeId": { "$ref": "#/components/schemas/BridgeId" },
+          "bootId": { "$ref": "#/components/schemas/BootId" },
+          "seq": { "type": "integer", "minimum": 1 },
+          "monotonicMs": { "type": "integer", "minimum": 0 },
+          "type": { "type": "string", "enum": ["device.status", "file.changed", "spool.retentionGap", "synchronize.status"] },
+          "payload": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/DeviceStatusPayload" },
+              { "$ref": "#/components/schemas/FileChangedPayload" },
+              { "$ref": "#/components/schemas/RetentionGap" },
+              { "$ref": "#/components/schemas/SynchronizationPayload" }
+            ]
+          }
+        }
+      },
+      "SynchronizeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason"],
+        "properties": {
+          "reason": { "type": "string", "enum": ["startup", "user", "reconnect"] }
+        }
+      },
+      "SynchronizeReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId", "state", "replayed"],
+        "properties": {
+          "jobId": { "type": "string", "format": "uuid" },
+          "state": { "type": "string", "enum": ["accepted", "running", "complete"] },
+          "replayed": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
