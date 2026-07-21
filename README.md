@@ -81,7 +81,10 @@ and enumerates an ESP32-S3 USB device with the passive role probe:
 The probe is reproducibly built with pinned ESP-IDF and TinyUSB versions, stores
 no raw roaster data, and implements no roaster command. See its
 [test procedure](firmware/usb-role-probe/README.md) and the
-[hardware decision](docs/06-wireless-bridge-and-agent-interface.md).
+[hardware decision](docs/06-wireless-bridge-and-agent-interface.md). The exact
+away-from-home development steps, home hardware gate, production firmware
+boundaries, and a copy-paste Codex prompt are in the
+[AtomS3 Lite implementation handoff](docs/08-atoms3-lite-implementation-handoff.md).
 
 ## macOS executable
 
@@ -126,4 +129,5 @@ bun run lan:start
 - [Current technical specification](docs/04-technical-specification.md)
 - [Real-device and Studio parity evidence](docs/05-e2e-verification.md)
 - [Wireless bridge hardware and Codex CLI/MCP interface](docs/06-wireless-bridge-and-agent-interface.md)
+- [AtomS3 Lite implementation and hardware-test handoff](docs/08-atoms3-lite-implementation-handoff.md)
 - [Editable Excalidraw board](mockups/kaffelogic-modern-studio.excalidraw)

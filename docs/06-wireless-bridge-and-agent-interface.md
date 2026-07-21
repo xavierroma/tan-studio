@@ -512,7 +512,7 @@ The current headless service has one broad LAN bearer token. The plugin uses it 
 3. Implement MCP read tools/resources with the official TypeScript SDK; register it in project Codex configuration.
 4. Implement `tan` read commands, JSON output, auth discovery, and contract tests as a reproducible shell/CI interface.
 5. Add idempotent note and brew writes, then prepare/commit roast planning.
-6. Add an ESP-IDF `firmware/tan-bridge-esp32s3` workspace targeting AtomS3 Lite C124, with reproducible toolchain and signed artifacts.
+6. Follow the [AtomS3 Lite implementation handoff](08-atoms3-lite-implementation-handoff.md) to add an ESP-IDF `firmware/tan-bridge-esp32s3` workspace targeting AtomS3 Lite C124 with a reproducible toolchain and a transmit-disabled first-test image.
 7. Run the passive USB-role/current probe, then implement read-only SASSI, the LAN API, and `TanBridgeRoasterLink` only if it passes.
 8. Prove direct/bridge profile-log parity and live-roast recovery; then harden pairing, OTA, spool, watchdog, and diagnostics.
 9. Add verified profile push. Official TCP 9056 compatibility remains optional and separate from the native Tan Bridge API.
