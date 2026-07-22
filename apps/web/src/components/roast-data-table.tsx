@@ -44,6 +44,7 @@ import {
   Settings2Icon,
   XIcon,
 } from "lucide-react"
+import { useMemo } from "react"
 
 import type { Coffee, ProfileSummary, RoastSummary } from "@/lib/api"
 
@@ -265,8 +266,11 @@ export function RoastDataTable({
   search,
   updateSearch,
 }: RoastDataTableProps) {
-  const sorting = sortState(search.sort)
-  const columnVisibility = hiddenState(search.hidden)
+  const sorting = useMemo(() => sortState(search.sort), [search.sort])
+  const columnVisibility = useMemo(
+    () => hiddenState(search.hidden),
+    [search.hidden]
+  )
   const table = useReactTable({
     data,
     columns,

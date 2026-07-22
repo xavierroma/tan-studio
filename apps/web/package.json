@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
     "contract:generate": "cargo run --quiet --manifest-path ../service/Cargo.toml -- openapi src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/api.ts"
@@ -28,6 +29,7 @@
     "zustand": "^5.0.10"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
