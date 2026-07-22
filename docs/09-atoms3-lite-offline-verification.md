@@ -160,3 +160,90 @@ Until then:
 Only after that gate passes may the staged read-only bridge proof begin, with
 separate current measurements for Wi-Fi and one individually evidenced read
 request at a time. Device mutation remains outside that gate.
+
+## At-home hardware gate attempt
+
+Date: 21 July 2026
+
+Repository commit: `018abbc60a67e08b8fb0d2a75ddae6fdcfd124dd`
+
+Passive probe application SHA-256:
+`5f9fb53806f5444891d9737fcf1ccf1c33bb8df434b394cf32cc9ca50c301405`
+
+Command:
+
+```sh
+uv run script/read_usb_role_probe.py /dev/cu.usbmodemrole_probe1
+```
+
+Observed result:
+
+```json
+{
+  "current": {
+    "attached": 1,
+    "bitRate": 921600,
+    "boot": 7,
+    "detached": 0,
+    "droppedEvents": 0,
+    "dtr": 1,
+    "lastFrameLength": 0,
+    "lastSassiType": 0,
+    "lineCodingChanges": 9,
+    "lineStateChanges": 1,
+    "longestFrameLength": 0,
+    "malformedSassiFrames": 0,
+    "rts": 1,
+    "rxBytes": 15,
+    "rxCallbacks": 1,
+    "sassiFrames": 0
+  },
+  "previous": {
+    "attached": 1,
+    "bitRate": 921600,
+    "boot": 6,
+    "detached": 0,
+    "droppedEvents": 0,
+    "dtr": 1,
+    "lastFrameLength": 0,
+    "lastSassiType": 0,
+    "lineCodingChanges": 9,
+    "lineStateChanges": 1,
+    "longestFrameLength": 0,
+    "malformedSassiFrames": 0,
+    "rts": 1,
+    "rxBytes": 15,
+    "rxCallbacks": 1,
+    "sassiFrames": 0
+  },
+  "previousAvailable": true,
+  "probe": "tan-usb-role",
+  "schemaVersion": 1
+}
+```
+
+Command exit status: `5`.
+
+Interpretation: inconclusive physical sequence, not a Nano protocol failure.
+The `previous` session has the development-reader signature:
+`bitRate == 921600`, `dtr == 1`, `rts == 1`, and `rxBytes == 15`, matching the
+Mac-side `TAN_PROBE_DUMP` diagnostic request. That means the persisted
+previous session is another computer diagnostic boot, not the intended
+Nano-powered 30-second session. The hardware gate is therefore still pending.
+
+Measurements were not available in this run:
+
+- cable identity: not recorded;
+- meter identity: not recorded;
+- VBUS voltage: not measured;
+- idle current: not measured;
+- peak current: not measured;
+- resets or brownouts: not observed by software;
+- Nano reset behavior: not observed by software;
+- Atom remained powered by Nano: not verified;
+- backfeed indication: not measured.
+
+Do not flash `tan-bridge-setup` or `tan-bridge-esp32s3` onto the Nano
+connection based on this result. Repeat section 7 with the Atom disconnected
+from the Mac, connected only to the powered Nano for 30 seconds, then moved
+back to the Mac for exactly one diagnostic read.
