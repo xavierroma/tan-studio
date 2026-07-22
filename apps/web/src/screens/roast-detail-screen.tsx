@@ -106,6 +106,22 @@ function elapsed(value?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
+function localDateTime(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  const pad = (part: number) => String(part).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function profileNumber(snapshot: unknown, key: string) {
+  if (!snapshot || typeof snapshot !== "object") return null
+  const fields = (snapshot as { fields?: unknown }).fields
+  if (!fields || typeof fields !== "object") return null
+  const value = (fields as Record<string, unknown>)[key]
+  const parsed = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const noteKindItems = [
   { value: "observation", label: "Observation" },
   { value: "tasting", label: "Tasting" },
@@ -218,7 +234,9 @@ export function RoastDetailScreen() {
     const coffeeId = optionalNumber("coffeeId")
     const level = optionalNumber("level")
     const load = optionalNumber("load")
-    editMutation.mutate({
+    const roastedAtInput = String(form.get("roastedAt") ?? "")
+    const currentRoastedAt = localDateTime(item.roastedAt)
+    const patch: Parameters<typeof updateRoast>[2] = {
       profileId: profileId && Number.isFinite(profileId) ? profileId : null,
       coffeeId: coffeeId && Number.isFinite(coffeeId) ? coffeeId : null,
       levelThousandths:
@@ -227,8 +245,34 @@ export function RoastDetailScreen() {
           : null,
       greenInputMassMg:
         load != null && Number.isFinite(load) ? Math.round(load * 1_000) : null,
-    })
+    }
+    if (roastedAtInput !== currentRoastedAt) {
+      patch.roastedAt = roastedAtInput
+        ? new Date(roastedAtInput).toISOString()
+        : null
+      patch.sourceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    }
+    editMutation.mutate(patch)
   }
+
+  const actualFirstCrack = item.events.find(
+    (event) => event.kind === "first_crack"
+  )
+  const expectedFirstCrackC = profileNumber(item.profileSnapshot, "expect_fc")
+  const expectedFirstCrackPoint =
+    actualFirstCrack || expectedFirstCrackC == null
+      ? null
+      : points.find(
+          (point) =>
+            point.elapsedMs <= (item.durationMs ?? Number.POSITIVE_INFINITY) &&
+            (point.temperatureC ?? Number.NEGATIVE_INFINITY) >=
+              expectedFirstCrackC
+        )
+  const firstCrack = actualFirstCrack
+    ? { elapsedMs: actualFirstCrack.elapsedMs, estimated: false }
+    : expectedFirstCrackPoint
+      ? { elapsedMs: expectedFirstCrackPoint.elapsedMs, estimated: true }
+      : undefined
 
   return (
     <div className="min-h-screen">
@@ -254,6 +298,8 @@ export function RoastDetailScreen() {
                 coffeeId: undefined,
                 sort: undefined,
                 hidden: undefined,
+                density: undefined,
+                rest: undefined,
                 view: undefined,
               }}
               className={buttonVariants({ variant: "outline" })}
@@ -284,6 +330,20 @@ export function RoastDetailScreen() {
                   className="px-4"
                 >
                   <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="roastedAt">Roasted at</FieldLabel>
+                      <Input
+                        id="roastedAt"
+                        name="roastedAt"
+                        type="datetime-local"
+                        defaultValue={localDateTime(item.roastedAt)}
+                      />
+                      {!item.roastedAt ? (
+                        <FieldDescription>
+                          The Nano clock was unavailable; set the local time.
+                        </FieldDescription>
+                      ) : null}
+                    </Field>
                     <Field>
                       <FieldLabel htmlFor="profileId">Profile</FieldLabel>
                       <Select
@@ -383,7 +443,7 @@ export function RoastDetailScreen() {
         }
       />
 
-      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className="grid gap-6 px-3 py-4 sm:px-7 sm:py-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
         <main className="min-w-0">
           <section
             className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-3 lg:grid-cols-6"
@@ -449,10 +509,11 @@ export function RoastDetailScreen() {
                       : event.temperatureMilliC / 1_000,
                   kind: "device" as const,
                 }))}
+                {...(firstCrack ? { firstCrack } : {})}
                 {...(item.durationMs == null
                   ? {}
                   : { durationMs: item.durationMs })}
-                height={520}
+                height={680}
                 showFanAxis
               />
             ) : (
@@ -462,19 +523,28 @@ export function RoastDetailScreen() {
             )}
           </section>
 
-          {item.events.length > 0 ? (
-            <section className="bg-card mt-6 rounded-xl border p-5">
-              <h2 className="font-semibold">Device events</h2>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {item.events.map((event) => (
-                  <Badge key={event.id} variant="outline">
-                    {event.kind.replaceAll("_", " ")} ·{" "}
-                    {elapsed(event.elapsedMs)}
-                  </Badge>
-                ))}
-              </div>
-            </section>
-          ) : null}
+          <section className="bg-card mt-6 rounded-xl border p-5">
+            <h2 className="font-semibold">Milestones</h2>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {item.events.map((event) => (
+                <Badge key={event.id} variant="outline">
+                  {event.kind.replaceAll("_", " ")} · {elapsed(event.elapsedMs)}
+                </Badge>
+              ))}
+              {!actualFirstCrack && expectedFirstCrackPoint ? (
+                <Badge variant="secondary">
+                  Expected first crack · ~
+                  {elapsed(expectedFirstCrackPoint.elapsedMs)}
+                  {expectedFirstCrackC == null
+                    ? ""
+                    : ` · ${expectedFirstCrackC.toFixed(0)}°C`}
+                </Badge>
+              ) : null}
+              {!actualFirstCrack && !expectedFirstCrackPoint ? (
+                <Badge variant="secondary">First crack not logged</Badge>
+              ) : null}
+            </div>
+          </section>
         </main>
 
         <aside className="flex min-w-0 flex-col gap-5">
@@ -483,7 +553,16 @@ export function RoastDetailScreen() {
             <div className="mt-4 flex flex-col gap-2">
               <Link
                 to="/brews"
-                search={{ roastId: item.id, brewId: undefined, tab: undefined }}
+                search={{
+                  roastId: item.id,
+                  brewId: undefined,
+                  tab: undefined,
+                  q: undefined,
+                  method: undefined,
+                  sort: undefined,
+                  hidden: undefined,
+                  density: undefined,
+                }}
                 className={buttonVariants()}
               >
                 <CoffeeIcon data-icon="inline-start" />
@@ -519,27 +598,36 @@ export function RoastDetailScreen() {
                       ? "success"
                       : context.data.rest.state === "resting"
                         ? "info"
-                        : "warning"
+                        : context.data.rest.state === "unknown"
+                          ? "secondary"
+                          : "warning"
                   }
                 >
                   {context.data.rest.state === "pastPeak"
                     ? "past peak"
-                    : context.data.rest.state}
+                    : context.data.rest.state === "unknown"
+                      ? "date required"
+                      : context.data.rest.state}
                 </Badge>
                 <span className="text-muted-foreground text-sm">
-                  day {context.data.rest.ageDays}
+                  {context.data.rest.ageDays == null
+                    ? "Set roast date"
+                    : `day ${context.data.rest.ageDays}`}
                 </span>
               </div>
-              <p className="text-muted-foreground mt-3 text-sm">
-                Suggested window:{" "}
-                {new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                }).format(new Date(context.data.rest.suggestedFrom))}{" "}
-                –{" "}
-                {new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                }).format(new Date(context.data.rest.suggestedUntil))}
-              </p>
+              {context.data.rest.suggestedFrom &&
+              context.data.rest.suggestedUntil ? (
+                <p className="text-muted-foreground mt-3 text-sm">
+                  Suggested window:{" "}
+                  {new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                  }).format(new Date(context.data.rest.suggestedFrom))}{" "}
+                  –{" "}
+                  {new Intl.DateTimeFormat(undefined, {
+                    dateStyle: "medium",
+                  }).format(new Date(context.data.rest.suggestedUntil))}
+                </p>
+              ) : null}
             </section>
           ) : null}
 

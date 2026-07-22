@@ -82,6 +82,8 @@ export function AppErrorScreen({
                 coffeeId: undefined,
                 sort: undefined,
                 hidden: undefined,
+                density: undefined,
+                rest: undefined,
                 view: undefined,
               }}
               className={buttonVariants({ variant: "outline" })}

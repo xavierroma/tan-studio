@@ -1011,14 +1011,14 @@ export interface components {
         };
         RestWindow: {
             /** Format: int64 */
-            ageDays: number;
+            ageDays?: number | null;
             /** Format: int64 */
             peakDays: number;
             /** Format: int64 */
             restDays: number;
             state: string;
-            suggestedFrom: string;
-            suggestedUntil: string;
+            suggestedFrom?: string | null;
+            suggestedUntil?: string | null;
         };
         RoastCreate: {
             adjustments?: unknown;
@@ -1057,9 +1057,11 @@ export interface components {
             /** Format: int64 */
             profileId?: number | null;
             result?: string | null;
+            roastedAt?: string | null;
             /** Format: int64 */
             roastedYieldMassMg?: number | null;
             roasterParameters?: unknown;
+            sourceTimezone?: string | null;
             status?: string | null;
         };
         RoastResource: {

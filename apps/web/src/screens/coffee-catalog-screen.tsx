@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef } from "@tanstack/react-table"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button, buttonVariants } from "@tan-studio/ui/components/button"
@@ -16,6 +17,14 @@ import {
   FieldLabel,
 } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@tan-studio/ui/components/select"
 import { Separator } from "@tan-studio/ui/components/separator"
 import {
   Sheet,
@@ -26,22 +35,15 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@tan-studio/ui/components/sheet"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@tan-studio/ui/components/table"
 import { Textarea } from "@tan-studio/ui/components/textarea"
-import { BeanIcon, PlusIcon, SaveIcon, SearchIcon } from "lucide-react"
+import { BeanIcon, PlusIcon, SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
 import { AttachmentPanel } from "@/components/attachment-panel"
+import { DataTable, DataTableSortHeader } from "@/components/data-table"
 import {
   createCoffee,
   createNote,
@@ -63,6 +65,17 @@ function dateInput(value?: string | null) {
 function instant(value: FormDataEntryValue | null) {
   const text = String(value ?? "")
   return text ? new Date(`${text}T12:00:00`).toISOString() : null
+}
+
+function selectItems(values: Array<string | null | undefined>, all: string) {
+  return [
+    { value: "all", label: all },
+    ...Array.from(
+      new Set(values.filter((value): value is string => Boolean(value)))
+    )
+      .toSorted((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: value })),
+  ]
 }
 
 function coffeeBody(form: FormData): CoffeeCreate {
@@ -229,6 +242,11 @@ export function CoffeeCatalogScreen() {
     queryFn: ({ signal }) => listCoffees(search.q, signal),
   })
   const selected = coffees.data?.find((coffee) => coffee.id === search.coffeeId)
+  const updateSearch = (patch: Partial<typeof search>, replace = true) =>
+    void navigate({
+      search: (current) => ({ ...current, ...patch }),
+      replace,
+    })
   const notes = useQuery({
     queryKey: queryKeys.notes("coffee", selected?.id),
     queryFn: ({ signal }) => listNotes("coffee", selected!.id, signal),
@@ -240,7 +258,7 @@ export function CoffeeCatalogScreen() {
       toast.success(`Coffee #${coffee.id} saved`)
       setCreateOpen(false)
       void queryClient.invalidateQueries({ queryKey: ["coffees"] })
-      void navigate({ search: { q: search.q, coffeeId: coffee.id } })
+      updateSearch({ coffeeId: coffee.id }, false)
     },
     onError: (error) => toast.error(error.message),
   })
@@ -266,11 +284,125 @@ export function CoffeeCatalogScreen() {
   })
   if (coffees.error) throw coffees.error
 
+  const providerItems = selectItems(
+    coffees.data?.map((coffee) => coffee.provider) ?? [],
+    "Every provider"
+  )
+  const countryItems = selectItems(
+    coffees.data?.map((coffee) => coffee.country) ?? [],
+    "Every country"
+  )
+  const processItems = selectItems(
+    coffees.data?.map((coffee) => coffee.process) ?? [],
+    "Every process"
+  )
+  const filtered =
+    coffees.data?.filter(
+      (coffee) =>
+        (!search.provider || coffee.provider === search.provider) &&
+        (!search.country || coffee.country === search.country) &&
+        (!search.process || coffee.process === search.process)
+    ) ?? []
+  const columns: ColumnDef<Coffee>[] = [
+    {
+      id: "id",
+      accessorFn: (coffee) => coffee.id,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Coffee"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="text-left font-medium underline-offset-4 hover:underline"
+          onClick={() => updateSearch({ coffeeId: row.original.id }, false)}
+        >
+          #{row.original.id} · {row.original.name}
+        </button>
+      ),
+      enableHiding: false,
+      meta: { label: "Coffee", mobile: "primary" },
+    },
+    {
+      accessorKey: "provider",
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Provider"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => row.original.provider || "—",
+      meta: { label: "Provider", mobile: "detail" },
+    },
+    {
+      id: "origin",
+      accessorFn: (coffee) =>
+        [coffee.country, coffee.region, coffee.farm]
+          .filter(Boolean)
+          .join(" · "),
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Origin"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) =>
+        [row.original.country, row.original.region, row.original.farm]
+          .filter(Boolean)
+          .join(" · ") || "—",
+      meta: { label: "Origin", mobile: "detail" },
+    },
+    {
+      accessorKey: "process",
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Process"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => row.original.process || "—",
+      meta: { label: "Process", mobile: "detail" },
+    },
+    {
+      id: "remaining",
+      accessorFn: (coffee) => coffee.remainingMassMg,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Green remaining"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) =>
+        `${(row.original.remainingMassMg / 1_000).toLocaleString()} g`,
+      meta: { label: "Green remaining", mobile: "detail" },
+    },
+    {
+      accessorKey: "roastCount",
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Roasts"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => (
+        <Badge variant="secondary">{row.original.roastCount}</Badge>
+      ),
+      meta: { label: "Roasts", mobile: "detail" },
+    },
+  ]
+
   return (
     <div className="min-h-screen">
       <PageHeader
         title="Coffees"
-        description="One flat record per purchased green coffee: provider, origin, process, and remaining inventory."
         actions={
           <Sheet open={createOpen} onOpenChange={setCreateOpen}>
             <SheetTrigger
@@ -315,75 +447,77 @@ export function CoffeeCatalogScreen() {
           </Sheet>
         }
       />
-      <div className="flex flex-col gap-5 px-5 py-6 sm:px-7">
-        <Field className="max-w-xl">
-          <FieldLabel htmlFor="coffee-search" className="sr-only">
-            Search coffees
-          </FieldLabel>
-          <div className="relative">
-            <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-            <Input
-              id="coffee-search"
-              className="pl-9"
-              value={search.q ?? ""}
-              onChange={(event) =>
-                void navigate({
-                  search: {
-                    q: event.target.value || undefined,
-                    coffeeId: undefined,
-                  },
-                  replace: true,
-                })
-              }
-              placeholder="Coffee, provider, country, farm, process…"
-            />
-          </div>
-        </Field>
+      <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         {coffees.data?.length ? (
-          <div className="bg-card overflow-hidden rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Coffee</TableHead>
-                  <TableHead>Provider</TableHead>
-                  <TableHead>Origin</TableHead>
-                  <TableHead>Process</TableHead>
-                  <TableHead>Green remaining</TableHead>
-                  <TableHead>Roasts</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {coffees.data.map((coffee) => (
-                  <TableRow
-                    key={coffee.id}
-                    onClick={() =>
-                      void navigate({
-                        search: { q: search.q, coffeeId: coffee.id },
+          <DataTable
+            columns={columns}
+            data={filtered}
+            state={search}
+            updateState={updateSearch}
+            defaultSorting={[{ id: "id", desc: false }]}
+            noun="coffee"
+            getRowId={(coffee) => String(coffee.id)}
+            search={{
+              id: "coffee-search",
+              label: "Search coffees",
+              placeholder: "Coffee, provider, country, farm, process…",
+              value: search.q,
+              onChange: (q) => updateSearch({ q, coffeeId: undefined }),
+            }}
+            filters={
+              <>
+                {[
+                  [
+                    "provider",
+                    "Filter by provider",
+                    providerItems,
+                    search.provider,
+                  ],
+                  [
+                    "country",
+                    "Filter by country",
+                    countryItems,
+                    search.country,
+                  ],
+                  [
+                    "process",
+                    "Filter by process",
+                    processItems,
+                    search.process,
+                  ],
+                ].map(([key, label, items, value]) => (
+                  <Select
+                    key={key as string}
+                    items={items as { value: string; label: string }[]}
+                    value={(value as string | undefined) ?? "all"}
+                    onValueChange={(next) =>
+                      updateSearch({
+                        [key as string]: next === "all" ? undefined : next,
                       })
                     }
-                    className="cursor-pointer"
                   >
-                    <TableCell className="font-medium">
-                      #{coffee.id} · {coffee.name}
-                    </TableCell>
-                    <TableCell>{coffee.provider || "—"}</TableCell>
-                    <TableCell>
-                      {[coffee.country, coffee.region, coffee.farm]
-                        .filter(Boolean)
-                        .join(" · ") || "—"}
-                    </TableCell>
-                    <TableCell>{coffee.process || "—"}</TableCell>
-                    <TableCell>
-                      {(coffee.remainingMassMg / 1_000).toLocaleString()} g
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{coffee.roastCount}</Badge>
-                    </TableCell>
-                  </TableRow>
+                    <SelectTrigger
+                      aria-label={label as string}
+                      className="w-full lg:w-44"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {(items as { value: string; label: string }[]).map(
+                          (item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
                 ))}
-              </TableBody>
-            </Table>
-          </div>
+              </>
+            }
+          />
         ) : (
           <Empty className="min-h-72 border">
             <EmptyHeader>
@@ -402,8 +536,7 @@ export function CoffeeCatalogScreen() {
       <Sheet
         open={selected != null}
         onOpenChange={(open) => {
-          if (!open)
-            void navigate({ search: { q: search.q, coffeeId: undefined } })
+          if (!open) updateSearch({ coffeeId: undefined })
         }}
       >
         <SheetContent>
@@ -445,6 +578,8 @@ export function CoffeeCatalogScreen() {
                       status: undefined,
                       sort: undefined,
                       hidden: undefined,
+                      density: undefined,
+                      rest: undefined,
                       view: undefined,
                     }}
                     className={buttonVariants({

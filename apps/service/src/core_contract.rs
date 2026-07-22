@@ -359,6 +359,8 @@ pub struct RoastCreate {
 pub struct RoastPatch {
     pub profile_id: Option<Option<i64>>,
     pub coffee_id: Option<Option<i64>>,
+    pub roasted_at: Option<Option<String>>,
+    pub source_timezone: Option<String>,
     pub status: Option<String>,
     pub result: Option<String>,
     pub level_thousandths: Option<Option<i64>>,
@@ -403,12 +405,12 @@ pub struct SeriesPoint {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RestWindow {
-    pub age_days: i64,
+    pub age_days: Option<i64>,
     pub rest_days: i64,
     pub peak_days: i64,
     pub state: String,
-    pub suggested_from: String,
-    pub suggested_until: String,
+    pub suggested_from: Option<String>,
+    pub suggested_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

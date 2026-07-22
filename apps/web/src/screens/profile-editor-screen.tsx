@@ -541,6 +541,8 @@ export function ProfileEditorScreen() {
                   status: undefined,
                   sort: undefined,
                   hidden: undefined,
+                  density: undefined,
+                  rest: undefined,
                   view: undefined,
                 }}
                 className={buttonVariants({ variant: "outline", size: "sm" })}

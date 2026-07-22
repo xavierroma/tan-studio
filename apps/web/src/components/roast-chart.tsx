@@ -31,6 +31,7 @@ type RoastChartProps = {
   events?: RoastDetail["events"]
   durationMs?: number
   cooldownEndMs?: number
+  firstCrack?: { elapsedMs: number; estimated: boolean }
   live?: boolean
   height?: number
   showFanAxis?: boolean
@@ -86,7 +87,7 @@ const seriesDefinitions: ReadonlyArray<{
   },
   {
     key: "profile_ROR",
-    label: "Profile RoR",
+    label: "Profile rate of rise",
     axis: 1,
     colorIndex: 2,
     dashed: true,
@@ -94,14 +95,14 @@ const seriesDefinitions: ReadonlyArray<{
   },
   {
     key: "actual_ROR",
-    label: "Actual RoR",
+    label: "Actual rate of rise",
     axis: 1,
     colorIndex: 3,
     value: (point) => point.rorCPerMin,
   },
   {
     key: "desired_ROR",
-    label: "Desired RoR",
+    label: "Target rate of rise",
     axis: 1,
     colorIndex: 4,
     dashed: true,
@@ -172,6 +173,7 @@ export function RoastChart({
   events = [],
   durationMs,
   cooldownEndMs,
+  firstCrack,
   live = false,
   height = 390,
   showFanAxis = false,
@@ -262,13 +264,13 @@ export function RoastChart({
             {
               top: 24,
               right: hasVisibleFan ? 72 : 56,
-              height: "57%",
+              height: "48%",
               left: 58,
             },
             {
-              top: "70%",
+              top: "60%",
               right: hasVisibleFan ? 72 : 56,
-              bottom: 54,
+              bottom: 62,
               left: 58,
             },
           ]
@@ -316,6 +318,9 @@ export function RoastChart({
           splitLine: {
             lineStyle: { color: border, type: "dashed", opacity: 0.48 },
           },
+          name: hasLowerPanel ? undefined : "Roast time",
+          nameLocation: "middle",
+          nameGap: 32,
         },
         ...(hasLowerPanel
           ? [
@@ -338,6 +343,9 @@ export function RoastChart({
                     opacity: 0.48,
                   },
                 },
+                name: "Roast time",
+                nameLocation: "middle" as const,
+                nameGap: 34,
               },
             ]
           : []),
@@ -439,27 +447,63 @@ export function RoastChart({
                         name: event.label,
                         xAxis: event.elapsedMs,
                       })),
-                      ...(durationMs === undefined
+                      ...(durationMs === undefined ||
+                      events.some((event) => event.label === "roast end")
                         ? []
                         : [{ name: "Roast end", xAxis: durationMs }]),
                     ],
                   },
-                  markArea:
-                    durationMs !== undefined &&
-                    cooldownEndMs !== undefined &&
-                    cooldownEndMs > durationMs
-                      ? {
-                          silent: true,
-                          itemStyle: {
-                            color: cssToken("--muted", "#eee8de"),
-                            opacity: 0.28,
-                          },
-                          label: { color: muted, formatter: "Cooldown" },
-                          data: [
-                            [{ xAxis: durationMs }, { xAxis: cooldownEndMs }],
-                          ],
-                        }
-                      : undefined,
+                  markArea: {
+                    silent: true,
+                    label: { color: muted, fontSize: 10 },
+                    data: [
+                      ...(firstCrack && durationMs !== undefined
+                        ? [
+                            [
+                              {
+                                name: "Pre-crack",
+                                xAxis: 0,
+                                itemStyle: {
+                                  color: cssToken("--accent", "#eee1cf"),
+                                  opacity: 0.1,
+                                },
+                              },
+                              { xAxis: firstCrack.elapsedMs },
+                            ],
+                            [
+                              {
+                                name: firstCrack.estimated
+                                  ? "Development · estimated"
+                                  : "Development",
+                                xAxis: firstCrack.elapsedMs,
+                                itemStyle: {
+                                  color: cssToken("--chart-1", "#b86f55"),
+                                  opacity: firstCrack.estimated ? 0.08 : 0.12,
+                                },
+                              },
+                              { xAxis: durationMs },
+                            ],
+                          ]
+                        : []),
+                      ...(durationMs !== undefined &&
+                      cooldownEndMs !== undefined &&
+                      cooldownEndMs > durationMs
+                        ? [
+                            [
+                              {
+                                name: "Cooldown",
+                                xAxis: durationMs,
+                                itemStyle: {
+                                  color: cssToken("--muted", "#eee8de"),
+                                  opacity: 0.28,
+                                },
+                              },
+                              { xAxis: cooldownEndMs },
+                            ],
+                          ]
+                        : []),
+                    ],
+                  },
                 }
               : {}),
           }
@@ -477,6 +521,7 @@ export function RoastChart({
     cooldownEndMs,
     durationMs,
     events,
+    firstCrack,
     displayedPoints,
     showFanAxis,
     visible,

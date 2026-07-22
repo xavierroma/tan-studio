@@ -6,13 +6,12 @@ test("simulated Nano sync is visible through the production UI", async ({
   await page.goto("/devices")
 
   await expect(page.getByRole("heading", { name: "Nano" })).toBeVisible()
-  await expect(page.getByText("Nano connected", { exact: true })).toBeVisible()
-  await expect(page.getByText("KN1007B", { exact: true })).toBeVisible()
+  await expect(page.getByText("connected", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "KN1007B" })).toBeVisible()
+  await page.getByText("Device details", { exact: true }).click()
   await expect(page.getByText("7.11.3", { exact: true })).toBeVisible()
-  await expect(page.getByText("Profiles on Nano").locator("..")).toContainText(
-    "2"
-  )
-  await expect(page.getByText("Logs on Nano").locator("..")).toContainText("3")
+  await expect(page.getByText("Profiles").locator("..")).toContainText("2")
+  await expect(page.getByText("Logs").locator("..")).toContainText("3")
   await expect(page.getByText("Imported logs").locator("..")).toContainText("3")
   await expect(page.getByText("Imported profiles").locator("..")).toContainText(
     "2"
@@ -20,9 +19,15 @@ test("simulated Nano sync is visible through the production UI", async ({
 
   await page.getByRole("link", { name: "Roasts" }).click()
   await expect(page).toHaveURL(/\/roasts$/)
-  await expect(page.getByRole("link", { name: "#3", exact: true })).toBeVisible()
-  await expect(page.getByRole("link", { name: "#2", exact: true })).toBeVisible()
-  await expect(page.getByRole("link", { name: "#1", exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "#3", exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "#2", exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "#1", exact: true })
+  ).toBeVisible()
 
   await page.getByRole("link", { name: "#3", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Roast #3" })).toBeVisible()

@@ -18,9 +18,6 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
   await expect(page).toHaveTitle(/Tan Studio/u)
   await expect(page.getByRole("heading", { name: "Roasts" })).toBeVisible()
   await expect(page.getByRole("table")).toBeVisible()
-  await expect(
-    page.getByText(/roasts · sorted and filtered state/u)
-  ).toBeVisible()
 
   const search = page.getByPlaceholder("Roast #, profile, coffee, provider…")
   await search.fill("Washed")
@@ -32,9 +29,7 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
 
   await search.fill("")
   await expect.poll(() => new URL(page.url()).searchParams.has("q")).toBe(false)
-  await expect(
-    page.getByText(/roasts · sorted and filtered state/u)
-  ).toBeVisible()
+  await expect(page.getByText(/^\d+ roasts?$/u)).toBeVisible()
   const roastSort = page
     .getByRole("columnheader")
     .getByRole("button", { name: "Roast" })
@@ -43,6 +38,24 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
   await expect
     .poll(() => new URL(page.url()).searchParams.get("sort"))
     .toBe("id.asc")
+
+  await page.getByRole("button", { name: "Expanded rows" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("density"))
+    .toBe("expanded")
+  await page.reload()
+  await expect(
+    page.getByRole("button", { name: "Expanded rows" })
+  ).toHaveAttribute("aria-pressed", "true")
+
+  await page.getByRole("tab", { name: "Pantry" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("view"))
+    .toBe("pantry")
+  await expect(
+    page.getByPlaceholder("Roast #, coffee, profile, tasting note…")
+  ).toBeVisible()
+  await expect(page.getByLabel("Filter by rest state")).toBeVisible()
 
   await page.getByRole("link", { name: "Coffees" }).click()
   await expect(page).toHaveURL(/\/coffees(?:\?|$)/u)
@@ -117,7 +130,10 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
             : {
                 protocolVersion: 1,
                 bridgeId: "abcdefghijklmnopqrstuvwxyz",
-                firmware: { version: "0.2.7-local", build: "local-lan-v8-heap-tunnel" },
+                firmware: {
+                  version: "0.2.7-local",
+                  build: "local-lan-v8-heap-tunnel",
+                },
                 lifecycle: "operational",
                 wifi: { state: "online" },
                 backend: { state: "online", host: "xrc.local", port: 8081 },
@@ -160,7 +176,11 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
   })
   await page.goto("/devices")
 
-  await expect(page.getByRole("heading", { name: "Nano" })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Nano", exact: true })
+  ).toBeVisible()
+  const anotherBridge = page.getByText("Set up another bridge", { exact: true })
+  if (await anotherBridge.isVisible()) await anotherBridge.click()
   await page.getByRole("button", { name: "Connect Atom" }).click()
   await expect(
     page.getByRole("heading", { name: "Atom connected" })
@@ -177,5 +197,108 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Connect bridge" })
   ).toBeDisabled()
+  expect(problems).toEqual([])
+})
+
+test("coffee and brew tables keep their view state in the URL", async ({
+  page,
+}) => {
+  const problems = captureBrowserProblems(page)
+  await page.goto("/coffees")
+  await expect(page.getByRole("table")).toBeVisible()
+  await page.getByRole("button", { name: "Expanded rows" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("density"))
+    .toBe("expanded")
+  await page
+    .getByRole("columnheader")
+    .getByRole("button", { name: "Provider" })
+    .click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("sort"))
+    .toBe("provider.asc")
+  await page.reload()
+  await expect(
+    page.getByRole("button", { name: "Expanded rows" })
+  ).toHaveAttribute("aria-pressed", "true")
+
+  await page.goto("/brews")
+  await expect(page.getByText("Brew history", { exact: true })).toBeVisible()
+  await expect(
+    page.getByPlaceholder("Brew #, roast #, method, grinder, note…")
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Expanded rows" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("density"))
+    .toBe("expanded")
+  expect(problems).toEqual([])
+})
+
+test("mobile roast preparation and data views fit without horizontal overflow", async ({
+  page,
+}) => {
+  const problems = captureBrowserProblems(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/roast")
+  await expect(
+    page.getByRole("heading", { name: "Prepare a roast" })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "Profile", exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "Green coffee", exact: true })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Create roast record" })
+  ).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    )
+    .toBe(true)
+
+  await page.goto("/roasts")
+  await expect(page.getByRole("article").first()).toBeVisible()
+  await expect(page.getByRole("table")).toBeHidden()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    )
+    .toBe(true)
+  expect(problems).toEqual([])
+})
+
+test("an imported real roast keeps both chart panels visible while inspecting it", async ({
+  page,
+}) => {
+  const problems = captureBrowserProblems(page)
+  await page.goto("/roasts/14")
+  await expect(page.getByRole("heading", { name: "Roast #14" })).toBeVisible()
+  await expect(
+    page.getByText("Date unavailable", { exact: true })
+  ).toBeVisible()
+  await expect(page.getByText("date required", { exact: true })).toBeVisible()
+
+  const chart = page.locator("canvas").first()
+  await expect(chart).toBeVisible()
+  const bounds = await chart.boundingBox()
+  expect(bounds?.height ?? 0).toBeGreaterThan(650)
+  await chart.screenshot({ path: "/tmp/tan-studio-roast-14-chart.png" })
+  await chart.hover({
+    position: {
+      x: Math.round((bounds?.width ?? 700) * 0.55),
+      y: Math.round((bounds?.height ?? 680) * 0.7),
+    },
+  })
+  await page.waitForTimeout(250)
+  await expect(chart).toBeVisible()
+  await chart.screenshot({ path: "/tmp/tan-studio-roast-14-chart-hover.png" })
+
+  await expect(page.getByText(/first crack/u).first()).toBeVisible()
   expect(problems).toEqual([])
 })

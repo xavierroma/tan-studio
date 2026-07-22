@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { Badge } from "@tan-studio/ui/components/badge"
 import { buttonVariants } from "@tan-studio/ui/components/button"
 import {
   Empty,
@@ -10,18 +9,11 @@ import {
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@tan-studio/ui/components/table"
 import { Tabs, TabsList, TabsTrigger } from "@tan-studio/ui/components/tabs"
 import { ArchiveIcon, FlameIcon, PlusIcon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
+import { PantryDataTable } from "@/components/pantry-data-table"
 import { RoastDataTable } from "@/components/roast-data-table"
 import {
   getPantry,
@@ -38,11 +30,9 @@ type RoastSearch = {
   coffeeId: number | undefined
   sort: string | undefined
   hidden: string | undefined
+  density: "expanded" | undefined
+  rest: string | undefined
   view: "pantry" | undefined
-}
-
-function grams(value?: number | null) {
-  return value == null ? "—" : `${(value / 1_000).toLocaleString()} g`
 }
 
 export function RoastLibraryScreen() {
@@ -100,7 +90,6 @@ export function RoastLibraryScreen() {
     <div className="min-h-screen">
       <PageHeader
         title="Roasts"
-        description="Every batch, its profile, coffee, brews, and observations in one place."
         actions={
           <Link
             to="/roast"
@@ -113,7 +102,7 @@ export function RoastLibraryScreen() {
         }
       />
 
-      <div className="flex flex-col gap-5 px-5 py-6 sm:px-7">
+      <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         <Tabs
           value={pantryView ? "pantry" : "history"}
           onValueChange={(value) =>
@@ -174,67 +163,24 @@ export function RoastLibraryScreen() {
               coffeeId: search.coffeeId,
               sort: search.sort,
               hidden: search.hidden,
+              density: search.density,
             }}
             updateSearch={updateSearch}
           />
         ) : null}
 
         {pantryView && pantryItems.length > 0 ? (
-          <div className="bg-card overflow-hidden rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Roast</TableHead>
-                  <TableHead>Coffee</TableHead>
-                  <TableHead>Rest</TableHead>
-                  <TableHead>Estimated left</TableHead>
-                  <TableHead>Latest note</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pantryItems.map((item) => (
-                  <TableRow key={item.roast.id}>
-                    <TableCell>
-                      <Link
-                        to="/roasts/$roastId"
-                        params={{ roastId: String(item.roast.id) }}
-                        className="font-semibold underline-offset-4 hover:underline"
-                      >
-                        #{item.roast.id}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {item.roast.coffee?.name ?? "Unassigned coffee"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          item.rest.state === "peak"
-                            ? "success"
-                            : item.rest.state === "resting"
-                              ? "info"
-                              : "warning"
-                        }
-                      >
-                        {item.rest.state === "pastPeak"
-                          ? "past peak"
-                          : item.rest.state}
-                      </Badge>
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        day {item.rest.ageDays}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {grams(item.estimatedRemainingMassMg)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground max-w-md truncate">
-                      {item.latestTasting ?? "No tasting yet"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <PantryDataTable
+            data={pantryItems}
+            search={{
+              q: search.q,
+              rest: search.rest,
+              sort: search.sort,
+              hidden: search.hidden,
+              density: search.density,
+            }}
+            updateSearch={updateSearch}
+          />
         ) : null}
       </div>
     </div>

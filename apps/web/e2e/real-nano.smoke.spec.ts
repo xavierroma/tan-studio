@@ -17,13 +17,12 @@ test("real Nano bridge sync is visible through the production LAN UI", async ({
   await page.goto("/devices")
   await expect(page).toHaveTitle(/Tan Studio/i)
   await expect(page.getByRole("heading", { name: "Nano" })).toBeVisible()
-  await expect(page.getByText("Nano connected", { exact: true })).toBeVisible()
-  await expect(page.getByText("KN1007B", { exact: true })).toBeVisible()
+  await expect(page.getByText("connected", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "KN1007B" })).toBeVisible()
+  await page.getByText("Device details", { exact: true }).click()
   await expect(page.getByText("7.20.6", { exact: true })).toBeVisible()
-  await expect(page.getByText("Profiles on Nano").locator("..")).toContainText(
-    "16"
-  )
-  await expect(page.getByText("Logs on Nano").locator("..")).toContainText("15")
+  await expect(page.getByText("Profiles").locator("..")).toContainText("16")
+  await expect(page.getByText("Logs").locator("..")).toContainText("15")
   await expect(
     page.getByText("Last synchronization").locator("..")
   ).toContainText("ready")
@@ -50,7 +49,7 @@ test("real Nano bridge sync is visible through the production LAN UI", async ({
   await expect(chart).toBeVisible()
   const bounds = await chart.boundingBox()
   expect(bounds?.width ?? 0).toBeGreaterThan(500)
-  expect(bounds?.height ?? 0).toBeGreaterThan(300)
+  expect(bounds?.height ?? 0).toBeGreaterThan(600)
   await page.screenshot({
     path: "/tmp/tan-studio-real-nano-roast.png",
     fullPage: false,

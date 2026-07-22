@@ -42,6 +42,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         9,
         include_str!("../../companion/migrations/0009_tan_bridge.sql"),
     ),
+    (
+        10,
+        include_str!("../../companion/migrations/0010_roast_date_override.sql"),
+    ),
 ];
 
 #[derive(Clone)]
@@ -284,7 +288,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 9);
+        assert_eq!(applied, 10);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

@@ -48,6 +48,8 @@ const rootRoute = createRootRoute({
             coffeeId: undefined,
             sort: undefined,
             hidden: undefined,
+            density: undefined,
+            rest: undefined,
             view: undefined,
           }}
           className={buttonVariants()}
@@ -72,6 +74,8 @@ const indexRoute = createRoute({
         coffeeId: undefined,
         sort: undefined,
         hidden: undefined,
+        density: undefined,
+        rest: undefined,
         view: undefined,
       },
     })
@@ -113,6 +117,12 @@ const roastLibraryRoute = createRoute({
       )
         ? search.hidden
         : undefined,
+    density: search.density === "expanded" ? ("expanded" as const) : undefined,
+    rest:
+      typeof search.rest === "string" &&
+      /^(resting|peak|pastPeak|unknown)$/u.test(search.rest)
+        ? search.rest
+        : undefined,
     view: search.view === "pantry" ? ("pantry" as const) : undefined,
   }),
   component: lazyRouteComponent(
@@ -148,6 +158,12 @@ const coffeesRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" ? search.q : undefined,
     coffeeId: integer(search.coffeeId),
+    provider: typeof search.provider === "string" ? search.provider : undefined,
+    country: typeof search.country === "string" ? search.country : undefined,
+    process: typeof search.process === "string" ? search.process : undefined,
+    sort: typeof search.sort === "string" ? search.sort : undefined,
+    hidden: typeof search.hidden === "string" ? search.hidden : undefined,
+    density: search.density === "expanded" ? ("expanded" as const) : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/coffee-catalog-screen"),
@@ -162,6 +178,11 @@ const brewsRoute = createRoute({
     roastId: integer(search.roastId),
     brewId: integer(search.brewId),
     tab: search.tab === "defaults" ? ("defaults" as const) : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
+    method: typeof search.method === "string" ? search.method : undefined,
+    sort: typeof search.sort === "string" ? search.sort : undefined,
+    hidden: typeof search.hidden === "string" ? search.hidden : undefined,
+    density: search.density === "expanded" ? ("expanded" as const) : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/brews-screen"),

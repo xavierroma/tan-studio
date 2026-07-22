@@ -392,6 +392,39 @@ pub async fn roasts_patch(
     let coffee_id = input
         .coffee_id
         .unwrap_or(current.coffee.as_ref().map(|v| v.id));
+    let (
+        current_roasted_at_ms,
+        current_roasted_at_source,
+        current_source_timezone,
+        current_user_roasted_at_ms,
+    ): (i64, String, String, Option<i64>) = connection.query_row(
+        "SELECT roasted_at_ms, roasted_at_source, source_timezone, user_roasted_at_ms FROM roasts WHERE id=?",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )?;
+    let source_timezone = input
+        .source_timezone
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&current_source_timezone);
+    if source_timezone.len() > 128 {
+        return Err(ApiError::validation(
+            "sourceTimezone must be at most 128 characters.",
+        ));
+    }
+    let (roasted_at_ms, roasted_at_source, user_roasted_at_ms) = match input.roasted_at.as_ref() {
+        Some(Some(value)) => {
+            let parsed = parse_instant(value)?;
+            (parsed, current_roasted_at_source.clone(), Some(parsed))
+        }
+        Some(None) => (now_ms(), "unknown".into(), None),
+        None => (
+            current_roasted_at_ms,
+            current_roasted_at_source,
+            current_user_roasted_at_ms,
+        ),
+    };
     ensure_optional_exists(&connection, "profiles", profile_id)?;
     ensure_optional_exists(&connection, "coffees", coffee_id)?;
     let status = input.status.unwrap_or(current.status);
@@ -431,10 +464,10 @@ pub async fn roasts_patch(
     validate_object(&adjustments, "adjustments")?;
     validate_object(&parameters, "roasterParameters")?;
     let changed = connection.execute(
-        "UPDATE roasts SET profile_id=?, coffee_id=?, status=?, result=?, level_thousandths=?, green_input_mass_mg=?,
+        "UPDATE roasts SET profile_id=?, coffee_id=?, roasted_at_ms=?, roasted_at_source=?, user_roasted_at_ms=?, source_timezone=?, status=?, result=?, level_thousandths=?, green_input_mass_mg=?,
          roasted_yield_mass_mg=?, development_basis_points=?, adjustments_json=?, roaster_parameters_json=?,
          profile_snapshot_json=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
-        params![profile_id, coffee_id, status, result,
+        params![profile_id, coffee_id, roasted_at_ms, roasted_at_source, user_roasted_at_ms, source_timezone, status, result,
             input.level_thousandths.unwrap_or(current.level_thousandths), input.green_input_mass_mg.unwrap_or(current.green_input_mass_mg),
             input.roasted_yield_mass_mg.unwrap_or(current.roasted_yield_mass_mg), input.development_basis_points.unwrap_or(current.development_basis_points),
             json_text(&adjustments)?, json_text(&parameters)?, profile_snapshot, now_ms(), id, expected],
@@ -1343,7 +1376,9 @@ fn get_roast_summary(connection: &Connection, id: i64) -> ApiResult<RoastSummary
     connection
         .query_row(
             "SELECT r.id, r.profile_id, p.name, r.coffee_id, c.name,
-                    r.roasted_at_ms, r.roasted_at_source, r.status, r.result,
+                    coalesce(r.user_roasted_at_ms, r.roasted_at_ms),
+                    CASE WHEN r.user_roasted_at_ms IS NOT NULL THEN 'user' ELSE r.roasted_at_source END,
+                    r.status, r.result,
                     r.level_thousandths, r.green_input_mass_mg,
                     r.roasted_yield_mass_mg, r.duration_ms,
                     (SELECT count(*) FROM brews b WHERE b.roast_id=r.id),
@@ -1406,16 +1441,21 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
           s.stream_version, s.row_count, s.first_elapsed_ms, s.last_elapsed_ms, s.reconciliation_state
          FROM roasts r LEFT JOIN profiles p ON p.id=r.profile_id LEFT JOIN coffees c ON c.id=r.coffee_id
          LEFT JOIN roast_sample_streams s ON s.roast_id=r.id WHERE r.id=?",
-        [id], |row| Ok(RoastResource {
+        [id], |row| {
+          let user_roasted_at_ms: Option<i64> = row.get("user_roasted_at_ms")?;
+          let stored_roasted_at_source: String = row.get("roasted_at_source")?;
+          let roasted_at_source = if user_roasted_at_ms.is_some() { "user".into() } else { stored_roasted_at_source };
+          let roasted_at_ms = user_roasted_at_ms.unwrap_or(row.get("roasted_at_ms")?);
+          Ok(RoastResource {
             id: row.get("id")?,
             profile: row.get::<_, Option<i64>>("profile_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("profile_name").unwrap_or_default().unwrap_or_default() }),
             coffee: row.get::<_, Option<i64>>("coffee_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("coffee_name").unwrap_or_default().unwrap_or_default() }),
-            roasted_at: (row.get::<_, String>("roasted_at_source")? != "unknown").then(|| iso(row.get("roasted_at_ms").unwrap_or(0))), roasted_at_source: row.get("roasted_at_source")?, source_timezone: row.get("source_timezone")?, status: row.get("status")?, result: row.get("result")?,
+            roasted_at: (roasted_at_source != "unknown").then(|| iso(roasted_at_ms)), roasted_at_source, source_timezone: row.get("source_timezone")?, status: row.get("status")?, result: row.get("result")?,
             level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, end_reason: row.get("end_reason")?, native_log_number: row.get("native_log_number")?,
             profile_snapshot: json_column(row.get("profile_snapshot_json")?), adjustments: json_column(row.get("adjustments_json")?), roaster_parameters: json_column(row.get("roaster_parameters_json")?), native_metadata: json_column(row.get("native_metadata_json")?), import_warnings: json_array(row.get("import_warnings_json")?),
             sample_stream: row.get::<_, Option<i64>>("stream_version")?.map(|stream_version| SampleStreamResource { stream_version, row_count: row.get("row_count").unwrap_or(0), first_elapsed_ms: row.get("first_elapsed_ms").unwrap_or(0), last_elapsed_ms: row.get("last_elapsed_ms").unwrap_or(0), reconciliation_state: row.get("reconciliation_state").unwrap_or_else(|_| "reconciled".into()) }),
             events: vec![], brew_count: row.get("brew_count")?, note_count: row.get("note_count")?, label_count: row.get("label_count")?, created_at: iso(row.get("created_at_ms")?), updated_at: iso(row.get("updated_at_ms")?), revision: row.get("revision")?,
-        })
+        })}
     ).optional()?.ok_or_else(|| ApiError::not_found("roast", &id.to_string()))?;
     let mut events = connection.prepare("SELECT id, event_kind, elapsed_ms, temperature_milli_c, source FROM roast_events WHERE roast_id=? ORDER BY elapsed_ms, id")?;
     roast.events = events
@@ -2020,8 +2060,17 @@ fn rest_window(roast: &RoastResource, settings: &SettingsResource) -> RestWindow
         .roasted_at
         .as_deref()
         .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .map(|v| v.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
+        .map(|v| v.with_timezone(&Utc));
+    let Some(roasted) = roasted else {
+        return RestWindow {
+            age_days: None,
+            rest_days: settings.default_rest_days,
+            peak_days: settings.default_peak_days,
+            state: "unknown".into(),
+            suggested_from: None,
+            suggested_until: None,
+        };
+    };
     let from = roasted + TimeDelta::days(settings.default_rest_days);
     let until = roasted + TimeDelta::days(settings.default_peak_days);
     let now = Utc::now();
@@ -2033,19 +2082,20 @@ fn rest_window(roast: &RoastResource, settings: &SettingsResource) -> RestWindow
         "pastPeak"
     };
     RestWindow {
-        age_days: (now - roasted).num_days().max(0),
+        age_days: Some((now - roasted).num_days().max(0)),
         rest_days: settings.default_rest_days,
         peak_days: settings.default_peak_days,
         state: state.into(),
-        suggested_from: from.to_rfc3339(),
-        suggested_until: until.to_rfc3339(),
+        suggested_from: Some(from.to_rfc3339()),
+        suggested_until: Some(until.to_rfc3339()),
     }
 }
 fn rest_priority(state: &str) -> i32 {
     match state {
         "peak" => 0,
         "pastPeak" => 1,
-        _ => 2,
+        "resting" => 2,
+        _ => 3,
     }
 }
 fn expected_revision(headers: &HeaderMap) -> ApiResult<i64> {

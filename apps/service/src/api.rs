@@ -3059,7 +3059,7 @@ mod tests {
         assert_eq!(context["notes"].as_array().unwrap().len(), 2);
 
         let roast_revision = context["roast"]["revision"].as_i64().unwrap();
-        let (status, _) = api_request(
+        let (status, completed) = api_request(
             &app,
             Method::PATCH,
             &format!("/api/v1/roasts/{roast_id}"),
@@ -3068,6 +3068,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(completed["roastedAt"], Value::Null);
+        assert_eq!(completed["roastedAtSource"], "unknown");
         let (status, stale) = api_request(
             &app,
             Method::PATCH,
@@ -3081,6 +3083,31 @@ mod tests {
         let (status, pantry) = api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
         assert_eq!(status, StatusCode::OK, "{pantry}");
         assert_eq!(pantry["items"][0]["estimatedRemainingMassMg"], 69000);
+        assert_eq!(pantry["items"][0]["rest"]["state"], "unknown");
+        assert_eq!(pantry["items"][0]["rest"]["ageDays"], Value::Null);
+        assert_eq!(pantry["items"][0]["rest"]["suggestedFrom"], Value::Null);
+
+        let completed_revision = completed["revision"].as_i64().unwrap();
+        let (status, dated) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({
+                "roastedAt": "2026-07-19T16:30:00Z",
+                "sourceTimezone": "America/Los_Angeles"
+            })),
+            Some(completed_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{dated}");
+        assert_eq!(dated["roastedAt"], "2026-07-19T16:30:00.000Z");
+        assert_eq!(dated["roastedAtSource"], "user");
+        assert_eq!(dated["sourceTimezone"], "America/Los_Angeles");
+        let (status, dated_pantry) =
+            api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{dated_pantry}");
+        assert_ne!(dated_pantry["items"][0]["rest"]["state"], "unknown");
+        assert!(dated_pantry["items"][0]["rest"]["ageDays"].is_number());
         assert!(database.quick_check().unwrap());
         device.stop();
     }

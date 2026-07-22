@@ -7,12 +7,7 @@ import {
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button, buttonVariants } from "@tan-studio/ui/components/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@tan-studio/ui/components/field"
+import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
   Select,
@@ -23,13 +18,7 @@ import {
   SelectValue,
 } from "@tan-studio/ui/components/select"
 import { Textarea } from "@tan-studio/ui/components/textarea"
-import {
-  CableIcon,
-  FlameIcon,
-  RefreshCwIcon,
-  SaveIcon,
-  ShieldCheckIcon,
-} from "lucide-react"
+import { CableIcon, FlameIcon, RefreshCwIcon, SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { useEffect } from "react"
 import { toast } from "sonner"
@@ -166,18 +155,27 @@ export function LiveRoastScreen() {
     <div className="min-h-screen">
       <PageHeader
         title="Prepare a roast"
-        description="Choose the profile and coffee now. Tan Studio creates the roast record before the Nano starts, then attaches the device log after synchronization."
         actions={
-          <Badge variant={connected ? "success" : "warning"}>
-            <CableIcon data-icon="inline-start" />
-            {connected
-              ? `${device.data?.model ?? "Nano"} connected`
-              : "Nano disconnected"}
-          </Badge>
+          <>
+            <Badge variant={connected ? "success" : "warning"}>
+              <CableIcon data-icon="inline-start" />
+              {connected
+                ? `${device.data?.model ?? "Nano"} connected`
+                : "Nano disconnected"}
+            </Badge>
+            <Button
+              variant="outline"
+              disabled={!connected || sync.isPending}
+              onClick={() => sync.mutate()}
+            >
+              <RefreshCwIcon data-icon="inline-start" />
+              Sync
+            </Button>
+          </>
         }
       />
-      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(0,44rem)_minmax(18rem,1fr)]">
-        <div className="flex flex-col gap-5">
+      <div className="px-3 py-4 sm:px-7 sm:py-6">
+        <div className="flex max-w-3xl flex-col gap-5">
           {activeRoast ? (
             <Alert className="bg-info">
               <FlameIcon />
@@ -185,11 +183,7 @@ export function LiveRoastScreen() {
                 Roast #{activeRoast.id} is already prepared
               </AlertTitle>
               <AlertDescription>
-                <p>
-                  Its profile, coffee, load, and adjustments are durable in the
-                  backend.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Link
                     to="/roasts/$roastId"
                     params={{ roastId: String(activeRoast.id) }}
@@ -209,7 +203,10 @@ export function LiveRoastScreen() {
               </AlertDescription>
             </Alert>
           ) : null}
-          <form onSubmit={submit} className="bg-card rounded-xl border p-5">
+          <form
+            onSubmit={submit}
+            className="bg-card rounded-xl border p-4 sm:p-5"
+          >
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="roast-profile">Profile</FieldLabel>
@@ -242,9 +239,6 @@ export function LiveRoastScreen() {
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldDescription>
-                  The exact profile document is snapshotted onto this roast.
-                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="roast-coffee">Green coffee</FieldLabel>
@@ -292,9 +286,6 @@ export function LiveRoastScreen() {
                       1_000
                     }
                   />
-                  <FieldDescription>
-                    Per-roast adjustment; the profile is not changed.
-                  </FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="roast-load">Green load · g</FieldLabel>
@@ -321,10 +312,6 @@ export function LiveRoastScreen() {
                   name="note"
                   placeholder="Reduce the finish slightly; last cup tasted dry and roasty."
                 />
-                <FieldDescription>
-                  This becomes a note linked to both the roast and its profile,
-                  so an agent can use it later.
-                </FieldDescription>
               </Field>
               <Button
                 type="submit"
@@ -338,47 +325,6 @@ export function LiveRoastScreen() {
             </FieldGroup>
           </form>
         </div>
-
-        <aside className="flex flex-col gap-5">
-          <Alert className="bg-info">
-            <ShieldCheckIcon />
-            <AlertTitle>The Nano remains in control</AlertTitle>
-            <AlertDescription>
-              Start and stop the roast on the physical machine. Tan Studio
-              records intent, synchronizes the finished KLOG, and visualizes the
-              result.
-            </AlertDescription>
-          </Alert>
-          <section className="bg-card rounded-xl border p-5">
-            <h2 className="font-semibold">After the roast</h2>
-            <ol className="text-muted-foreground mt-4 flex list-decimal flex-col gap-3 pl-5 text-sm">
-              <li>Finish the roast on the Nano.</li>
-              <li>Synchronize its logs and profiles.</li>
-              <li>
-                Review the curve, add an observation, and create the jar label.
-              </li>
-            </ol>
-            <Button
-              className="mt-5 w-full"
-              variant="outline"
-              disabled={!connected || sync.isPending}
-              onClick={() => sync.mutate()}
-            >
-              <RefreshCwIcon data-icon="inline-start" />
-              Synchronize Nano
-            </Button>
-          </section>
-          {!connected ? (
-            <Alert className="bg-warning">
-              <FlameIcon />
-              <AlertTitle>You can still prepare offline</AlertTitle>
-              <AlertDescription>
-                The planned roast is durable in the backend. Connect the Nano
-                before synchronizing the finished log.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-        </aside>
       </div>
     </div>
   )

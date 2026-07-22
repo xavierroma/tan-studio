@@ -4271,16 +4271,16 @@
       "RestWindow": {
         "type": "object",
         "required": [
-          "ageDays",
           "restDays",
           "peakDays",
-          "state",
-          "suggestedFrom",
-          "suggestedUntil"
+          "state"
         ],
         "properties": {
           "ageDays": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64"
           },
           "peakDays": {
@@ -4295,10 +4295,16 @@
             "type": "string"
           },
           "suggestedFrom": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "suggestedUntil": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -4428,6 +4434,12 @@
               "null"
             ]
           },
+          "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "roastedYieldMassMg": {
             "type": [
               "integer",
@@ -4436,6 +4448,12 @@
             "format": "int64"
           },
           "roasterParameters": {},
+          "sourceTimezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": [
               "string",

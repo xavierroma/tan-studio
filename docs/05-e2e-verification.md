@@ -53,6 +53,32 @@ After live USB synchronization, native log 14 was also opened in both applicatio
 
 Log 14 and nine earlier logs contain no `roast_date`; their Nano filesystem timestamp is the `2001-01-01 01:01:00 UTC` clock sentinel. Studio's macOS file panel displays this as 31 December 2000 at 17:01 in Pacific time. Tan Studio preserves the source timestamp for provenance but exposes the roast date as unknown, labels it `Date unavailable`, and orders the notebook by descending short roast number instead of presenting the sentinel as a real date.
 
+This is expected Nano behavior, not a parser omission. Kaffelogic support states
+that the Nano 7 has no real-time clock: it receives wall time from a connected
+host and otherwise creates an undated roast that Studio asks the user to date
+manually. Tan Studio therefore treats `unknown` as a first-class date/rest
+state. It never derives resting age or a peak window from the import time, file
+sentinel, or the time a coffee was later assigned. The roast editor accepts a
+manual local date/time and records its provenance as `user`.
+
+Both direct USB and the Atom transport use the same `RoasterSession` handshake.
+On every successful SASSI negotiation the Rust backend sends the verified type-3
+UTC time response. Consequently, while the always-on backend and Atom are
+connected, future KLOGs receive a real `roast_date` even when no browser is open.
+A Wi-Fi outage or powered-off backend can still produce an undated roast, which
+remains recoverable through the editor.
+
+First crack is also not inferred by the Nano. The operator records it during a
+roast from the Nano event menu (select **First crack**, then press **Start** at
+the event; Kaffelogic recommends the first sustained sequence). A recorded
+`first_crack` is retained in KLOG and rendered as a device milestone. When it is
+absent, Tan Studio may show the profile's expected-first-crack temperature
+crossing as **estimated**; it must never label that derived point as an observed
+first crack.
+
+Behavior references: [Nano 7 clock behavior](https://community.kaffelogic.com/viewtopic.php?t=408)
+and [recording first crack on the Nano](https://community.kaffelogic.com/viewtopic.php?f=5&t=343).
+
 ### Profile corpus parity
 
 Studio and Tan Studio agree on the 16 profile filenames, displayed names, designer metadata, schema versions, recommended levels, and ordered curve controls in the cached Nano sync corpus:

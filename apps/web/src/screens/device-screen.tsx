@@ -1,12 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button } from "@tan-studio/ui/components/button"
-import { CableIcon, RefreshCwIcon, ShieldCheckIcon } from "lucide-react"
+import { CableIcon, ChevronDownIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
@@ -49,7 +44,6 @@ export function DeviceScreen() {
     <div className="min-h-screen">
       <PageHeader
         title="Nano"
-        description="The Rust service owns the USB serial session and imports KLOG and KPRO files without changing the roaster."
         actions={
           <>
             <Button
@@ -69,33 +63,64 @@ export function DeviceScreen() {
           </>
         }
       />
-      <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
-        <TanBridgeSetupPanel />
-        <section className="bg-card grid gap-5 rounded-xl border p-5 sm:grid-cols-2 lg:grid-cols-5">
-          <Metric label="Connection" value={item?.connection ?? "checking"} />
-          <Metric label="Model" value={item?.model ?? "—"} />
-          <Metric label="Firmware" value={item?.firmware ?? "—"} />
-          <Metric
-            label="Profiles on Nano"
-            value={item?.profileCount == null ? "—" : String(item.profileCount)}
-          />
-          <Metric
-            label="Logs on Nano"
-            value={item?.logCount == null ? "—" : String(item.logCount)}
-          />
+      <div className="flex max-w-4xl flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
+        <section className="bg-card rounded-xl border p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="bg-muted flex size-10 items-center justify-center rounded-full">
+              <CableIcon />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold">
+                  {item?.model ?? "Kaffelogic Nano"}
+                </h2>
+                <Badge variant={connected ? "success" : "warning"}>
+                  {item?.connection ?? "checking"}
+                </Badge>
+              </div>
+              {!connected && item?.reason ? (
+                <p className="text-muted-foreground mt-1 text-sm">
+                  {item.reason}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {item ? (
+            <details className="mt-4 border-t pt-4">
+              <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                <ChevronDownIcon className="size-4" />
+                Device details
+              </summary>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Metric label="Firmware" value={item.firmware ?? "—"} />
+                <Metric label="Protocol" value={item.protocol ?? "—"} />
+                <Metric
+                  label="Profiles"
+                  value={
+                    item.profileCount == null ? "—" : String(item.profileCount)
+                  }
+                />
+                <Metric
+                  label="Logs"
+                  value={item.logCount == null ? "—" : String(item.logCount)}
+                />
+              </div>
+            </details>
+          ) : null}
         </section>
-        <Alert className={connected ? "bg-info" : "bg-warning"}>
-          <CableIcon />
-          <AlertTitle>
-            {connected ? "Nano connected" : "Nano not connected"}
-          </AlertTitle>
-          <AlertDescription>
-            {connected
-              ? `SASSI ${item?.protocol ?? "session"} · packet limit ${item?.packetLimitBytes ?? "—"} bytes. Synchronization is read-only.`
-              : (item?.reason ??
-                "Connect the Nano by USB and leave Kaffelogic Studio closed.")}
-          </AlertDescription>
-        </Alert>
+        {connected ? (
+          <details>
+            <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+              <ChevronDownIcon className="size-4" />
+              Set up another bridge
+            </summary>
+            <div className="mt-3">
+              <TanBridgeSetupPanel />
+            </div>
+          </details>
+        ) : (
+          <TanBridgeSetupPanel />
+        )}
         {item ? (
           <section className="bg-card rounded-xl border p-5">
             <div className="flex items-center justify-between">
@@ -130,15 +155,6 @@ export function DeviceScreen() {
             ) : null}
           </section>
         ) : null}
-        <Alert>
-          <ShieldCheckIcon />
-          <AlertTitle>Writes remain disabled</AlertTitle>
-          <AlertDescription>
-            Tan Studio has verified reading and synchronization. Profile
-            deployment or other write commands will remain unavailable until
-            captured Studio traffic proves the write protocol safely.
-          </AlertDescription>
-        </Alert>
       </div>
     </div>
   )
