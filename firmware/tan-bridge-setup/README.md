@@ -1,7 +1,7 @@
-# Tan Bridge setup development image
+# Tan Bridge local-LAN image
 
-This computer-powered image implements the first Web Serial provisioning slice
-for the AtomS3 Lite. It is separate from the verified receive-only Nano image.
+This is the single AtomS3 Lite image used for local Tan Studio operation. The
+same USB-C port is used first with a computer for setup and then with the Nano.
 
 Implemented setup protocol operations:
 
@@ -9,14 +9,19 @@ Implemented setup protocol operations:
   lifecycle, Wi-Fi, backend, claim, firmware, and protocol state.
 - `setup.scanWifi`: a bounded list of up to 12 visible 2.4 GHz networks with
   opaque scan-lifetime identifiers and sanitized display names.
+- `setup.configure`: atomically stores the selected Wi-Fi credential and a
+  one-time backend claim, then restarts into bridge mode.
 
 The transport is strict UTF-8 JSON Lines over USB CDC at a nominal 115,200
 baud. Lines are capped at 4,096 bytes, unknown properties are rejected, and
 the last eight request identifiers cannot be reused.
 
-This image does not accept Wi-Fi credentials, contact the backend, communicate
-with a Kaffelogic Nano, or implement any SASSI transmit path. Those stages
-remain explicit follow-on work after this handshake is physically verified.
+After setup it resolves `xrc.local`, authenticates outbound on TCP port `8081`,
+and forwards USB byte chunks into the Rust service. Backend-to-Nano frames are
+accepted only for the five already verified read-only SASSI message types 1,
+3, 5, 7, and 13. Wi-Fi credentials never leave the Atom. This unencrypted TCP
+transport is deliberately scoped to the trusted local-LAN milestone; the
+production remote design remains authenticated TLS/WSS.
 
 Build and contract-check with:
 

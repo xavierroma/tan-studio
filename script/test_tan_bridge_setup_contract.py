@@ -21,7 +21,7 @@ def main() -> int:
     require(r"#define SETUP_SCHEMA_VERSION 1\b", firmware, "firmware schema")
     require(r"#define SETUP_LINE_BYTES 4096U\b", firmware, "firmware line limit")
     require(
-        r'#define SETUP_BACKEND_HOST "bridge\.tanstudio\.xroma\.dev"',
+        r'#define SETUP_BACKEND_HOST "xrc\.local"',
         firmware,
         "firmware backend host",
     )
@@ -36,11 +36,13 @@ def main() -> int:
         "browser line limit",
     )
     require(
-        r'TanBridgeBackendHost = "bridge\.tanstudio\.xroma\.dev"',
+        r'TanBridgeBackendHost = "xrc\.local"',
         contract,
         "browser backend host",
     )
-    for operation in ("setup.getStatus", "setup.scanWifi"):
+    require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
+    require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
+    for operation in ("setup.getStatus", "setup.scanWifi", "setup.configure"):
         if operation not in firmware or operation not in contract:
             raise AssertionError(f"operation drift: {operation}")
 

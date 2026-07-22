@@ -3,14 +3,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "cJSON.h"
 #include "esp_err.h"
+#include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "tinyusb.h"
@@ -23,9 +31,16 @@
 #define SETUP_REQUEST_ID_BYTES 37U
 #define SETUP_RECENT_REQUESTS 8U
 #define SETUP_MAX_NETWORKS 12U
-#define SETUP_BACKEND_HOST "bridge.tanstudio.xroma.dev"
-#define SETUP_FIRMWARE_VERSION "0.1.0-dev"
-#define SETUP_BUILD_ID "setup-v1"
+#define SETUP_BACKEND_HOST "xrc.local"
+#define SETUP_BACKEND_PORT 8081U
+#define SETUP_FIRMWARE_VERSION "0.2.0-local"
+#define SETUP_BUILD_ID "local-lan-v1"
+#define SETUP_TOKEN_BYTES 65U
+#define SETUP_SSID_BYTES 33U
+#define SETUP_CREDENTIAL_BYTES 64U
+#define TUNNEL_MAX_PAYLOAD_BYTES 8192U
+#define TUNNEL_USB_TO_BACKEND 1U
+#define TUNNEL_BACKEND_TO_USB 2U
 
 typedef struct {
     size_t length;
@@ -42,7 +57,17 @@ static size_t recent_request_count;
 static size_t recent_request_cursor;
 static const char *lifecycle_state = "unprovisioned";
 static const char *wifi_state = "disabled";
+static const char *backend_state = "offline";
 static bool wifi_initialized;
+static esp_netif_t *wifi_netif;
+static volatile bool setup_mode;
+static SemaphoreHandle_t socket_mutex;
+static int bridge_socket = -1;
+static char configured_ssid[SETUP_SSID_BYTES];
+static char configured_credential[SETUP_CREDENTIAL_BYTES];
+static char claim_token[SETUP_TOKEN_BYTES];
+static char device_token[SETUP_TOKEN_BYTES];
+static uint32_t configuration_generation;
 
 static const char malformed_request_id[] =
     "00000000-0000-4000-8000-000000000000";
@@ -105,6 +130,19 @@ static bool is_canonical_uuid(const char *value)
     }
     return value[14] >= '1' && value[14] <= '8' &&
            strchr("89ab", value[19]) != NULL;
+}
+
+static bool is_token(const char *value)
+{
+    if (value == NULL || strlen(value) != 64U) {
+        return false;
+    }
+    for (size_t index = 0U; index < 64U; index++) {
+        if (!is_lower_hex(value[index])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool request_id_was_seen(const char *request_id)
@@ -212,10 +250,14 @@ static void send_status(const char *request_id)
     cJSON_AddStringToObject(result, "lifecycle", lifecycle_state);
     cJSON_AddStringToObject(wifi, "state", wifi_state);
     cJSON_AddItemToObject(result, "wifi", wifi);
-    cJSON_AddStringToObject(backend, "state", "offline");
+    cJSON_AddStringToObject(backend, "state", backend_state);
     cJSON_AddStringToObject(backend, "host", SETUP_BACKEND_HOST);
+    cJSON_AddNumberToObject(backend, "port", SETUP_BACKEND_PORT);
     cJSON_AddItemToObject(result, "backend", backend);
-    cJSON_AddStringToObject(claim, "state", "unclaimed");
+    cJSON_AddStringToObject(
+        claim, "state",
+        device_token[0] != '\0' ? "claimed" :
+        (claim_token[0] != '\0' ? "pending" : "unclaimed"));
     cJSON_AddItemToObject(result, "claim", claim);
     cJSON_AddItemToObject(response, "result", result);
     send_json(response);
@@ -269,7 +311,8 @@ static esp_err_t initialize_wifi(void)
     if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
         return result;
     }
-    if (esp_netif_create_default_wifi_sta() == NULL) {
+    wifi_netif = esp_netif_create_default_wifi_sta();
+    if (wifi_netif == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -374,6 +417,99 @@ static void send_wifi_scan(const char *request_id)
     send_json(response);
 }
 
+static void restart_after_configuration(void *context)
+{
+    (void)context;
+    vTaskDelay(pdMS_TO_TICKS(750));
+    esp_restart();
+}
+
+static void send_configuration_result(const char *request_id,
+                                      const cJSON *payload)
+{
+    static const char *const properties[] = {
+        "ssid", "credential", "claimToken"};
+    if (!object_has_exact_properties(payload, properties, 3U)) {
+        send_error(request_id, "invalid_request",
+                   "The Wi-Fi configuration payload is invalid.", false);
+        return;
+    }
+    const cJSON *ssid = cJSON_GetObjectItemCaseSensitive(payload, "ssid");
+    const cJSON *credential =
+        cJSON_GetObjectItemCaseSensitive(payload, "credential");
+    const cJSON *claim =
+        cJSON_GetObjectItemCaseSensitive(payload, "claimToken");
+    if (!cJSON_IsString(ssid) || !cJSON_IsString(credential) ||
+        !cJSON_IsString(claim) || strlen(ssid->valuestring) == 0U ||
+        strlen(ssid->valuestring) > 32U ||
+        strlen(credential->valuestring) > 63U ||
+        !is_token(claim->valuestring)) {
+        send_error(request_id, "invalid_request",
+                   "The Wi-Fi configuration payload is invalid.", false);
+        return;
+    }
+
+    nvs_handle_t store = 0;
+    esp_err_t result = nvs_open("tan_setup", NVS_READWRITE, &store);
+    configuration_generation++;
+    if (result == ESP_OK) {
+        result = nvs_set_str(store, "wifi_ssid", ssid->valuestring);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_str(store, "wifi_pass", credential->valuestring);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_str(store, "claim", claim->valuestring);
+    }
+    if (result == ESP_OK) {
+        result = nvs_erase_key(store, "device_token");
+        if (result == ESP_ERR_NVS_NOT_FOUND) {
+            result = ESP_OK;
+        }
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "generation", configuration_generation);
+    }
+    if (result == ESP_OK) {
+        result = nvs_commit(store);
+    }
+    if (store != 0) {
+        nvs_close(store);
+    }
+    if (result != ESP_OK) {
+        send_error(request_id, "wifi_configuration_failed",
+                   "The bridge could not persist the Wi-Fi configuration.",
+                   true);
+        return;
+    }
+
+    snprintf(configured_ssid, sizeof(configured_ssid), "%s",
+             ssid->valuestring);
+    snprintf(configured_credential, sizeof(configured_credential), "%s",
+             credential->valuestring);
+    snprintf(claim_token, sizeof(claim_token), "%s", claim->valuestring);
+    device_token[0] = '\0';
+    lifecycle_state = "provisioning";
+
+    cJSON *response = new_response(request_id);
+    cJSON *configuration = cJSON_CreateObject();
+    if (response == NULL || configuration == NULL) {
+        cJSON_Delete(response);
+        cJSON_Delete(configuration);
+        send_error(request_id, "internal_error",
+                   "The bridge could not encode the configuration result.",
+                   true);
+        return;
+    }
+    cJSON_AddBoolToObject(configuration, "accepted", true);
+    cJSON_AddNumberToObject(configuration, "configurationGeneration",
+                           configuration_generation);
+    cJSON_AddItemToObject(response, "result", configuration);
+    send_json(response);
+    (void)xTaskCreate(restart_after_configuration, "tan_config_restart", 2048,
+                      NULL, 4, NULL);
+}
+
 static void process_request(const char *line)
 {
     static const char *const envelope_properties[] = {
@@ -420,17 +556,22 @@ static void process_request(const char *line)
         cJSON_Delete(request);
         return;
     }
-    if (payload->child != NULL) {
-        send_error(request_id, "invalid_request",
-                   "This operation requires an empty payload.", false);
-        cJSON_Delete(request);
-        return;
-    }
-
     if (strcmp(type->valuestring, "setup.getStatus") == 0) {
-        send_status(request_id);
+        if (payload->child == NULL) {
+            send_status(request_id);
+        } else {
+            send_error(request_id, "invalid_request",
+                       "This operation requires an empty payload.", false);
+        }
     } else if (strcmp(type->valuestring, "setup.scanWifi") == 0) {
-        send_wifi_scan(request_id);
+        if (payload->child == NULL) {
+            send_wifi_scan(request_id);
+        } else {
+            send_error(request_id, "invalid_request",
+                       "This operation requires an empty payload.", false);
+        }
+    } else if (strcmp(type->valuestring, "setup.configure") == 0) {
+        send_configuration_result(request_id, payload);
     } else {
         send_error(request_id, "unsupported_operation",
                    "This setup operation is not implemented by this build.",
@@ -470,6 +611,310 @@ static void consume_bytes(const uint8_t *bytes, size_t length)
     }
 }
 
+static bool send_all(int socket_fd, const uint8_t *bytes, size_t length)
+{
+    size_t offset = 0U;
+    while (offset < length) {
+        ssize_t sent = send(socket_fd, bytes + offset, length - offset, 0);
+        if (sent <= 0) {
+            return false;
+        }
+        offset += (size_t)sent;
+    }
+    return true;
+}
+
+static bool receive_exact(int socket_fd, uint8_t *bytes, size_t length)
+{
+    size_t offset = 0U;
+    while (offset < length) {
+        ssize_t received = recv(socket_fd, bytes + offset, length - offset, 0);
+        if (received <= 0) {
+            return false;
+        }
+        offset += (size_t)received;
+    }
+    return true;
+}
+
+static bool receive_json_line(int socket_fd, char *line, size_t capacity)
+{
+    size_t length = 0U;
+    while (length + 1U < capacity) {
+        uint8_t value;
+        if (!receive_exact(socket_fd, &value, 1U)) {
+            return false;
+        }
+        if (value == '\n') {
+            if (length > 0U && line[length - 1U] == '\r') {
+                length--;
+            }
+            line[length] = '\0';
+            return true;
+        }
+        line[length++] = (char)value;
+    }
+    return false;
+}
+
+static bool allowed_backend_sassi_frame(const uint8_t *bytes, size_t length)
+{
+    if (length < 5U || bytes[0] != 'K' || bytes[1] != 'L' ||
+        bytes[length - 1U] != '\r') {
+        return false;
+    }
+    uint32_t message_type = 0U;
+    size_t index = 2U;
+    bool has_digit = false;
+    while (index < length && bytes[index] >= '0' && bytes[index] <= '9') {
+        has_digit = true;
+        message_type = message_type * 10U + (uint32_t)(bytes[index] - '0');
+        index++;
+    }
+    if (!has_digit || index >= length || bytes[index] != ',') {
+        return false;
+    }
+    return message_type == 1U || message_type == 3U ||
+           message_type == 5U || message_type == 7U ||
+           message_type == 13U;
+}
+
+static void set_bridge_socket(int socket_fd)
+{
+    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        bridge_socket = socket_fd;
+        xSemaphoreGive(socket_mutex);
+    }
+}
+
+static void clear_bridge_socket(int socket_fd)
+{
+    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (bridge_socket == socket_fd) {
+            bridge_socket = -1;
+        }
+        xSemaphoreGive(socket_mutex);
+    }
+}
+
+static void bridge_send_usb(const uint8_t *bytes, size_t length)
+{
+    if (length == 0U || length > UINT16_MAX ||
+        xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        return;
+    }
+    int socket_fd = bridge_socket;
+    if (socket_fd >= 0) {
+        uint8_t header[3] = {
+            TUNNEL_USB_TO_BACKEND,
+            (uint8_t)(length >> 8U),
+            (uint8_t)(length & 0xffU),
+        };
+        if (!send_all(socket_fd, header, sizeof(header)) ||
+            !send_all(socket_fd, bytes, length)) {
+            shutdown(socket_fd, SHUT_RDWR);
+        }
+    }
+    xSemaphoreGive(socket_mutex);
+}
+
+static bool associate_wifi(void)
+{
+    wifi_state = "associating";
+    if (initialize_wifi() != ESP_OK) {
+        return false;
+    }
+    esp_err_t result = esp_wifi_start();
+    if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
+        return false;
+    }
+    wifi_config_t configuration = {0};
+    memcpy(configuration.sta.ssid, configured_ssid,
+           strlen(configured_ssid));
+    memcpy(configuration.sta.password, configured_credential,
+           strlen(configured_credential));
+    configuration.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    result = esp_wifi_set_config(WIFI_IF_STA, &configuration);
+    if (result != ESP_OK) {
+        return false;
+    }
+    (void)esp_wifi_disconnect();
+    result = esp_wifi_connect();
+    if (result != ESP_OK) {
+        return false;
+    }
+    wifi_state = "obtainingAddress";
+    for (size_t attempt = 0U; attempt < 60U; attempt++) {
+        esp_netif_ip_info_t address = {0};
+        if (esp_netif_get_ip_info(wifi_netif, &address) == ESP_OK &&
+            address.ip.addr != 0U) {
+            wifi_state = "online";
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+    return false;
+}
+
+static int connect_backend(void)
+{
+    backend_state = "resolving";
+    char service[6];
+    snprintf(service, sizeof(service), "%u", SETUP_BACKEND_PORT);
+    const struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+    };
+    struct addrinfo *addresses = NULL;
+    if (getaddrinfo(SETUP_BACKEND_HOST, service, &hints, &addresses) != 0 ||
+        addresses == NULL) {
+        if (addresses != NULL) {
+            freeaddrinfo(addresses);
+        }
+        return -1;
+    }
+    backend_state = "connecting";
+    int socket_fd = socket(addresses->ai_family, addresses->ai_socktype,
+                           addresses->ai_protocol);
+    if (socket_fd < 0 ||
+        connect(socket_fd, addresses->ai_addr, addresses->ai_addrlen) != 0) {
+        if (socket_fd >= 0) {
+            close(socket_fd);
+        }
+        freeaddrinfo(addresses);
+        return -1;
+    }
+    freeaddrinfo(addresses);
+    return socket_fd;
+}
+
+static bool persist_device_token(const char *token)
+{
+    nvs_handle_t store;
+    if (nvs_open("tan_setup", NVS_READWRITE, &store) != ESP_OK) {
+        return false;
+    }
+    esp_err_t result = nvs_set_str(store, "device_token", token);
+    if (result == ESP_OK) {
+        result = nvs_erase_key(store, "claim");
+        if (result == ESP_ERR_NVS_NOT_FOUND) {
+            result = ESP_OK;
+        }
+    }
+    if (result == ESP_OK) {
+        result = nvs_commit(store);
+    }
+    nvs_close(store);
+    if (result == ESP_OK) {
+        snprintf(device_token, sizeof(device_token), "%s", token);
+        claim_token[0] = '\0';
+    }
+    return result == ESP_OK;
+}
+
+static bool authenticate_backend(int socket_fd)
+{
+    backend_state = "authenticating";
+    cJSON *hello = cJSON_CreateObject();
+    if (hello == NULL) {
+        return false;
+    }
+    cJSON_AddNumberToObject(hello, "schemaVersion", SETUP_SCHEMA_VERSION);
+    cJSON_AddStringToObject(hello, "bridgeId", bridge_id);
+    cJSON_AddStringToObject(hello, "firmwareVersion",
+                            SETUP_FIRMWARE_VERSION);
+    cJSON_AddStringToObject(hello, "buildId", SETUP_BUILD_ID);
+    if (device_token[0] != '\0') {
+        cJSON_AddStringToObject(hello, "deviceToken", device_token);
+    } else {
+        cJSON_AddStringToObject(hello, "claimToken", claim_token);
+    }
+    char *encoded = cJSON_PrintUnformatted(hello);
+    cJSON_Delete(hello);
+    if (encoded == NULL) {
+        return false;
+    }
+    bool sent = send_all(socket_fd, (const uint8_t *)encoded, strlen(encoded)) &&
+                send_all(socket_fd, (const uint8_t *)"\n", 1U);
+    cJSON_free(encoded);
+    if (!sent) {
+        return false;
+    }
+
+    char response_line[2048];
+    if (!receive_json_line(socket_fd, response_line, sizeof(response_line))) {
+        return false;
+    }
+    cJSON *response = cJSON_Parse(response_line);
+    const cJSON *schema =
+        cJSON_GetObjectItemCaseSensitive(response, "schemaVersion");
+    const cJSON *accepted =
+        cJSON_GetObjectItemCaseSensitive(response, "accepted");
+    const cJSON *issued =
+        cJSON_GetObjectItemCaseSensitive(response, "deviceToken");
+    bool valid = response != NULL && cJSON_IsNumber(schema) &&
+                 schema->valuedouble == SETUP_SCHEMA_VERSION &&
+                 cJSON_IsTrue(accepted);
+    if (valid && device_token[0] == '\0') {
+        valid = cJSON_IsString(issued) && is_token(issued->valuestring) &&
+                persist_device_token(issued->valuestring);
+    }
+    cJSON_Delete(response);
+    return valid;
+}
+
+static void tunnel_backend(int socket_fd)
+{
+    backend_state = "online";
+    lifecycle_state = "operational";
+    set_bridge_socket(socket_fd);
+    uint8_t payload[TUNNEL_MAX_PAYLOAD_BYTES];
+    while (true) {
+        uint8_t header[3];
+        if (!receive_exact(socket_fd, header, sizeof(header))) {
+            break;
+        }
+        size_t length = ((size_t)header[1] << 8U) | header[2];
+        if (header[0] != TUNNEL_BACKEND_TO_USB || length == 0U ||
+            length > sizeof(payload) ||
+            !receive_exact(socket_fd, payload, length) ||
+            !allowed_backend_sassi_frame(payload, length)) {
+            break;
+        }
+        if (!setup_mode) {
+            write_line((const char *)payload, length);
+        }
+    }
+    clear_bridge_socket(socket_fd);
+    shutdown(socket_fd, SHUT_RDWR);
+    close(socket_fd);
+    backend_state = "backoff";
+}
+
+static void network_task(void *context)
+{
+    (void)context;
+    while (true) {
+        if (!associate_wifi()) {
+            wifi_state = "backoff";
+            backend_state = "offline";
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            continue;
+        }
+        int socket_fd = connect_backend();
+        if (socket_fd < 0 || !authenticate_backend(socket_fd)) {
+            if (socket_fd >= 0) {
+                close(socket_fd);
+            }
+            backend_state = "backoff";
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            continue;
+        }
+        tunnel_backend(socket_fd);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+    }
+}
+
 static void cdc_rx_callback(int interface, cdcacm_event_t *event)
 {
     (void)event;
@@ -478,6 +923,16 @@ static void cdc_rx_callback(int interface, cdcacm_event_t *event)
                             &message.length) == ESP_OK &&
         message.length > 0U) {
         (void)xQueueSend(rx_queue, &message, 0);
+    }
+}
+
+static void cdc_line_state_callback(int interface, cdcacm_event_t *event)
+{
+    (void)interface;
+    setup_mode = event->line_state_changed_data.dtr;
+    if (!setup_mode) {
+        line_length = 0U;
+        discarding_oversized_line = false;
     }
 }
 
@@ -517,7 +972,37 @@ static void initialize_identity(void)
         ESP_ERROR_CHECK(nvs_set_str(identity_store, "bridge_id", bridge_id));
         ESP_ERROR_CHECK(nvs_commit(identity_store));
     }
+    length = sizeof(configured_ssid);
+    if (nvs_get_str(identity_store, "wifi_ssid", configured_ssid, &length) !=
+        ESP_OK) {
+        configured_ssid[0] = '\0';
+    }
+    length = sizeof(configured_credential);
+    if (nvs_get_str(identity_store, "wifi_pass", configured_credential,
+                    &length) != ESP_OK) {
+        configured_credential[0] = '\0';
+    }
+    length = sizeof(claim_token);
+    if (nvs_get_str(identity_store, "claim", claim_token, &length) != ESP_OK ||
+        !is_token(claim_token)) {
+        claim_token[0] = '\0';
+    }
+    length = sizeof(device_token);
+    if (nvs_get_str(identity_store, "device_token", device_token, &length) !=
+            ESP_OK ||
+        !is_token(device_token)) {
+        device_token[0] = '\0';
+    }
+    if (nvs_get_u32(identity_store, "generation", &configuration_generation) !=
+        ESP_OK) {
+        configuration_generation = 0U;
+    }
     nvs_close(identity_store);
+    if (configured_ssid[0] != '\0' &&
+        (claim_token[0] != '\0' || device_token[0] != '\0')) {
+        lifecycle_state = device_token[0] != '\0' ? "operational" : "claiming";
+        wifi_state = "associating";
+    }
 }
 
 void app_main(void)
@@ -532,7 +1017,8 @@ void app_main(void)
     initialize_identity();
 
     rx_queue = xQueueCreate(16U, sizeof(setup_rx_event_t));
-    if (rx_queue == NULL) {
+    socket_mutex = xSemaphoreCreateMutex();
+    if (rx_queue == NULL || socket_mutex == NULL) {
         abort();
     }
 
@@ -542,15 +1028,27 @@ void app_main(void)
         .cdc_port = TINYUSB_CDC_ACM_0,
         .callback_rx = cdc_rx_callback,
         .callback_rx_wanted_char = NULL,
-        .callback_line_state_changed = NULL,
+        .callback_line_state_changed = cdc_line_state_callback,
         .callback_line_coding_changed = NULL,
     };
     ESP_ERROR_CHECK(tinyusb_cdcacm_init(&cdc_configuration));
 
+    if (configured_ssid[0] != '\0' &&
+        (claim_token[0] != '\0' || device_token[0] != '\0')) {
+        if (xTaskCreate(network_task, "tan_bridge_network", 8192, NULL, 5,
+                        NULL) != pdPASS) {
+            abort();
+        }
+    }
+
     setup_rx_event_t event;
     while (true) {
         if (xQueueReceive(rx_queue, &event, portMAX_DELAY) == pdTRUE) {
-            consume_bytes(event.bytes, event.length);
+            if (setup_mode) {
+                consume_bytes(event.bytes, event.length);
+            } else {
+                bridge_send_usb(event.bytes, event.length);
+            }
         }
     }
 }

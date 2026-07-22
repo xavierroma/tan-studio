@@ -12,7 +12,8 @@ import uuid
 import serial
 
 
-BACKEND_HOST = "bridge.tanstudio.xroma.dev"
+BACKEND_HOST = "xrc.local"
+BACKEND_PORT = 8081
 MAX_LINE_BYTES = 4_096
 
 
@@ -92,16 +93,16 @@ def validate_negative_paths(device: serial.Serial) -> None:
         raise AssertionError("first use of duplicate test request failed")
     expect_error(device, duplicate_request, "invalid_request")
 
-    unsupported_id = str(uuid.uuid4())
+    invalid_configuration_id = str(uuid.uuid4())
     expect_error(
         device,
         {
             "schemaVersion": 1,
-            "requestId": unsupported_id,
+            "requestId": invalid_configuration_id,
             "type": "setup.configure",
             "payload": {},
         },
-        "unsupported_operation",
+        "invalid_request",
     )
 
     device.write(b"x" * MAX_LINE_BYTES + b"\n")
@@ -117,7 +118,11 @@ def validate_status(status: dict[str, object]) -> None:
     if status["protocolVersion"] != 1:
         raise AssertionError("unexpected setup protocol version")
     backend = status["backend"]
-    if not isinstance(backend, dict) or backend != {"state": "offline", "host": BACKEND_HOST}:
+    if (
+        not isinstance(backend, dict)
+        or backend.get("host") != BACKEND_HOST
+        or backend.get("port") != BACKEND_PORT
+    ):
         raise AssertionError("unexpected backend status")
     encoded = json.dumps(status).lower()
     for forbidden in ("password", "credential", "claimtoken"):
@@ -169,7 +174,7 @@ def main() -> int:
                 "ssidValuesRedacted": True,
                 "unknownPropertiesRejected": True,
                 "duplicateRequestIdsRejected": True,
-                "unsupportedOperationsRejected": True,
+                "invalidConfigurationRejected": True,
                 "oversizedLinesRejected": True,
             },
             separators=(",", ":"),
