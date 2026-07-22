@@ -6,7 +6,7 @@ export const TanBridgeSetupSchemaVersion = 1 as const
 export const TanBridgeSetupMaxLineBytes = 4_096 as const
 export const TanBridgeSetupMaxInFlightRequests = 8 as const
 export const TanBridgeBackendHost = "xrc.local" as const
-export const TanBridgeBackendPort = 8_081 as const
+export const TanBridgeBackendPort = 8_082 as const
 
 export const TanBridgeLifecycleSchema = z.enum([
   "booting",

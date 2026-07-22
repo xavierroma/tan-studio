@@ -18,7 +18,7 @@ use tokio::{
 use crate::{db::Database, device::NanoDeviceManager};
 
 pub const BRIDGE_PROTOCOL_VERSION: u8 = 1;
-pub const DEFAULT_BRIDGE_PORT: u16 = 8081;
+pub const DEFAULT_BRIDGE_PORT: u16 = 8082;
 const HANDSHAKE_LIMIT_BYTES: usize = 2_048;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
