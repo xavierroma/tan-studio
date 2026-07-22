@@ -14,7 +14,7 @@
     "dev:web": "bun run --filter @tan-studio/web dev",
     "dev:service": "cargo run --manifest-path apps/service/Cargo.toml --bin tan-studio-service",
     "dev:desktop": "bun run --filter @tan-studio/desktop dev",
-    "build:service": "cargo build --locked --release --manifest-path apps/service/Cargo.toml",
+    "build:service": "cargo build --locked --release --manifest-path apps/service/Cargo.toml --bin tan-studio-service",
     "build": "bun run contract:generate && bun run --filter @tan-studio/codex-plugin build && bun run --filter @tan-studio/web build && bun run --filter @tan-studio/desktop build",
     "build:pi": "./script/build_pi_release.sh",
     "deploy:pi": "./script/deploy_pi.sh",

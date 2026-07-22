@@ -34,6 +34,7 @@ const EXPECTED_MANUFACTURER: &str = "kaffelogic.com";
 const SCAN_INTERVAL: Duration = Duration::from_millis(1_500);
 const READ_TIMEOUT: Duration = Duration::from_millis(25);
 const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(12);
+const BRIDGE_REPLAY_SETTLE_TIME: Duration = Duration::from_millis(750);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DIRECTORY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
@@ -147,6 +148,7 @@ struct Session {
     crc_seed: Option<u16>,
     maximum_packet_bytes: Option<usize>,
     sync_attempted: bool,
+    handshake_not_before: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,7 +202,7 @@ fn device_loop(
                     bridge_id,
                     transport,
                 }) => {
-                    session = Some(new_session(Box::new(transport)));
+                    session = Some(new_bridge_session(Box::new(transport)));
                     let mut current = reconnecting("awaiting_sassi_handshake");
                     current.transport = Some("tan-bridge".into());
                     current.bridge_id = Some(bridge_id);
@@ -356,6 +358,22 @@ fn open_session(path: &str) -> Result<Session, &'static str> {
 }
 
 fn new_session(port: Box<dyn SessionTransport>) -> Session {
+    new_session_with_handshake_delay(port, Duration::ZERO)
+}
+
+fn new_bridge_session(port: Box<dyn SessionTransport>) -> Session {
+    // The Atom can authenticate after buffering several repeated type-2
+    // requests. Each request carries a new CRC seed, so answering a replayed
+    // request would be validly encoded but stale by the time it reaches the
+    // Nano. Drain the bounded replay window and negotiate from the next live
+    // request instead.
+    new_session_with_handshake_delay(port, BRIDGE_REPLAY_SETTLE_TIME)
+}
+
+fn new_session_with_handshake_delay(
+    port: Box<dyn SessionTransport>,
+    handshake_delay: Duration,
+) -> Session {
     Session {
         port,
         decoder: Decoder::default(),
@@ -366,6 +384,7 @@ fn new_session(port: Box<dyn SessionTransport>) -> Session {
         crc_seed: None,
         maximum_packet_bytes: None,
         sync_attempted: false,
+        handshake_not_before: Instant::now() + handshake_delay,
     }
 }
 
@@ -408,6 +427,9 @@ fn handle_message(
                 return Err("unsupported_device".into());
             }
             if session.phase != Phase::AwaitingHandshake {
+                return Ok(());
+            }
+            if Instant::now() < session.handshake_not_before {
                 return Ok(());
             }
             session.crc_seed = Some(request.crc_seed);
@@ -911,6 +933,28 @@ mod tests {
         assert!(events.iter().any(|event| event.frame_type == Some(5)));
         assert!(events.iter().any(|event| event.frame_type == Some(7)));
         assert!(events.iter().any(|event| event.frame_type == Some(1)));
+    }
+
+    #[test]
+    fn bridge_session_drains_replayed_handshakes_before_answering() {
+        let (transport, _) = VirtualNanoTransport::new(VirtualNanoScenario::smoke()).unwrap();
+        let snapshot = Arc::new(RwLock::new(reconnecting("test")));
+        let mut session = new_bridge_session(Box::new(transport));
+        let mut buffer = [0u8; 512];
+        let message = loop {
+            let length = session.port.read(&mut buffer).unwrap();
+            let mut events = session.decoder.push(&buffer[..length]);
+            if let Some(decoded) = events.pop() {
+                break decoded.unwrap().message;
+            }
+        };
+
+        handle_message(&mut session, &snapshot, message.clone()).unwrap();
+        assert_eq!(session.phase, Phase::AwaitingHandshake);
+
+        session.handshake_not_before = Instant::now();
+        handle_message(&mut session, &snapshot, message).unwrap();
+        assert_eq!(session.phase, Phase::AwaitingTimeSync);
     }
 
     #[test]

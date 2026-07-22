@@ -135,7 +135,7 @@ TAN_WEB_SOURCE="$TAN_REPOSITORY_ROOT/apps/web/dist"
 
 cd "$TAN_REPOSITORY_ROOT"
 bun run --filter @tan-studio/web build
-cargo build --locked --release --manifest-path apps/service/Cargo.toml
+cargo build --locked --release --manifest-path apps/service/Cargo.toml --bin tan-studio-service
 
 install -d -m 0700 "$TAN_RELEASES" "$TAN_LAN_ROOT" "$TAN_LOG_DIRECTORY"
 install -d -m 0700 "$(dirname "$TAN_DATABASE_PATH")"

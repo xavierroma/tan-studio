@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     io::{self, Read, Write},
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
@@ -19,6 +19,7 @@ use crate::sassi::{self, decode_frame, encode_frame};
 
 const CRC_SEED: u16 = 0x1a2b;
 const MAXIMUM_PACKET_BYTES: usize = 4_064;
+const CONNECTION_REQUEST_INTERVAL: Duration = Duration::from_millis(500);
 const TRANSCRIPT_EVENT_LIMIT: usize = 20_000;
 const LOG_DIRECTORY: &str = "kaffelogic/roast-logs";
 const PROFILE_DIRECTORY: &str = "kaffelogic/roast-profiles";
@@ -144,6 +145,9 @@ pub struct VirtualNanoTransport {
     request_counts: BTreeMap<u32, u64>,
     directory_requests: u64,
     file_requests: u64,
+    current_crc_seed: u16,
+    last_connection_request_at: Instant,
+    negotiated: bool,
 }
 
 impl VirtualNanoTransport {
@@ -173,8 +177,11 @@ impl VirtualNanoTransport {
             request_counts: BTreeMap::new(),
             directory_requests: 0,
             file_requests: 0,
+            current_crc_seed: CRC_SEED,
+            last_connection_request_at: Instant::now(),
+            negotiated: false,
         };
-        transport.enqueue_frame(connection_frame()?);
+        transport.enqueue_frame(connection_frame(CRC_SEED, 1)?);
         Ok((transport, transcript))
     }
 
@@ -209,8 +216,12 @@ impl VirtualNanoTransport {
     }
 
     fn accept_frame(&mut self, frame: &[u8]) -> io::Result<()> {
-        decode_frame(frame, Some(CRC_SEED), MAXIMUM_PACKET_BYTES + 64)
-            .map_err(|error| invalid_data(format!("invalid host SASSI frame: {error}")))?;
+        decode_frame(
+            frame,
+            Some(self.current_crc_seed),
+            MAXIMUM_PACKET_BYTES + 64,
+        )
+        .map_err(|error| invalid_data(format!("invalid host SASSI frame: {error}")))?;
         let (kind, fields) = raw_fields(frame)?;
         *self.request_counts.entry(kind).or_default() += 1;
         match kind {
@@ -225,9 +236,16 @@ impl VirtualNanoTransport {
                 if fields.len() != 4 {
                     return Err(invalid_data("invalid time synchronization request"));
                 }
+                self.negotiated = true;
                 self.enqueue_frame(
-                    encode_frame(4, self.elapsed_ms(), &[], CRC_SEED, MAXIMUM_PACKET_BYTES)
-                        .map_err(codec_error)?,
+                    encode_frame(
+                        4,
+                        self.elapsed_ms(),
+                        &[],
+                        self.current_crc_seed,
+                        MAXIMUM_PACKET_BYTES,
+                    )
+                    .map_err(codec_error)?,
                 );
             }
             5 => {
@@ -279,7 +297,7 @@ impl VirtualNanoTransport {
                         14,
                         self.elapsed_ms(),
                         &[data, code],
-                        CRC_SEED,
+                        self.current_crc_seed,
                         MAXIMUM_PACKET_BYTES,
                     )
                     .map_err(codec_error)?,
@@ -356,7 +374,7 @@ impl VirtualNanoTransport {
             transfer.frame_type,
             self.elapsed_ms(),
             &[&transfer.path, combined, "", &sequence_text, &encoded],
-            CRC_SEED,
+            self.current_crc_seed,
             MAXIMUM_PACKET_BYTES,
         )
         .map_err(codec_error)?;
@@ -400,6 +418,14 @@ impl Read for VirtualNanoTransport {
                 io::ErrorKind::ConnectionReset,
                 "virtual Nano disconnected",
             ));
+        }
+        if self.inbound.is_empty()
+            && !self.negotiated
+            && self.last_connection_request_at.elapsed() >= CONNECTION_REQUEST_INTERVAL
+        {
+            self.current_crc_seed = self.current_crc_seed.wrapping_add(0x101).max(1);
+            self.last_connection_request_at = Instant::now();
+            self.enqueue_frame(connection_frame(self.current_crc_seed, self.elapsed_ms())?);
         }
         if self.inbound.is_empty() {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
@@ -452,10 +478,11 @@ impl Write for VirtualNanoTransport {
     }
 }
 
-fn connection_frame() -> io::Result<Vec<u8>> {
+fn connection_frame(crc_seed: u16, elapsed_ms: u64) -> io::Result<Vec<u8>> {
+    let seed = format!("{crc_seed:04x}");
     encode_frame(
         2,
-        1,
+        elapsed_ms,
         &[
             "1",
             "128",
@@ -466,9 +493,9 @@ fn connection_frame() -> io::Result<Vec<u8>> {
             "",
             "4064",
             "192",
-            "1a2b",
+            &seed,
         ],
-        CRC_SEED,
+        crc_seed,
         512,
     )
     .map_err(codec_error)
@@ -580,5 +607,30 @@ mod tests {
                 crate::kpro::parse(&bytes).unwrap();
             }
         }
+    }
+
+    #[test]
+    fn repeats_connection_requests_with_a_fresh_crc_seed() {
+        let (mut transport, _) = VirtualNanoTransport::new(VirtualNanoScenario::smoke()).unwrap();
+        transport.inbound.clear();
+        transport.inbound_types.clear();
+        let original_seed = transport.current_crc_seed;
+        transport.last_connection_request_at = Instant::now() - CONNECTION_REQUEST_INTERVAL;
+
+        let mut frame = Vec::new();
+        let mut bytes = [0u8; 512];
+        loop {
+            match transport.read(&mut bytes) {
+                Ok(length) => frame.extend_from_slice(&bytes[..length]),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("unexpected virtual Nano read: {error}"),
+            }
+        }
+        assert_ne!(transport.current_crc_seed, original_seed);
+        let decoded = decode_frame(&frame, None, 512).unwrap();
+        let sassi::Message::ConnectionRequest(request) = decoded.message else {
+            panic!("connection request")
+        };
+        assert_eq!(request.crc_seed, transport.current_crc_seed);
     }
 }
