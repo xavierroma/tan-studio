@@ -451,16 +451,47 @@ tan_bridge_setup.bin, 805,472 bytes
 ```
 
 The application occupies 77% of the 1 MiB factory partition and leaves 23%
-free. This candidate has not been flashed: the Atom remained connected only to
-the Nano while the user was away, and the current image has no OTA updater.
-The final hardware gate therefore remains explicit:
+free.
 
-1. Move the Atom's single cable from the Nano to the Mac and use the guarded
-   repository flash command.
-2. Configure Wi-Fi through a secure-context Chromium page without recording
-   the credential.
-3. Move the Atom's single cable back to the powered Nano.
-4. Run `script/smoke_tan_studio_lan.py --expect-bridge
+The candidate was flashed physically on 22 July 2026 with the Atom connected
+only to the Mac. Esptool 5.1.0 erased the previous image, wrote all three
+artifacts, and verified every written hash. The first post-flash application
+boot enumerated but did not answer setup requests; a normal USB power cycle,
+without entering ROM mode again, restored the application interface. The
+independent setup verifier then passed with:
+
+```json
+{
+  "firmware": {
+    "version": "0.2.1-local",
+    "build": "local-lan-v2"
+  },
+  "lifecycle": "unprovisioned",
+  "wifiState": {
+    "state": "disabled"
+  },
+  "visibleNetworkCount": 12,
+  "ssidValuesRedacted": true,
+  "unknownPropertiesRejected": true,
+  "duplicateRequestIdsRejected": true,
+  "invalidConfigurationRejected": true,
+  "oversizedLinesRejected": true
+}
+```
+
+`script/provision_tan_bridge.py` was then used to read the service launch token
+from its protected local file, prompt for the Wi-Fi credential without echoing
+it, request a one-time claim, send `setup.configure`, and poll for the exact
+bridge identity to authenticate. The Atom accepted the configuration, joined
+the LAN, resolved `xrc.local`, redeemed its claim, and authenticated to the
+Rust listener on port 8081. A subsequent LAN smoke test reported one connected
+`0.2.1-local` bridge and retained the expected unauthenticated and hostile-Host
+rejections.
+
+The remaining hardware gate is:
+
+1. Move the Atom's single cable from the Mac to the powered Nano.
+2. Run `script/smoke_tan_studio_lan.py --expect-bridge
    --expect-device-connected` and verify all Nano profiles and logs through the
    live API and UI.
 
