@@ -130,3 +130,14 @@ This read-only USB path is now E2E-passing. Device writes remain disabled until 
 The production headless service was installed as the per-user `com.xavierroma.tanstudio.lan` LaunchAgent and verified through both the Mac's mDNS name and numeric LAN address on port 8080. The same listener serves the production React assets and `/api/v1`; the HTML response contains the in-memory LAN bootstrap, while direct API clients require the generated bearer token.
 
 Verification covered a full stop/start cycle, automatic restart readiness, real history ordering from roast 15 through roast 1, the existing production database, and the connected Nano identity. Unauthenticated API requests returned 401, a hostile Host returned 403, and the allowed LAN authority returned a healthy database plus the expected API data. The Mac application firewall was disabled during this check. Browser-plugin navigation to a private LAN address was blocked by the test environment's enterprise network policy, so rendered browser automation was not used to bypass that boundary.
+
+The repeatable read-only LAN smoke check is:
+
+```sh
+python3 script/smoke_tan_studio_lan.py --expect-bridge
+```
+
+Add `--expect-device-connected` only when the Nano and a production bridge are
+physically attached. The script validates health, API bootstrap, device and
+bridge response shapes, bearer authentication, Host protection, and SQLite
+readiness without printing the launch token or bridge identity.

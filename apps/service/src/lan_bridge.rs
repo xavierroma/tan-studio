@@ -494,6 +494,19 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
 
+    fn connected_socket_pair() -> (StdTcpStream, StdTcpStream) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = StdTcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        (client, server)
+    }
+
     #[test]
     fn bridge_claim_is_single_use_and_tokens_are_not_stored_in_plaintext() {
         let directory = tempfile::tempdir().unwrap();
@@ -528,5 +541,53 @@ mod tests {
         }
         assert!(!allowed_read_only_sassi_frame(b"KL9,0,00,0000\r"));
         assert!(!allowed_read_only_sassi_frame(b"not-sassi\r"));
+    }
+
+    #[test]
+    fn tunnel_reassembles_fragmented_early_usb_bytes_and_frames_backend_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        let (mut bridge, service) = connected_socket_pair();
+        let payload = b"KL2,verified-bootstrap-frame\r";
+        let length = u16::try_from(payload.len()).unwrap().to_be_bytes();
+
+        bridge.write_all(&[USB_TO_BACKEND]).unwrap();
+        bridge.write_all(&length[..1]).unwrap();
+        bridge.write_all(&length[1..]).unwrap();
+        bridge.write_all(&payload[..7]).unwrap();
+        bridge.write_all(&payload[7..]).unwrap();
+
+        let mut transport =
+            BridgeTransport::new(service, database, "abcdefghijklmnopqrstuvwxyz".into(), 1);
+        let mut decoded = vec![0; payload.len()];
+        transport.read_exact(&mut decoded).unwrap();
+        assert_eq!(decoded, payload);
+
+        let response = b"KL1,0,00,0000\r";
+        transport.write_all(response).unwrap();
+        transport.flush().unwrap();
+        let mut framed = vec![0; response.len() + 3];
+        bridge.read_exact(&mut framed).unwrap();
+        assert_eq!(framed[0], BACKEND_TO_USB);
+        assert_eq!(
+            u16::from_be_bytes([framed[1], framed[2]]) as usize,
+            response.len()
+        );
+        assert_eq!(&framed[3..], response);
+    }
+
+    #[test]
+    fn tunnel_rejects_non_usb_input_without_exposing_payload() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        let (mut bridge, service) = connected_socket_pair();
+        bridge.write_all(&[BACKEND_TO_USB, 0, 1, 0]).unwrap();
+        let mut transport =
+            BridgeTransport::new(service, database, "abcdefghijklmnopqrstuvwxyz".into(), 1);
+
+        let error = transport.read(&mut [0; 8]).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "invalid bridge frame kind");
     }
 }
