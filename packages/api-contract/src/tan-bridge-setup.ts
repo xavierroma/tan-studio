@@ -73,8 +73,11 @@ export const TanBridgeSetupStatusSchema = z
     backend: z
       .object({
         state: TanBridgeBackendStateSchema,
-        host: z.literal(TanBridgeBackendHost),
-        port: z.literal(TanBridgeBackendPort),
+        host: z.union([
+          z.literal(TanBridgeBackendHost),
+          z.literal("bridge.tanstudio.xroma.dev"),
+        ]),
+        port: z.literal(TanBridgeBackendPort).optional(),
       })
       .strict(),
     claim: z

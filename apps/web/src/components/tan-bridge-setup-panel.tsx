@@ -77,6 +77,9 @@ export function TanBridgeSetupPanel() {
   )
   const needsCredential =
     selectedNetwork !== undefined && selectedNetwork.authMode !== "open"
+  const firmwareCompatible =
+    status?.backend.host === TanBridgeBackendHost &&
+    status.backend.port === TanBridgeBackendPort
 
   useEffect(
     () => () => {
@@ -237,6 +240,18 @@ export function TanBridgeSetupPanel() {
         </Alert>
       ) : null}
 
+      {status && !firmwareCompatible ? (
+        <Alert className="bg-warning mt-5">
+          <RefreshCwIcon />
+          <AlertTitle>Firmware update required</AlertTitle>
+          <AlertDescription>
+            This Atom is still running setup-only firmware {status.firmware.version}.
+            You can scan and choose Wi-Fi now, but connecting it to xrc.local
+            requires the local-LAN firmware currently being prepared.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {configured ? (
         <Alert className="bg-info mt-5">
           <CheckCircle2Icon />
@@ -336,6 +351,7 @@ export function TanBridgeSetupPanel() {
                   onClick={() => void configure()}
                   disabled={
                     activity !== "idle" ||
+                    !firmwareCompatible ||
                     !selectedNetwork ||
                     (needsCredential && credential.length === 0)
                   }
