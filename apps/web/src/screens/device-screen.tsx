@@ -11,6 +11,7 @@ import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
+import { TanBridgeSetupPanel } from "@/components/tan-bridge-setup-panel"
 import {
   getDevice,
   queryKeys,
@@ -69,6 +70,7 @@ export function DeviceScreen() {
         }
       />
       <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
+        <TanBridgeSetupPanel />
         <section className="bg-card grid gap-5 rounded-xl border p-5 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Connection" value={item?.connection ?? "checking"} />
           <Metric label="Model" value={item?.model ?? "—"} />

@@ -2,6 +2,13 @@
 
 Status: architecture decision and implementation investigation, 2026-07-19.
 
+Product-direction update, 2026-07-21: the canonical Tan Bridge behavior is now
+the browser-provisioned, outbound native protocol in
+[`10-tan-bridge-native-protocol.md`](10-tan-bridge-native-protocol.md). The
+official-module investigation below remains useful background, but official
+LAN compatibility is not in the current product scope. The earlier local
+Atom-hosted HTTPS API is superseded as the primary bridge transport.
+
 This document defines two related boundaries:
 
 1. a small, always-on network bridge attached to the Kaffelogic Nano USB port;

@@ -1,7 +1,9 @@
 # AtomS3 Lite Tan Bridge implementation handoff
 
-Status: implementation plan; the passive USB-role probe exists, but production
-Tan Bridge firmware does not yet exist.
+Status: the offline-safe receive-only foundation and the computer-powered Web
+Serial status/Wi-Fi-scan slice are implemented. The Nano power/enumeration gate
+and every credential, cloud-claim, backend-session, and Nano operation remain
+pending.
 
 Target board: **M5Stack AtomS3 Lite, SKU C124**. Do not substitute the older
 Atom Lite, the AtomS3 display model, or a board that puts native USB behind a
@@ -12,6 +14,12 @@ computer before the board can be tested with the Kaffelogic Nano. The broader
 architecture and protocol evidence remain in
 [`06-wireless-bridge-and-agent-interface.md`](06-wireless-bridge-and-agent-interface.md)
 and [`02-usb-protocol-and-file-formats.md`](02-usb-protocol-and-file-formats.md).
+
+Product-direction update, 21 July 2026: the offline-safe implementation and
+hardware gates in this handoff remain valid. The post-probe product transport,
+browser provisioning, state machines, remote backend session, and typed
+read/write behavior are superseded by
+[`10-tan-bridge-native-protocol.md`](10-tan-bridge-native-protocol.md).
 
 ## 1. Intended result
 
