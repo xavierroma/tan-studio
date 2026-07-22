@@ -45,6 +45,8 @@ export type FetchLike = (
   init?: RequestInit
 ) => Promise<Response>
 
+const DEVICE_SYNCHRONIZATION_TIMEOUT_MS = 60_000
+
 export class OpenApiTanStudioGateway implements TanStudioGateway {
   private readonly client: ReturnType<typeof createClient<paths>>
 
@@ -54,10 +56,16 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
   ) {
     this.client = createClient<paths>({
       baseUrl: config.baseUrl,
-      fetch: async (request) =>
-        fetchImplementation(request, {
-          signal: AbortSignal.timeout(config.timeoutMs),
-        }),
+      fetch: async (request) => {
+        const path = new URL(request.url).pathname
+        const timeoutMs =
+          path === "/api/v1/device/synchronize"
+            ? Math.max(config.timeoutMs, DEVICE_SYNCHRONIZATION_TIMEOUT_MS)
+            : config.timeoutMs
+        return fetchImplementation(request, {
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+      },
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${config.token}`,

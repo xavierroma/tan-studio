@@ -125,6 +125,15 @@ The final release candidate also exercised recovery from a half-open negotiation
 
 This read-only USB path is now E2E-passing. Device writes remain disabled until legitimate Studio traffic establishes the exact profile-write, command, acknowledgement, and recovery behavior. A supervised new roast, incremental live-log notification, cable interruption during a roast, and post-roast automatic synchronization remain the live-monitoring acceptance gates.
 
+The same real Nano corpus is also E2E-passing through the AtomS3 Lite wireless
+bridge and the always-on Mac LAN service. The Nano powered and enumerated the
+Atom, the backend negotiated a fresh rotating-seed handshake, and two read-only
+synchronizations reported 16 profiles and 15 logs with zero warnings or
+quarantine. Production Playwright verified the Devices view, Roasts table, a
+real chart before and during hover, and clean console/page state. The MCP live
+suite read every real roast telemetry stream and completed its own read-only
+resynchronization without losing the bridge connection.
+
 ## macOS LAN service
 
 The production headless service was installed as the per-user `com.xavierroma.tanstudio.lan` LaunchAgent and verified through both the Mac's mDNS name and numeric LAN address on port 8080. The same listener serves the production React assets and `/api/v1`; the HTML response contains the in-memory LAN bootstrap, while direct API clients require the generated bearer token.

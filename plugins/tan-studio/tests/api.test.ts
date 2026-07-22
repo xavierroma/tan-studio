@@ -69,6 +69,22 @@ describe("generated OpenAPI transport", () => {
     })
   })
 
+  test("allows a full device reconciliation to outlive the normal request timeout", async () => {
+    let synchronizationSignal: AbortSignal | null | undefined
+    const api = new OpenApiTanStudioGateway(
+      { ...config, timeoutMs: 10 },
+      async (_request, init) => {
+        synchronizationSignal = init?.signal
+        await Bun.sleep(25)
+        expect(synchronizationSignal?.aborted).toBe(false)
+        return Response.json({ connection: "connected" })
+      }
+    )
+
+    await api.synchronizeDevice()
+    expect(synchronizationSignal).toBeDefined()
+  })
+
   test("creates metadata then streams local attachment bytes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tan-studio-api-"))
     temporaryDirectories.push(directory)

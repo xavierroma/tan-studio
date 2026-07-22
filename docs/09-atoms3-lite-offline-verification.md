@@ -608,3 +608,63 @@ therefore verified on the actual Atom. The final compatibility gate is to move
 the Atom's single cable to the powered Nano and validate its real read-only
 capability frame, profiles, logs, API resources, and UI charts. No write or
 roast-control command is authorized by this gate.
+
+## Powered Nano wireless integration
+
+Date: 22 July 2026
+
+Service commits: `eb5a92f`, `c277a45`
+
+The Atom was moved from the Mac to the powered Nano with one USB data cable. It
+remained powered, associated to Wi-Fi, and repeatedly authenticated to the
+fixed `xrc.local:8081` listener. The first connection safely exposed two
+differences between a process simulator and an already-running USB appliance:
+
+1. The initial CDC read can start part-way through a SASSI frame. The Rust
+   decoder now seeks the verified `KL*` prefix before buffering and has
+   exhaustive split-boundary coverage with CR/LF, NUL, truncated, and
+   prefix-like noise.
+2. Every repeated Nano type-2 connection request contains a fresh CRC seed.
+   The Atom's bounded pre-network replay can therefore contain valid but stale
+   requests. Bridge sessions now drain that replay for 750 ms and answer the
+   next live request. The Virtual Nano repeats requests at the observed 500 ms
+   cadence, rotates its seed, and rejects later messages encoded with an older
+   seed.
+
+With those corrections, the real wireless path reported:
+
+```json
+{
+  "connection": "connected",
+  "transport": "tan-bridge",
+  "model": "KN1007B",
+  "firmware": "7.20.6",
+  "protocol": "SASSI v1 · read-only",
+  "packetLimitBytes": 4064,
+  "profiles": 16,
+  "logs": 15,
+  "syncState": "ready",
+  "logWarnings": 0,
+  "profileWarnings": 0,
+  "quarantinedLogs": 0,
+  "quarantinedProfiles": 0
+}
+```
+
+A second explicit synchronization imported and updated zero rows, proving the
+live path remains idempotent for the current corpus. The production Playwright
+smoke verified Devices, the real Roasts table, a 26-sample roast chart before
+and during hover, and no console/page errors. The repository-built MCP live
+suite read all 16 profiles, 15 roasts, 6 coffees, every context/resource path,
+and all 15 telemetry streams (6,854 sampled points), then completed another
+read-only device sync without disconnecting. MCP device synchronization uses a
+bounded 60-second timeout; ordinary calls retain the configured short timeout.
+
+The wireless read-only compatibility gate is passed. Remaining hardware work
+is a deliberate disconnect/reconnect and longer soak run, plus a supervised
+live-roast notification test. Profile upload/delete, roast control, raw serial
+proxying, arbitrary SASSI commands, and every other Nano mutation remain out of
+scope and disabled.
+
+No raw Nano payload, device serial, bridge identity, Wi-Fi credential, or API
+token is included in this evidence.

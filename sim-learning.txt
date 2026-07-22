@@ -84,8 +84,8 @@ Acceptance matrix
     forwarding USB CDC over Wi-Fi to the backend.
 [ ] Real-Atom soak leaves boot/watchdog counters unchanged and reconnects without
     duplicate imports or loss after deliberate host-side disconnects.
-[ ] The only remaining gate is Nano-specific power/electrical behavior, USB host
-    enumeration quirks, and one read-only synchronization of its real files.
+[x] Real Nano powers and enumerates the Atom, completes the read-only handshake,
+    and synchronizes its real profile/log corpus through Wi-Fi.
 
 Safety boundary
 ---------------
@@ -151,3 +151,37 @@ Safety boundary
 - Machine-readable evidence is retained under `tmp/atom-hil/1784738318178/`.
   The only remaining compatibility gate is the powered real Nano read-only
   integration test; the longer reconnect/soak gate remains separate.
+
+2026-07-22 - powered real Nano integration passes
+--------------------------------------------------
+- The Atom remained powered from the Nano, joined Wi-Fi, authenticated to
+  `xrc.local:8081`, and exposed spontaneous Nano CDC traffic to the Rust
+  service. No computer cable or second dongle connection was present.
+- The first real session exposed two simulation blind spots. A CDC consumer can
+  begin in the middle of a frame, so the Rust decoder now seeks `KL*` before
+  buffering. The Nano also rotates the CRC seed in every repeated type-2
+  request, so a bridge session drains the Atom's bounded pre-network replay and
+  answers the next live request rather than an obsolete seed.
+- The Virtual Nano now repeats connection requests every 500 ms, rotates the
+  seed, and requires every subsequent response to use the current seed. Direct
+  transport, authenticated tunnel, REST, SQLite, UI, chart, and MCP E2E all
+  pass with that stricter behavior.
+- Production commit `c277a45` negotiated KN1007B firmware 7.20.6 over SASSI v1
+  read-only, with packet limit 4,064. It inventoried 16 profiles and 15 logs.
+- Automatic sync and a second explicit sync both completed with zero import
+  warnings, zero quarantined profiles/logs, and no duplicate or updated rows on
+  the repeat run.
+- The opt-in production Playwright smoke opened Devices, verified the 16/15
+  counts, navigated through the real Roasts table to roast 15, rendered its
+  26-sample chart, hovered the chart without losing its lines, and observed no
+  console or page errors.
+- The repository-built MCP live suite read every available profile, coffee,
+  roast, brew/resource path and all 15 roast telemetry streams (6,854 sampled
+  points), then completed a read-only device resynchronization while remaining
+  connected. Device sync now has a bounded 60-second controller timeout rather
+  than inheriting the normal five-second request timeout.
+- No raw payload, Nano serial, bridge identity, Wi-Fi credential, or API token
+  was retained in this evidence.
+- Remaining hardware work is deliberate reconnect/power-loss and longer soak
+  coverage, plus a supervised live-roast notification test. It is no longer a
+  basic wireless compatibility gate.
