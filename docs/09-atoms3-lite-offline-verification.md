@@ -333,3 +333,78 @@ computer/browser setup image and must not be used while connected to the Nano.
 `tan-bridge-esp32s3` is the receive-only Nano foundation; its current release
 image intentionally has no Wi-Fi, no API server, no USB transmit path, and no
 Tan Studio UI integration.
+
+## Computer-powered setup reflash verification
+
+Date: 21 July 2026
+
+Repository commit: `5e305b8a7ad7`
+
+The passive probe was replaced only after the Nano hardware gate passed. The
+Atom was disconnected from the Nano, placed in ROM download mode, erased, and
+flashed through the guarded repository workflow:
+
+```sh
+./script/build_tan_bridge_setup_firmware.sh
+./script/flash_tan_bridge_setup_firmware.sh /dev/cu.usbmodem1101
+```
+
+Rebuilt setup application:
+
+```text
+bytes: 784032
+SHA-256: d5299617a57a4f3e1f5de2814145fca4990886bb9d6e223ee5eaf6dfb13abfc3
+```
+
+Esptool 5.1.0 verified the hashes of the bootloader, partition table, and
+application after writing. After one normal cable re-enumeration, macOS
+identified the application as:
+
+```text
+USB product: Tan Bridge Setup Development
+USB manufacturer: Tan Studio
+USB serial descriptor: tan-bridge-setup
+port: /dev/cu.usbmodem1101
+```
+
+The physical setup contract was then exercised with:
+
+```sh
+uv run script/verify_tan_bridge_setup.py /dev/cu.usbmodem1101
+```
+
+Command exit status: `0`.
+
+Redacted result:
+
+```json
+{
+  "firmware": {
+    "version": "0.1.0-dev",
+    "build": "setup-v1"
+  },
+  "lifecycle": "unprovisioned",
+  "wifiState": {
+    "state": "disabled"
+  },
+  "visibleNetworkCount": 12,
+  "ssidValuesRedacted": true,
+  "unknownPropertiesRejected": true,
+  "duplicateRequestIdsRejected": true,
+  "unsupportedOperationsRejected": true,
+  "oversizedLinesRejected": true
+}
+```
+
+The matching Tan Studio production web build and Rust service were installed
+locally at `http://127.0.0.1:8080`, and the Devices route returned the
+application shell with a healthy database. The Web Serial client and shared
+setup schema suites each passed three focused tests. Chrome was opened to the
+Devices route, but its native device chooser was not automated in this run, so
+the rendered click-through remains a manual UI check rather than claimed
+evidence.
+
+This is still the computer-facing development setup image. It must not be
+connected to the Nano and does not accept Wi-Fi credentials, associate to a
+network, contact a backend, synchronize Nano files, or expose a production
+bridge session.
