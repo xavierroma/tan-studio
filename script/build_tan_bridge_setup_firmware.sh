@@ -5,6 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 idf_image="espressif/idf:v5.5.5"
 expected_digest="espressif/idf@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2"
 build_volume="tan-studio-esp-idf-5-5-5"
+firmware_version="0.2.1-local"
 clean_build=false
 if [[ "${1:-}" == "--clean" ]]; then
   clean_build=true
@@ -23,9 +24,9 @@ if [[ "${repo_digests_json}" != *\"${expected_digest}\"* ]]; then
   exit 1
 fi
 
-build_command='IDF_TARGET=esp32s3 idf.py -B /idf-cache/build build'
+build_command="IDF_TARGET=esp32s3 idf.py -B /idf-cache/build -D PROJECT_VER=${firmware_version} build"
 if [[ "${clean_build}" == true ]]; then
-  build_command='cmake -E remove_directory /idf-cache/build && IDF_TARGET=esp32s3 idf.py -B /idf-cache/build build'
+  build_command="cmake -E remove_directory /idf-cache/build && IDF_TARGET=esp32s3 idf.py -B /idf-cache/build -D PROJECT_VER=${firmware_version} build"
 fi
 
 docker run --rm \
