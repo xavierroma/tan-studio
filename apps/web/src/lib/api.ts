@@ -25,6 +25,7 @@ export type Settings = components["schemas"]["SettingsResource"]
 export type SettingsPatch = components["schemas"]["SettingsPatch"]
 export type Pantry = components["schemas"]["PantryResource"]
 export type Device = components["schemas"]["DeviceSnapshot"]
+export type Bridge = components["schemas"]["BridgeResource"]
 export type Series = components["schemas"]["SeriesResponse"]
 
 function matchRevision(revision: number) {
@@ -361,6 +362,20 @@ export async function synchronizeDevice() {
   )
 }
 
+export async function createBridgeClaim() {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/bridges/claims", {})
+  )
+}
+
+export async function listBridges(signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET("/api/v1/bridges", signal ? { signal } : {})
+  ).items
+}
+
 export const queryKeys = {
   profiles: (q?: string) => ["profiles", q ?? ""] as const,
   profile: (id: number) => ["profile", id] as const,
@@ -378,4 +393,5 @@ export const queryKeys = {
   labels: (roastId?: number) => ["labels", roastId ?? "all"] as const,
   settings: () => ["settings"] as const,
   device: () => ["device"] as const,
+  bridges: () => ["bridges"] as const,
 }

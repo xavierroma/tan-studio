@@ -5,7 +5,8 @@ import { UuidSchema } from "./primitives"
 export const TanBridgeSetupSchemaVersion = 1 as const
 export const TanBridgeSetupMaxLineBytes = 4_096 as const
 export const TanBridgeSetupMaxInFlightRequests = 8 as const
-export const TanBridgeBackendHost = "bridge.tanstudio.xroma.dev" as const
+export const TanBridgeBackendHost = "xrc.local" as const
+export const TanBridgeBackendPort = 8_081 as const
 
 export const TanBridgeLifecycleSchema = z.enum([
   "booting",
@@ -73,6 +74,7 @@ export const TanBridgeSetupStatusSchema = z
       .object({
         state: TanBridgeBackendStateSchema,
         host: z.literal(TanBridgeBackendHost),
+        port: z.literal(TanBridgeBackendPort),
       })
       .strict(),
     claim: z
@@ -107,6 +109,8 @@ export const TanBridgeSetupErrorSchema = z
       "unsupported_operation",
       "busy",
       "wifi_scan_failed",
+      "wifi_configuration_failed",
+      "claim_failed",
       "internal_error",
     ]),
     message: z.string().min(1).max(200),
@@ -133,9 +137,22 @@ export const TanBridgeSetupScanWifiRequestSchema =
     payload: z.object({}).strict(),
   }).strict()
 
+export const TanBridgeSetupConfigureRequestSchema =
+  SetupRequestEnvelopeSchema.extend({
+    type: z.literal("setup.configure"),
+    payload: z
+      .object({
+        ssid: z.string().min(1).max(32),
+        credential: z.string().max(63),
+        claimToken: z.string().regex(/^[0-9a-f]{64}$/u),
+      })
+      .strict(),
+  }).strict()
+
 export const TanBridgeSetupRequestSchema = z.discriminatedUnion("type", [
   TanBridgeSetupGetStatusRequestSchema,
   TanBridgeSetupScanWifiRequestSchema,
+  TanBridgeSetupConfigureRequestSchema,
 ])
 
 const SetupResponseEnvelopeSchema = z
@@ -157,6 +174,20 @@ export const TanBridgeSetupGetStatusResponseSchema = z.union([
 export const TanBridgeSetupScanWifiResponseSchema = z.union([
   SetupResponseEnvelopeSchema.extend({
     result: TanBridgeWifiScanSchema,
+  }).strict(),
+  SetupResponseEnvelopeSchema.extend({
+    error: TanBridgeSetupErrorSchema,
+  }).strict(),
+])
+
+export const TanBridgeSetupConfigureResponseSchema = z.union([
+  SetupResponseEnvelopeSchema.extend({
+    result: z
+      .object({
+        accepted: z.literal(true),
+        configurationGeneration: z.number().int().positive(),
+      })
+      .strict(),
   }).strict(),
   SetupResponseEnvelopeSchema.extend({
     error: TanBridgeSetupErrorSchema,

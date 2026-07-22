@@ -1,5 +1,6 @@
 import {
   TanBridgeSetupGetStatusResponseSchema,
+  TanBridgeSetupConfigureResponseSchema,
   TanBridgeSetupMaxLineBytes,
   TanBridgeSetupScanWifiResponseSchema,
   type TanBridgeSetupError,
@@ -119,6 +120,22 @@ export class TanBridgeSetupClient {
     })
   }
 
+  configure(input: {
+    ssid: string
+    credential: string
+    claimToken: string
+  }): Promise<{ accepted: true; configurationGeneration: number }> {
+    return this.exclusive(async () => {
+      const response = TanBridgeSetupConfigureResponseSchema.parse(
+        await this.exchange("setup.configure", input)
+      )
+      if ("error" in response) {
+        throw new TanBridgeSetupProtocolError(response.error)
+      }
+      return response.result
+    })
+  }
+
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
@@ -141,7 +158,8 @@ export class TanBridgeSetupClient {
   }
 
   private async exchange(
-    type: "setup.getStatus" | "setup.scanWifi"
+    type: "setup.getStatus" | "setup.scanWifi" | "setup.configure",
+    payload: Record<string, unknown> = {}
   ): Promise<unknown> {
     if (this.closed) {
       throw new Error("The Tan Bridge setup connection is closed.")
@@ -152,7 +170,7 @@ export class TanBridgeSetupClient {
         schemaVersion: 1,
         requestId,
         type,
-        payload: {},
+        payload,
       })}\n`
     )
     if (encoded.byteLength > TanBridgeSetupMaxLineBytes) {

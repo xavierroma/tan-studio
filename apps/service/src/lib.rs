@@ -8,6 +8,7 @@ pub mod device;
 pub mod error;
 pub mod klog;
 pub mod kpro;
+pub mod lan_bridge;
 pub mod sassi;
 pub mod static_ui;
 pub mod tan_bridge;

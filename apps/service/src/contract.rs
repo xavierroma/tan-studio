@@ -18,6 +18,8 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_get,
         crate::api::device_refresh,
         crate::api::device_synchronize,
+        crate::api::bridges_list,
+        crate::api::bridge_claim_create,
         crate::api::profiles_list,
         crate::api::providers_list,
         crate::api::providers_create,
@@ -57,6 +59,9 @@ use crate::error::{FieldError, ProblemDetails};
         AdapterSet,
         SimpleAdapter,
         DeviceSnapshot,
+        BridgeClaimResource,
+        BridgeResource,
+        BridgePage,
         ProfilePage,
         ProfileResource,
         RoastProfileCurvePoint,
@@ -117,6 +122,7 @@ use crate::error::{FieldError, ProblemDetails};
     tags(
         (name = "system"),
         (name = "device"),
+        (name = "bridges"),
         (name = "profiles"),
         (name = "catalog"),
         (name = "brews"),
@@ -175,6 +181,8 @@ pub struct DeviceSnapshot {
     pub state: String,
     pub reason: Option<String>,
     pub connection: String,
+    pub transport: Option<String>,
+    pub bridge_id: Option<String>,
     pub model: Option<String>,
     pub firmware: Option<String>,
     pub protocol: Option<String>,
@@ -192,6 +200,34 @@ pub struct DeviceSnapshot {
     pub quarantined_profile_count: u32,
     pub last_synced_at: Option<String>,
     pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeClaimResource {
+    pub claim_token: String,
+    pub expires_at: String,
+    pub backend_host: String,
+    pub backend_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeResource {
+    pub id: String,
+    pub bridge_id: String,
+    pub firmware_version: String,
+    pub build_id: String,
+    pub state: String,
+    pub last_seen_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgePage {
+    pub items: Vec<BridgeResource>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

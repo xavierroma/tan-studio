@@ -6,7 +6,7 @@ use tan_studio_service::{
     device::NanoDeviceManager,
     klog::{ImportInput, KlogImporter},
     kpro::{ImportInput as ProfileImportInput, KproImporter},
-    ApiState, Database, LaunchMode, ServiceConfig,
+    lan_bridge, ApiState, Database, LaunchMode, ServiceConfig,
 };
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -70,6 +70,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = ServiceConfig::load()?;
     let database = Database::open(&config.database_path)?;
     let device = Arc::new(NanoDeviceManager::start(database.clone()));
+    let bridge_task = if let Some(bridge_port) = config.bridge_port {
+        let bridge_listener = TcpListener::bind((config.bind_host.as_str(), bridge_port)).await?;
+        tracing::info!(
+            event = "bridge_listener_started",
+            host = %config.bind_host,
+            port = bridge_port
+        );
+        Some(tokio::spawn(lan_bridge::serve(
+            bridge_listener,
+            database.clone(),
+            device.clone(),
+        )))
+    } else {
+        None
+    };
     let state = ApiState::new(config.clone(), database, device.clone())?;
     let router = build_router(state);
     let listener = TcpListener::bind((config.bind_host.as_str(), config.port)).await?;
@@ -97,12 +112,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shutdown_device = device.clone();
-    axum::serve(listener, router)
+    let result = axum::serve(listener, router)
         .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;
             shutdown_device.stop();
         })
-        .await?;
+        .await;
+    if let Some(task) = bridge_task {
+        task.abort();
+    }
+    result?;
     Ok(())
 }
 

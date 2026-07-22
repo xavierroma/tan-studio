@@ -29,6 +29,7 @@ use crate::{
     device::NanoDeviceManager,
     error::{ApiError, ApiResult, ProblemDetails},
     kpro::{self, Document as KproDocument},
+    lan_bridge,
     static_ui::{self, StaticUi},
 };
 
@@ -89,6 +90,8 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device", get(device_get))
         .route("/device/refresh", post(device_refresh))
         .route("/device/synchronize", post(device_synchronize))
+        .route("/bridges", get(bridges_list))
+        .route("/bridges/claims", post(bridge_claim_create))
         .route(
             "/profiles",
             get(crate::core_api::profiles_list).post(crate::core_api::profiles_create),
@@ -486,6 +489,53 @@ pub async fn device_synchronize(State(state): State<ApiState>) -> ApiResult<Json
         ApiError::new(status, code, title, "The Nano cannot synchronize yet.")
     })?;
     Ok(Json(state.device.snapshot()))
+}
+
+#[utoipa::path(get, path = "/api/v1/bridges", tag = "bridges", responses((status = 200, body = BridgePage), (status = 500, body = ProblemDetails)))]
+pub async fn bridges_list(State(state): State<ApiState>) -> ApiResult<Json<BridgePage>> {
+    let records = lan_bridge::list_bridges(&state.database)?;
+    Ok(Json(BridgePage {
+        items: records
+            .into_iter()
+            .map(|record| BridgeResource {
+                id: record.id.to_string(),
+                bridge_id: record.bridge_id,
+                firmware_version: record.firmware_version,
+                build_id: record.build_id,
+                state: record.state,
+                last_seen_at: record.last_seen_at_ms.and_then(timestamp_from_ms),
+                created_at: timestamp_from_ms(record.created_at_ms)
+                    .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+                updated_at: timestamp_from_ms(record.updated_at_ms)
+                    .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+            })
+            .collect(),
+    }))
+}
+
+#[utoipa::path(post, path = "/api/v1/bridges/claims", tag = "bridges", responses((status = 201, body = BridgeClaimResource), (status = 500, body = ProblemDetails)))]
+pub async fn bridge_claim_create(
+    State(state): State<ApiState>,
+) -> ApiResult<(StatusCode, Json<BridgeClaimResource>)> {
+    let claim = lan_bridge::create_claim(&state.database)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(BridgeClaimResource {
+            claim_token: claim.token,
+            expires_at: timestamp_from_ms(claim.expires_at_ms)
+                .expect("generated claim expiry is representable"),
+            backend_host: "xrc.local".into(),
+            backend_port: state
+                .config
+                .bridge_port
+                .unwrap_or(lan_bridge::DEFAULT_BRIDGE_PORT),
+        }),
+    ))
+}
+
+fn timestamp_from_ms(value: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp_millis(value)
+        .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 
 #[utoipa::path(get, path = "/api/v1/profiles", tag = "profiles", responses((status = 200, body = ProfilePage), (status = 500, body = ProblemDetails)))]
@@ -2806,6 +2856,7 @@ mod tests {
             mode: LaunchMode::Desktop,
             bind_host: "127.0.0.1".into(),
             port: 4317,
+            bridge_port: None,
             database_path: directory.path().join("studio.sqlite"),
             web_root: None,
             launch_token: "test-contract-token".into(),

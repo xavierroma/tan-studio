@@ -11,9 +11,7 @@ use std::{
 };
 
 use parking_lot::RwLock;
-use serialport::{
-    ClearBuffer, DataBits, FlowControl, Parity, SerialPort, SerialPortType, StopBits,
-};
+use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPortType, StopBits};
 use tokio::sync::oneshot;
 
 use crate::{
@@ -21,6 +19,7 @@ use crate::{
     db::Database,
     klog::{ImportInput as KlogImportInput, KlogError, KlogImporter},
     kpro::{ImportInput as KproImportInput, KproError, KproImporter},
+    lan_bridge::BridgeTransport,
     sassi::{
         self, acknowledgement_frame, directory_frame, file_frame, info_frame, time_sync_frame,
         Decoder, Message, TransferChunk,
@@ -43,6 +42,10 @@ const PROFILE_DIRECTORY: &str = "kaffelogic/roast-profiles";
 enum Command {
     Refresh,
     Synchronize(oneshot::Sender<Result<(), String>>),
+    AttachBridge {
+        bridge_id: String,
+        transport: BridgeTransport,
+    },
     Stop,
 }
 
@@ -88,6 +91,13 @@ impl NanoDeviceManager {
             .map_err(|_| "device_session_stopped".to_owned())?
     }
 
+    pub fn attach_bridge(&self, bridge_id: String, transport: BridgeTransport) {
+        let _ = self.commands.send(Command::AttachBridge {
+            bridge_id,
+            transport,
+        });
+    }
+
     pub fn stop(&self) {
         if !self.stopped.swap(true, Ordering::AcqRel) {
             let _ = self.commands.send(Command::Stop);
@@ -95,8 +105,11 @@ impl NanoDeviceManager {
     }
 }
 
+trait SessionTransport: Read + Write + Send {}
+impl<T: Read + Write + Send> SessionTransport for T {}
+
 struct Session {
-    port: Box<dyn SerialPort>,
+    port: Box<dyn SessionTransport>,
     decoder: Decoder,
     phase: Phase,
     phase_started: Instant,
@@ -146,6 +159,16 @@ fn device_loop(
                         Err("device_not_connected".into())
                     };
                     let _ = reply.send(result);
+                }
+                Ok(Command::AttachBridge {
+                    bridge_id,
+                    transport,
+                }) => {
+                    session = Some(new_session(Box::new(transport)));
+                    let mut current = reconnecting("awaiting_sassi_handshake");
+                    current.transport = Some("tan-bridge".into());
+                    current.bridge_id = Some(bridge_id);
+                    *snapshot.write() = current;
                 }
                 Ok(Command::Stop) => return,
                 Err(TryRecvError::Empty) => break,
@@ -273,7 +296,11 @@ fn open_session(path: &str) -> Result<Session, &'static str> {
     port.write_data_terminal_ready(true)
         .map_err(|_| "dtr_failed")?;
     let _ = port.clear(ClearBuffer::Output);
-    Ok(Session {
+    Ok(new_session(Box::new(port)))
+}
+
+fn new_session(port: Box<dyn SessionTransport>) -> Session {
+    Session {
         port,
         decoder: Decoder::default(),
         phase: Phase::AwaitingHandshake,
@@ -283,7 +310,7 @@ fn open_session(path: &str) -> Result<Session, &'static str> {
         crc_seed: None,
         maximum_packet_bytes: None,
         sync_attempted: false,
-    })
+    }
 }
 
 fn poll_session(session: &mut Session, snapshot: &RwLock<DeviceSnapshot>) -> Result<(), String> {
@@ -345,6 +372,9 @@ fn handle_message(
             current.model = Some(request.model);
             current.protocol = Some("SASSI v1".into());
             current.packet_limit_bytes = Some(request.maximum_packet_bytes as u32);
+            if current.transport.is_none() {
+                current.transport = Some("direct-usb".into());
+            }
         }
         Message::TimeSyncAcknowledgement if session.phase == Phase::AwaitingTimeSync => {
             write_frame(session, |elapsed, seed, maximum| {
@@ -689,6 +719,8 @@ fn disconnected(reason: &str) -> DeviceSnapshot {
         state: "ready".into(),
         reason: Some(reason.into()),
         connection: "disconnected".into(),
+        transport: None,
+        bridge_id: None,
         model: None,
         firmware: None,
         protocol: None,

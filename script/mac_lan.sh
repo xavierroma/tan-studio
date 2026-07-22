@@ -14,10 +14,15 @@ TAN_TOKEN_FILE="$TAN_LAN_ROOT/token"
 TAN_LOG_DIRECTORY="$TAN_LAN_ROOT/logs"
 TAN_DATABASE_PATH="${TAN_STUDIO_MAC_LAN_DATABASE_PATH:-$TAN_APP_SUPPORT/store/tan-studio.sqlite}"
 TAN_PORT="${TAN_STUDIO_MAC_LAN_PORT:-8080}"
+TAN_BRIDGE_PORT="${TAN_STUDIO_MAC_LAN_BRIDGE_PORT:-8081}"
 TAN_PLIST="$HOME/Library/LaunchAgents/$TAN_LABEL.plist"
 
 if [[ ! "$TAN_PORT" =~ ^[0-9]+$ ]] || ((TAN_PORT < 1024 || TAN_PORT > 65535)); then
   echo "TAN_STUDIO_MAC_LAN_PORT must be an unprivileged TCP port (1024-65535)" >&2
+  exit 2
+fi
+if [[ ! "$TAN_BRIDGE_PORT" =~ ^[0-9]+$ ]] || ((TAN_BRIDGE_PORT < 1024 || TAN_BRIDGE_PORT > 65535)) || [[ "$TAN_BRIDGE_PORT" == "$TAN_PORT" ]]; then
+  echo "TAN_STUDIO_MAC_LAN_BRIDGE_PORT must be a distinct unprivileged TCP port (1024-65535)" >&2
   exit 2
 fi
 
@@ -142,6 +147,7 @@ chmod 0600 "$TAN_TOKEN_FILE"
   printf 'export TAN_STUDIO_HEADLESS=1\n'
   printf 'export TAN_STUDIO_BIND_HOST=0.0.0.0\n'
   printf 'export TAN_STUDIO_PORT=%q\n' "$TAN_PORT"
+  printf 'export TAN_STUDIO_BRIDGE_PORT=%q\n' "$TAN_BRIDGE_PORT"
   printf 'export TAN_STUDIO_DATABASE_PATH=%q\n' "$TAN_DATABASE_PATH"
   printf 'export TAN_STUDIO_WEB_ROOT=%q\n' "$TAN_CURRENT/web"
   printf 'export TAN_STUDIO_VERSION=%q\n' "$TAN_VERSION"
@@ -170,5 +176,5 @@ install -m 0600 "$TAN_PLIST_STAGING" "$TAN_PLIST"
 tan_stop
 tan_start
 
-printf 'Tan Studio LAN is running.\nUI:       http://%s\n          http://%s\nAPI base: http://%s/api/v1\nAPI token: %s\n' \
-  "$TAN_NAME_AUTHORITY" "$TAN_IP_AUTHORITY" "$TAN_NAME_AUTHORITY" "$TAN_TOKEN_FILE"
+printf 'Tan Studio LAN is running.\nUI:       http://%s\n          http://%s\nAPI base: http://%s/api/v1\nBridge:   %s.local:%s\nAPI token: %s\n' \
+  "$TAN_NAME_AUTHORITY" "$TAN_IP_AUTHORITY" "$TAN_NAME_AUTHORITY" "$TAN_LOCAL_NAME" "$TAN_BRIDGE_PORT" "$TAN_TOKEN_FILE"

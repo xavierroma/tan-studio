@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
+use crate::contract::{BridgeClaimResource, BridgePage, BridgeResource};
 use crate::error::{FieldError, ProblemDetails};
 
 #[derive(OpenApi)]
@@ -16,6 +17,8 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_get,
         crate::api::device_refresh,
         crate::api::device_synchronize,
+        crate::api::bridges_list,
+        crate::api::bridge_claim_create,
         crate::core_api::openapi_get,
         crate::core_api::profiles_list,
         crate::core_api::profiles_create,
@@ -61,7 +64,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::core_api::settings_patch
     ),
     components(schemas(
-        FieldError, ProblemDetails,
+        FieldError, ProblemDetails, BridgeClaimResource, BridgeResource, BridgePage,
         ProfileResource, ProfileSummary, ProfileCreate, ProfilePatch, ProfilePage,
         CoffeeResource, CoffeeCreate, CoffeePatch, CoffeePage,
         ResourceReference, RoastResource, RoastSummary, RoastCreate, RoastPatch, RoastPage, RoastEvent,
@@ -74,7 +77,7 @@ use crate::error::{FieldError, ProblemDetails};
         SettingsResource, SettingsPatch
     )),
     tags(
-        (name = "system"), (name = "device"), (name = "profiles"),
+        (name = "system"), (name = "device"), (name = "bridges"), (name = "profiles"),
         (name = "coffees"), (name = "roasts"), (name = "brews"),
         (name = "notes"), (name = "attachments"), (name = "labels"), (name = "settings"),
         (name = "contract")

@@ -21,6 +21,7 @@ pub struct ServiceConfig {
     pub mode: LaunchMode,
     pub bind_host: String,
     pub port: u16,
+    pub bridge_port: Option<u16>,
     pub database_path: PathBuf,
     pub web_root: Option<PathBuf>,
     pub launch_token: String,
@@ -78,6 +79,7 @@ impl ServiceConfig {
             mode: LaunchMode::Desktop,
             bind_host: "127.0.0.1".into(),
             port: 4317,
+            bridge_port: None,
             database_path,
             web_root: None,
             launch_token: "tan-studio-development-only".into(),
@@ -124,6 +126,7 @@ impl ServiceConfig {
             mode: LaunchMode::Desktop,
             bind_host: "127.0.0.1".into(),
             port: 0,
+            bridge_port: None,
             database_path: record.database_path,
             web_root: None,
             launch_token: record.launch_token,
@@ -159,10 +162,17 @@ impl ServiceConfig {
         if !valid_lan_token(&launch_token) {
             return Err(ConfigError::InvalidEnvironment("TAN_STUDIO_LAN_TOKEN"));
         }
+        let bridge_port = env::var("TAN_STUDIO_BRIDGE_PORT")
+            .ok()
+            .map(|value| value.trim().parse::<u16>().ok())
+            .unwrap_or(Some(crate::lan_bridge::DEFAULT_BRIDGE_PORT))
+            .filter(|bridge_port| *bridge_port > 0 && *bridge_port != port)
+            .ok_or(ConfigError::InvalidEnvironment("TAN_STUDIO_BRIDGE_PORT"))?;
         Ok(Self {
             mode: LaunchMode::Headless,
             bind_host,
             port,
+            bridge_port: Some(bridge_port),
             database_path,
             web_root: Some(web_root),
             launch_token,

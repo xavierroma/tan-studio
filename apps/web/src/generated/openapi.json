@@ -645,6 +645,66 @@
         }
       }
     },
+    "/api/v1/bridges": {
+      "get": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridges_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgePage"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bridges/claims": {
+      "post": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridge_claim_create",
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeClaimResource"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/coffees": {
       "get": {
         "tags": [
@@ -2879,6 +2939,86 @@
           }
         }
       },
+      "BridgeClaimResource": {
+        "type": "object",
+        "required": [
+          "claimToken",
+          "expiresAt",
+          "backendHost",
+          "backendPort"
+        ],
+        "properties": {
+          "backendHost": {
+            "type": "string"
+          },
+          "backendPort": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "claimToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        }
+      },
+      "BridgePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BridgeResource"
+            }
+          }
+        }
+      },
+      "BridgeResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "bridgeId",
+          "firmwareVersion",
+          "buildId",
+          "state",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "bridgeId": {
+            "type": "string"
+          },
+          "buildId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "firmwareVersion": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "CoffeeCreate": {
         "type": "object",
         "required": [
@@ -3332,6 +3472,12 @@
           "readOnly"
         ],
         "properties": {
+          "bridgeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "busy": {
             "type": [
               "boolean",
@@ -3433,6 +3579,12 @@
           },
           "syncState": {
             "type": "string"
+          },
+          "transport": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updatedLogCount": {
             "type": "integer",
@@ -4875,6 +5027,9 @@
     },
     {
       "name": "device"
+    },
+    {
+      "name": "bridges"
     },
     {
       "name": "profiles"
