@@ -6,7 +6,9 @@ use tan_studio_service::{
     device::NanoDeviceManager,
     klog::{ImportInput, KlogImporter},
     kpro::{ImportInput as ProfileImportInput, KproImporter},
-    lan_bridge, ApiState, Database, LaunchMode, ServiceConfig,
+    lan_bridge,
+    virtual_nano::{VirtualNanoScenario, VirtualNanoTranscript},
+    ApiState, Database, LaunchMode, ServiceConfig,
 };
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -69,7 +71,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = ServiceConfig::load()?;
     let database = Database::open(&config.database_path)?;
-    let device = Arc::new(NanoDeviceManager::start(database.clone()));
+    let simulation = env::var("TAN_STUDIO_SIMULATED_NANO").ok();
+    if simulation.is_some()
+        && !config.development
+        && env::var_os("TAN_STUDIO_SIMULATION_E2E").as_deref() != Some(std::ffi::OsStr::new("1"))
+    {
+        return Err("simulated Nano requires development mode or the explicit E2E gate".into());
+    }
+    let (device, simulation_transcript): (NanoDeviceManager, Option<VirtualNanoTranscript>) =
+        match simulation.as_deref() {
+            None => (NanoDeviceManager::start(database.clone()), None),
+            Some("smoke") => {
+                tracing::warn!(event = "simulated_nano_enabled", scenario = "smoke");
+                let (manager, transcript) = NanoDeviceManager::start_simulated(
+                    database.clone(),
+                    VirtualNanoScenario::smoke(),
+                )?;
+                (manager, Some(transcript))
+            }
+            Some(_) => return Err("unknown simulated Nano scenario".into()),
+        };
+    let device = Arc::new(device);
     let bridge_task = if let Some(bridge_port) = config.bridge_port {
         let bridge_listener = TcpListener::bind((config.bind_host.as_str(), bridge_port)).await?;
         tracing::info!(
@@ -120,6 +142,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     if let Some(task) = bridge_task {
         task.abort();
+    }
+    if let Some(transcript) = simulation_transcript {
+        if let Some(path) = env::var_os("TAN_STUDIO_SIMULATION_TRANSCRIPT_PATH") {
+            let path = PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err("simulation transcript path must be absolute".into());
+            }
+            std::fs::write(path, transcript.to_json_lines()?)?;
+        }
     }
     result?;
     Ok(())

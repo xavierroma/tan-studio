@@ -451,17 +451,23 @@ impl Drop for BridgeTransport {
 }
 
 fn allowed_read_only_sassi_frame(bytes: &[u8]) -> bool {
-    if bytes.len() < 5 || !bytes.starts_with(b"KL") || bytes.last() != Some(&b'\r') {
+    if bytes.len() < 8
+        || !bytes.starts_with(b"KL*")
+        || bytes.last() != Some(&b'\r')
+        || bytes[..bytes.len() - 1]
+            .iter()
+            .any(|byte| !(0x20..=0x7e).contains(byte))
+    {
         return false;
     }
-    let Some(comma) = bytes[2..]
+    let Some(separator) = bytes[3..]
         .iter()
-        .position(|byte| *byte == b',')
-        .map(|index| index + 2)
+        .position(|byte| *byte == b'|')
+        .map(|index| index + 3)
     else {
         return false;
     };
-    let Ok(message_type) = std::str::from_utf8(&bytes[2..comma])
+    let Ok(message_type) = std::str::from_utf8(&bytes[3..separator])
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .ok_or(())
@@ -535,11 +541,15 @@ mod tests {
     #[test]
     fn tunnel_only_allows_verified_read_only_sassi_types() {
         for message_type in [1, 3, 5, 7, 13] {
-            assert!(allowed_read_only_sassi_frame(
-                format!("KL{message_type},0,00,0000\r").as_bytes()
-            ));
+            let frame =
+                crate::sassi::encode_frame(message_type, 1, &[], 0x1a2b, MAX_TUNNEL_PAYLOAD_BYTES)
+                    .unwrap();
+            assert!(allowed_read_only_sassi_frame(&frame));
         }
-        assert!(!allowed_read_only_sassi_frame(b"KL9,0,00,0000\r"));
+        let unverified =
+            crate::sassi::encode_frame(9, 1, &[], 0x1a2b, MAX_TUNNEL_PAYLOAD_BYTES).unwrap();
+        assert!(!allowed_read_only_sassi_frame(&unverified));
+        assert!(!allowed_read_only_sassi_frame(b"KL1,0,00,0000\r"));
         assert!(!allowed_read_only_sassi_frame(b"not-sassi\r"));
     }
 
@@ -563,8 +573,8 @@ mod tests {
         transport.read_exact(&mut decoded).unwrap();
         assert_eq!(decoded, payload);
 
-        let response = b"KL1,0,00,0000\r";
-        transport.write_all(response).unwrap();
+        let response = crate::sassi::acknowledgement_frame(1, 0x1a2b, 4_096).unwrap();
+        transport.write_all(&response).unwrap();
         transport.flush().unwrap();
         let mut framed = vec![0; response.len() + 3];
         bridge.read_exact(&mut framed).unwrap();
@@ -589,5 +599,27 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(error.to_string(), "invalid bridge frame kind");
+    }
+
+    #[test]
+    fn tunnel_rejects_zero_and_oversized_payloads_before_allocation() {
+        for header in [
+            [USB_TO_BACKEND, 0, 0],
+            [
+                USB_TO_BACKEND,
+                ((MAX_TUNNEL_PAYLOAD_BYTES + 1) >> 8) as u8,
+                ((MAX_TUNNEL_PAYLOAD_BYTES + 1) & 0xff) as u8,
+            ],
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+            let (mut bridge, service) = connected_socket_pair();
+            bridge.write_all(&header).unwrap();
+            let mut transport =
+                BridgeTransport::new(service, database, "abcdefghijklmnopqrstuvwxyz".into(), 1);
+            let error = transport.read(&mut [0; 8]).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert_eq!(error.to_string(), "invalid bridge frame length");
+        }
     }
 }

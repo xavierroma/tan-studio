@@ -12,6 +12,7 @@ pub mod lan_bridge;
 pub mod sassi;
 pub mod static_ui;
 pub mod tan_bridge;
+pub mod virtual_nano;
 
 pub use api::{build_router, ApiState};
 pub use config::{LaunchMode, ServiceConfig};

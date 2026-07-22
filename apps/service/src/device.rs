@@ -24,6 +24,7 @@ use crate::{
         self, acknowledgement_frame, directory_frame, file_frame, info_frame, time_sync_frame,
         Decoder, Message, TransferChunk,
     },
+    virtual_nano::{VirtualNanoScenario, VirtualNanoTranscript, VirtualNanoTransport},
 };
 
 const KAFFELOGIC_VENDOR_ID: u16 = 0x2e8a;
@@ -57,6 +58,25 @@ pub struct NanoDeviceManager {
 
 impl NanoDeviceManager {
     pub fn start(database: Database) -> Self {
+        Self::start_worker(database, None, true)
+    }
+
+    pub fn start_simulated(
+        database: Database,
+        scenario: VirtualNanoScenario,
+    ) -> Result<(Self, VirtualNanoTranscript), io::Error> {
+        let (transport, transcript) = VirtualNanoTransport::new(scenario)?;
+        Ok((
+            Self::start_worker(database, Some(Box::new(transport)), false),
+            transcript,
+        ))
+    }
+
+    fn start_worker(
+        database: Database,
+        initial_transport: Option<Box<dyn SessionTransport>>,
+        discover_physical_device: bool,
+    ) -> Self {
         let snapshot = Arc::new(RwLock::new(disconnected("starting")));
         let stopped = Arc::new(AtomicBool::new(false));
         let (commands, receiver) = mpsc::channel();
@@ -64,7 +84,16 @@ impl NanoDeviceManager {
         let worker_stopped = stopped.clone();
         thread::Builder::new()
             .name("tan-studio-nano-session".into())
-            .spawn(move || device_loop(database, worker_snapshot, receiver, worker_stopped))
+            .spawn(move || {
+                device_loop(
+                    database,
+                    worker_snapshot,
+                    receiver,
+                    worker_stopped,
+                    initial_transport,
+                    discover_physical_device,
+                )
+            })
             .expect("Nano session worker");
         Self {
             snapshot,
@@ -134,10 +163,17 @@ fn device_loop(
     snapshot: Arc<RwLock<DeviceSnapshot>>,
     commands: Receiver<Command>,
     stopped: Arc<AtomicBool>,
+    initial_transport: Option<Box<dyn SessionTransport>>,
+    discover_physical_device: bool,
 ) {
     let log_importer = KlogImporter::new(database.clone());
     let profile_importer = KproImporter::new(database);
-    let mut session: Option<Session> = None;
+    let mut session = initial_transport.map(|transport| {
+        let mut current = reconnecting("awaiting_sassi_handshake");
+        current.transport = Some("simulated-nano".into());
+        *snapshot.write() = current;
+        new_session(transport)
+    });
     let mut next_scan = Instant::now();
     while !stopped.load(Ordering::Acquire) {
         loop {
@@ -176,7 +212,7 @@ fn device_loop(
             }
         }
 
-        if session.is_none() && Instant::now() >= next_scan {
+        if discover_physical_device && session.is_none() && Instant::now() >= next_scan {
             next_scan = Instant::now() + SCAN_INTERVAL;
             match discover_port() {
                 Ok(None) => *snapshot.write() = disconnected("nano_not_found"),
@@ -572,8 +608,20 @@ fn request_transfer<F>(
 where
     F: FnOnce(u64, u16, usize) -> Result<Vec<u8>, sassi::CodecError>,
 {
+    request_transfer_with_timeout(session, encode, kind, REQUEST_TIMEOUT)
+}
+
+fn request_transfer_with_timeout<F>(
+    session: &mut Session,
+    encode: F,
+    kind: TransferKind,
+    timeout: Duration,
+) -> Result<Vec<u8>, String>
+where
+    F: FnOnce(u64, u16, usize) -> Result<Vec<u8>, sassi::CodecError>,
+{
     write_frame(session, encode)?;
-    let deadline = Instant::now() + REQUEST_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let mut output = Vec::new();
     let mut expected_sequence = 1u32;
     let mut buffer = [0u8; 4096];
@@ -756,6 +804,7 @@ fn degraded(reason: &str) -> DeviceSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::virtual_nano::VirtualNanoFault;
 
     #[test]
     fn parses_studio_directory_records() {
@@ -773,5 +822,133 @@ mod tests {
     fn groups_mac_callout_and_tty_names() {
         assert!(is_log_filename("log0013.klog"));
         assert!(!is_log_filename("notes.klog"));
+    }
+
+    fn negotiate_virtual(
+        scenario: VirtualNanoScenario,
+    ) -> (Session, Arc<RwLock<DeviceSnapshot>>, VirtualNanoTranscript) {
+        let (transport, transcript) = VirtualNanoTransport::new(scenario).unwrap();
+        let snapshot = Arc::new(RwLock::new(reconnecting("test")));
+        let mut session = new_session(Box::new(transport));
+        for _ in 0..2_000 {
+            poll_session(&mut session, &snapshot).unwrap();
+            if session.phase == Phase::Ready {
+                return (session, snapshot, transcript);
+            }
+        }
+        panic!("virtual Nano negotiation did not complete");
+    }
+
+    #[test]
+    fn virtual_nano_completes_real_session_sync_and_is_idempotent() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        let log_importer = KlogImporter::new(database.clone());
+        let profile_importer = KproImporter::new(database.clone());
+        let (mut session, snapshot, transcript) = negotiate_virtual(VirtualNanoScenario::smoke());
+
+        synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+        let first = snapshot.read().clone();
+        assert_eq!(first.connection, "connected");
+        assert_eq!(first.profile_count, Some(2));
+        assert_eq!(first.log_count, Some(3));
+        assert_eq!(first.imported_profile_count, 2);
+        assert_eq!(first.imported_log_count, 3);
+        assert_eq!(first.profile_warning_count, 0);
+        assert_eq!(first.import_warning_count, 0);
+        assert_eq!(first.quarantined_profile_count, 0);
+        assert_eq!(first.quarantined_log_count, 0);
+
+        {
+            let connection = database.connection();
+            let roast_count: i64 = connection
+                .query_row("SELECT count(*) FROM roasts", [], |row| row.get(0))
+                .unwrap();
+            let profile_count: i64 = connection
+                .query_row("SELECT count(*) FROM profiles", [], |row| row.get(0))
+                .unwrap();
+            let sample_count: i64 = connection
+                .query_row("SELECT count(*) FROM roast_series_points", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            // Each distinct profile snapshot embedded in a KLOG is retained as
+            // an extracted child revision of its imported KPRO family.
+            assert_eq!((roast_count, profile_count, sample_count), (3, 4, 9));
+        }
+
+        synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+        let connection = database.connection();
+        let repeated_roast_count: i64 = connection
+            .query_row("SELECT count(*) FROM roasts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(repeated_roast_count, 3);
+        assert_eq!(snapshot.read().imported_log_count, 0);
+
+        let events = transcript.events();
+        assert!(events.iter().any(|event| event.frame_type == Some(2)));
+        assert!(events.iter().any(|event| event.frame_type == Some(3)));
+        assert!(events.iter().any(|event| event.frame_type == Some(5)));
+        assert!(events.iter().any(|event| event.frame_type == Some(7)));
+        assert!(events.iter().any(|event| event.frame_type == Some(1)));
+    }
+
+    #[test]
+    fn virtual_nano_faults_fail_closed_with_stable_reasons() {
+        let cases = [
+            (
+                VirtualNanoFault::CorruptFirstTransferCrc,
+                "protocol_invalidcrc",
+            ),
+            (
+                VirtualNanoFault::OutOfOrderFirstTransfer,
+                "sassi_data_sequence_error",
+            ),
+            (VirtualNanoFault::DisconnectDuringFirstFile, "read_failed"),
+        ];
+        for (fault, expected) in cases {
+            let directory = tempfile::tempdir().unwrap();
+            let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+            let log_importer = KlogImporter::new(database.clone());
+            let profile_importer = KproImporter::new(database);
+            let mut scenario = VirtualNanoScenario::smoke();
+            scenario.fault = fault;
+            let (mut session, snapshot, _) = negotiate_virtual(scenario);
+            let result = synchronize(&mut session, &snapshot, &log_importer, &profile_importer);
+            assert_eq!(result.unwrap_err(), expected, "{fault:?}");
+        }
+
+        let mut busy = VirtualNanoScenario::smoke();
+        busy.fault = VirtualNanoFault::BusyFilesystem;
+        let (session, snapshot, _) = negotiate_virtual(busy);
+        assert_eq!(session.phase, Phase::Ready);
+        assert_eq!(snapshot.read().busy, Some(true));
+
+        let mut stalled = VirtualNanoScenario::smoke();
+        stalled.fault = VirtualNanoFault::StallFirstTransfer;
+        let (mut session, _, _) = negotiate_virtual(stalled);
+        let timeout = request_transfer_with_timeout(
+            &mut session,
+            |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
+            TransferKind::Directory,
+            Duration::from_millis(5),
+        );
+        assert_eq!(timeout.unwrap_err(), "request_timeout");
+    }
+
+    #[test]
+    fn virtual_nano_sync_survives_extreme_transport_chunking() {
+        for pattern in [vec![1], vec![2, 1], vec![17], vec![4_096]] {
+            let directory = tempfile::tempdir().unwrap();
+            let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+            let log_importer = KlogImporter::new(database.clone());
+            let profile_importer = KproImporter::new(database);
+            let mut scenario = VirtualNanoScenario::smoke();
+            scenario.read_pattern = pattern.clone();
+            scenario.transfer_payload_bytes = if pattern == vec![4_096] { 2_048 } else { 37 };
+            let (mut session, snapshot, _) = negotiate_virtual(scenario);
+            synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+            assert_eq!(snapshot.read().imported_log_count, 3, "{pattern:?}");
+        }
     }
 }

@@ -1,0 +1,92 @@
+Tan Studio Nano simulation learning log
+=======================================
+
+Purpose
+-------
+This is a continuously updated engineering notebook for the hardware-free and
+Atom hardware-in-the-loop verification work. It records evidence, uncertainty,
+and the exact boundary that still requires the physical Kaffeelogic Nano.
+
+2026-07-22 - baseline
+---------------------
+- The service is healthy, but the connected LAN bridge is repeatedly reported
+  as `reconnecting` / `awaiting_sassi_handshake`.
+- On firmware 0.2.5-local the Atom rebooted four times in a 55 second Mac test.
+  Persisted diagnostics classified all four as interrupt watchdog resets. The
+  last persisted stages were USB `idle` and network `tunnel`.
+- The failure therefore does not require Nano power or Nano USB enumeration.
+  It can be investigated with the Atom connected to the Mac while the Mac acts
+  as the USB CDC host and simulates the Nano byte stream.
+- The diagnostic 0.2.6-local firmware with flash core-dump support builds
+  reproducibly. It has not been flashed.
+- The backend already has a `Read + Write + Send` session transport boundary.
+  Direct serial and LAN bridge traffic both enter the same SASSI session code.
+- The modular production firmware foundation already has host-testable SASSI,
+  session, spool, policy, Wi-Fi, and API components. The currently flashed
+  setup firmware is monolithic and must stop accumulating production behavior.
+- A completed synthetic import creates two KPRO profile-family rows plus two
+  distinct extracted KLOG snapshot revisions. This is existing intentional
+  provenance behavior, so the smoke assertion distinguishes the Nano-reported
+  profile count (2) from persisted profile revisions (4) and verifies that a
+  second synchronization creates neither additional revisions nor roasts.
+- The first authenticated tunnel simulation found that the backend safety gate
+  still parsed an obsolete `KL1,...` shape while the production codec emits
+  verified SASSI as `KL*1|...`. The gate rejected its own time-sync frame and
+  disconnected every LAN bridge before negotiation. The simulator reproduced
+  this deterministically; the gate now validates printable `KL*<type>|...\r`
+  syntax and retains the existing allowlist of read-only types 1/3/5/7/13.
+- A CDC/SASSI transcript is more useful than raw USB token capture for most
+  verification because firmware consumes CDC bytes and line-state events. Raw
+  USB electrical behavior remains a final hardware compatibility gate.
+- Docker is appropriate for deterministic C/Rust/TypeScript tests, database and
+  browser smoke tests. It is not a faithful simulator of ESP32-S3 USB interrupt,
+  Wi-Fi radio, or watchdog timing. Real-Atom HIL runs directly on macOS.
+
+Acceptance matrix
+-----------------
+[x] Canonical privacy-safe transcript representation has bounded payloads and
+    preserves direction, timing, raw chunk boundaries, and decoded frame type.
+[x] Stateful Virtual Nano completes handshake, time sync, status, firmware,
+    directory enumeration, multi-chunk file reads, and acknowledgements.
+[x] Known good profiles and logs import through the real session/importer path
+    with exact counts, no quarantine, expected telemetry, and stable identity.
+[x] Repeated synchronization is idempotent and does not duplicate roasts.
+[x] Fragmented reads and multi-chunk acknowledgement flow work across a rotating
+    1/2/3/7/13/31/127/4096-byte read pattern. Coalescing and exhaustive split
+    boundaries remain in the expanded property suite.
+[x] CRC corruption, duplicate/out-of-order chunks, disconnect, and busy status
+    fail safely with stable reasons.
+[ ] Malformed tunnel lengths, oversized transfers, response timeout, reconnect,
+    and queue/backpressure scenarios pass the expanded fault suite.
+[x] The real authenticated LAN tunnel works against a virtual bridge/Nano.
+[x] REST API, SQLite, static web UI and chart data
+    are exercised in one hardware-free smoke scenario.
+[ ] Real Atom connected to macOS completes the same happy-path scenario while
+    forwarding USB CDC over Wi-Fi to the backend.
+[ ] Real-Atom soak leaves boot/watchdog counters unchanged and reconnects without
+    duplicate imports or loss after deliberate host-side disconnects.
+[ ] The only remaining gate is Nano-specific power/electrical behavior, USB host
+    enumeration quirks, and one read-only synchronization of its real files.
+
+Safety boundary
+---------------
+- No profile upload/delete, roast control, raw proxy, arbitrary SASSI command,
+  firmware mutation of the Nano, or device-file deletion is introduced.
+- The simulator implements only the already verified read-only message types.
+- Unknown backend-to-device frames are rejected and recorded by type only; the
+  harness does not invent a response.
+
+2026-07-22 - first process-level green run
+------------------------------------------
+- Direct simulator and authenticated virtual-dongle scenarios both passed.
+- Each path reported KN1007B, SASSI v1 read-only, packet limit 4064, 2 profiles,
+  3 logs, zero warnings, zero quarantine, and a completed synchronization.
+- REST returned roasts in numeric order 3/2/1 and 3 chart points for roast 3.
+- A second explicit synchronization imported zero logs and preserved 3 roasts.
+- SQLite contained 3 roasts, 4 profile revisions, 9 series points, 5 immutable
+  native files, and no malformed SHA-256 values.
+- Chromium opened the served Devices view, navigated through the Roasts table,
+  opened roast 3, and rendered its 3-sample curve and roast-end event.
+- Ignored diagnostic artifacts and JSONL transcripts are retained under
+  `tmp/simulation/`; the latest machine-readable summary is
+  `tmp/simulation/latest-summary.json`.
