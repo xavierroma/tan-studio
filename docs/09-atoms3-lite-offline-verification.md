@@ -408,3 +408,61 @@ This is still the computer-facing development setup image. It must not be
 connected to the Nano and does not accept Wi-Fi credentials, associate to a
 network, contact a backend, synchronize Nano files, or expose a production
 bridge session.
+
+## Local-LAN bridge bootstrap repair
+
+Date: 22 July 2026
+
+Firmware implementation commit: `598812c`
+
+Reproducible build wrapper commit: `1d44acf`
+
+The physically flashed `0.2.0-local` image successfully retained its Wi-Fi and
+device token, resolved `xrc.local`, and repeatedly authenticated to the Rust
+bridge listener. It did not retain a usable Nano session: the Nano emits its
+type-2 capability frame immediately after USB enumeration, while Wi-Fi and
+backend authentication complete later. The earlier firmware forwarded USB
+bytes only when a backend socket already existed, so that initial capability
+frame was discarded. The service then reached its bounded negotiation timeout
+and the bridge reconnected without a capability frame to replay.
+
+`0.2.1-local` (`local-lan-v2`) retains up to 8 KiB of early Nano bytes before
+Wi-Fi is ready, replays them immediately after authenticated bridge attachment,
+and continues collecting until the first validated read-only backend frame is
+delivered to the Nano. The retained bootstrap remains available across a later
+backend reconnect. Backend-to-Nano output is still restricted to the five
+verified read-only SASSI message types; there is no raw serial endpoint or
+profile/roast mutation path.
+
+The clean ESP-IDF 5.5.5 build and the immediate incremental rebuild both
+passed the setup contract test. The build runs against the digest-pinned image,
+keeps objects and linker output in the Docker volume
+`tan-studio-esp-idf-5-5-5`, and copies only guarded flash artifacts back to the
+repository build directory. The application version is explicitly pinned so
+the firmware binary is reproducible regardless of unrelated Git dirtiness.
+
+```text
+bootloader.bin, 18,640 bytes
+  6d6e4d4c75184a201e7e2a2215d0c5d6564b3cf7937c2af5806bef7206499dda
+partition-table.bin, 3,072 bytes
+  7f00b6c042a89b15b0cac534f82ed988caf29278ff5700b0c511eb1b5bb7c820
+tan_bridge_setup.bin, 805,472 bytes
+  a293374fc166d9f4ef24c41aea92524cddca26dd1d28e6cb309cea904631b69d
+```
+
+The application occupies 77% of the 1 MiB factory partition and leaves 23%
+free. This candidate has not been flashed: the Atom remained connected only to
+the Nano while the user was away, and the current image has no OTA updater.
+The final hardware gate therefore remains explicit:
+
+1. Move the Atom's single cable from the Nano to the Mac and use the guarded
+   repository flash command.
+2. Configure Wi-Fi through a secure-context Chromium page without recording
+   the credential.
+3. Move the Atom's single cable back to the powered Nano.
+4. Run `script/smoke_tan_studio_lan.py --expect-bridge
+   --expect-device-connected` and verify all Nano profiles and logs through the
+   live API and UI.
+
+No bridge identity, Wi-Fi credential, raw Nano payload, or device serial is
+recorded in this evidence.

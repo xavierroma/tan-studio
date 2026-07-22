@@ -141,3 +141,32 @@ Add `--expect-device-connected` only when the Nano and a production bridge are
 physically attached. The script validates health, API bootstrap, device and
 bridge response shapes, bearer authentication, Host protection, and SQLite
 readiness without printing the launch token or bridge identity.
+
+## Local-LAN regression run — 22 July 2026
+
+The installed service at `http://xrc.local:8080` passed the repeatable LAN
+smoke with five sub-second health probes, a ready SQLite database, one typed
+registered-bridge record, 401 without a bearer token, and 403 for a hostile
+Host. The registered bridge was offline because the Atom remained physically
+connected to the Nano with the previous `0.2.0-local` image; that image cannot
+be reflashed remotely and loses the Nano's spontaneous frame before Wi-Fi is
+ready.
+
+The new Playwright LAN suite passed three Chromium workflows:
+
+- roast search and sorting persist through URL state and reload;
+- profile and prepare-roast pickers expose human-readable labels;
+- the mocked Web Serial boundary exposes a selectable Wi-Fi picker without
+  embedding credentials in fixtures.
+
+The complete workspace typecheck and test commands passed, including 32 Rust
+service tests, 12 web behavior tests, 16 MCP unit tests, and the existing
+domain, parser, protocol, companion, printing, and desktop suites. The desktop
+production build produced and verified `Tan Studio.app`, then installed the
+testable copy at `/Users/xavierroma/Applications/Tan Studio.app`.
+
+This run proves the deployed website, HTTP API, SQLite state, generated client,
+MCP adapter, and bridge tunnel contracts. It does not claim the final physical
+Nano-over-Wi-Fi connection: that last gate requires moving the Atom from the
+Nano to the Mac once, flashing `0.2.1-local`, provisioning it, and moving its
+single cable back to the Nano.

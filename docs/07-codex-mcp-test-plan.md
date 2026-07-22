@@ -96,3 +96,21 @@ Execution results are recorded after every deliberate run rather than treated as
 | Installed/source bundle identity | Pass: both SHA-256 hashes were `f1e1e193b3c2d131430e1069a837f0c6a4d1b318e1ab0ae26a53f00c28118011` |
 
 The live database contained no coffee-catalog or brew records during this run. Those zero counts were treated as valid empty states; their read paths and mutations were exercised against disposable data in the isolated E2E environment.
+
+## 22 July 2026 bridge-aware regression
+
+Plugin `0.1.0+codex.20260722064907` added typed bridge diagnostics to the
+existing `tan_status` controller. The MCP remains a stdio client of the same
+Rust HTTP API used by React: the generated gateway now composes bootstrap,
+device, and `/api/v1/bridges` responses, while the controller still has no
+SQLite, USB, or filesystem access.
+
+The source bundle and reinstalled Codex cache both had SHA-256
+`a9262b70eef6e462c8a1f6aedc2f27dc92369f5db3fa517d5618fe9d5ba25c5d`.
+The installed-bundle isolated E2E passed all 15 tools, two resources, four
+resource templates, the complete disposable profile/coffee/attachment/roast/
+brew/note/label write workflow, bridge-page status, and five expected failure
+classes. The live read traversal passed with 16 profiles, 6 coffees, 15 roasts,
+9 pantry records, 15 telemetry-bearing roasts, and 6,854 ordered telemetry
+points. Live mutation and device synchronization were intentionally disabled
+because the physical Wi-Fi bridge was offline during this run.
