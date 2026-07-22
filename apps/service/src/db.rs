@@ -88,6 +88,20 @@ impl Database {
         Ok(result == "ok")
     }
 
+    /// A bounded readiness probe for request hot paths.
+    ///
+    /// `PRAGMA quick_check` deliberately scans the database and can be slow on
+    /// a launchd-managed process. Health checks must also never queue behind a
+    /// long import or another request holding the single writer connection.
+    pub fn is_ready(&self) -> bool {
+        let Some(connection) = self.0.try_lock_for(Duration::from_millis(100)) else {
+            return false;
+        };
+        connection
+            .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))
+            .is_ok_and(|value| value == 1)
+    }
+
     pub fn schema_versions(&self) -> Result<(i64, i64), rusqlite::Error> {
         let connection = self.connection();
         connection.query_row(
@@ -212,6 +226,17 @@ fn sha256(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_probe_is_bounded_while_the_writer_is_busy() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
+        let _connection = database.connection();
+        let started = std::time::Instant::now();
+
+        assert!(!database.is_ready());
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
 
     #[test]
     fn applies_the_existing_forward_migrations() {

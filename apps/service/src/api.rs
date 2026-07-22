@@ -404,7 +404,7 @@ async fn health(State(state): State<ApiState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "applicationVersion": state.config.application_version,
-        "database": if state.database.quick_check().unwrap_or(false) { "ready" } else { "failed" },
+        "database": if state.database.is_ready() { "ready" } else { "busy" },
         "device": state.device.snapshot().connection,
     }))
 }
@@ -437,12 +437,10 @@ pub async fn system_bootstrap(State(state): State<ApiState>) -> ApiResult<Json<B
         },
         adapters: AdapterSet {
             database: SimpleAdapter {
-                state: if state.database.quick_check()? {
-                    "ready"
-                } else {
-                    "failed"
-                }
-                .into(),
+                // Reading the schema versions above proves this connection is
+                // usable. Full integrity scans belong to diagnostics and
+                // migration verification, not bootstrap's request path.
+                state: "ready".into(),
                 reason: None,
             },
             usb: state.device.snapshot(),
