@@ -5,7 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 idf_image="espressif/idf:v5.5.5"
 expected_digest="espressif/idf@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2"
 build_volume="tan-studio-esp-idf-5-5-5"
-firmware_version="0.2.3-local"
+firmware_version="0.2.6-local"
 clean_build=false
 if [[ "${1:-}" == "--clean" ]]; then
   clean_build=true
@@ -39,6 +39,7 @@ docker run --rm \
     cp /idf-cache/build/bootloader/bootloader.bin build/bootloader/bootloader.bin && \
     cp /idf-cache/build/partition_table/partition-table.bin build/partition_table/partition-table.bin && \
     cp /idf-cache/build/tan_bridge_setup.bin build/tan_bridge_setup.bin && \
+    cp /idf-cache/build/tan_bridge_setup.elf build/tan_bridge_setup.elf && \
     cp /idf-cache/build/flasher_args.json build/flasher_args.json"
 
 python3 "${repo_root}/script/test_tan_bridge_setup_contract.py"

@@ -47,12 +47,12 @@ def main() -> int:
     require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
     require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.2\.3-local"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.2\.6-local"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.2\.3-local"',
+        r'firmware_version="0\.2\.6-local"',
         build_script,
         "reproducible build firmware version",
     )
@@ -77,6 +77,16 @@ def main() -> int:
         "bootstrap retained for reconnect replay",
     )
     require(
+        r"bool setup_bytes = setup_protocol_active \|\| event\.bytes\[0\] == '\{'",
+        firmware,
+        "payload-selected setup protocol",
+    )
+    if re.search(
+        r"setup_protocol_active\s*=\s*event->line_state_changed_data\.dtr",
+        firmware,
+    ):
+        raise AssertionError("DTR must not select the setup protocol")
+    require(
         r"initialize_diagnostics\(\)",
         firmware,
         "persisted reset diagnostics",
@@ -90,6 +100,16 @@ def main() -> int:
         r"esp_wifi_set_max_tx_power\(SETUP_WIFI_MAX_TX_POWER_QDBM\)",
         firmware,
         "bounded Wi-Fi transmit power",
+    )
+    require(
+        r"esp_wifi_set_ps\(WIFI_PS_NONE\)",
+        firmware,
+        "always-on Wi-Fi power mode",
+    )
+    require(
+        r"xTaskCreatePinnedToCore\(network_task,[\s\S]*?SETUP_NETWORK_TASK_CORE",
+        firmware,
+        "network task core isolation",
     )
     require(
         r"write-flash\s+\\\s+0x10000",

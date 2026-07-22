@@ -3,6 +3,7 @@ idf_component_register(
   INCLUDE_DIRS "."
   REQUIRES
     esp_event
+    espcoredump
     esp_netif
     esp_wifi
     json

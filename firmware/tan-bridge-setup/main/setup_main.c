@@ -34,9 +34,10 @@
 #define SETUP_MAX_NETWORKS 12U
 #define SETUP_BACKEND_HOST "xrc.local"
 #define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.3-local"
-#define SETUP_BUILD_ID "local-lan-v4"
+#define SETUP_FIRMWARE_VERSION "0.2.6-local"
+#define SETUP_BUILD_ID "local-lan-v7-coredump"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
+#define SETUP_NETWORK_TASK_CORE 0
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
 #define SETUP_TOKEN_BYTES 65U
 #define SETUP_SSID_BYTES 33U
@@ -86,7 +87,6 @@ static const char *wifi_state = "disabled";
 static const char *backend_state = "offline";
 static bool wifi_initialized;
 static esp_netif_t *wifi_netif;
-static volatile bool setup_mode;
 static volatile bool setup_protocol_active;
 static SemaphoreHandle_t socket_mutex;
 static int bridge_socket = -1;
@@ -1036,7 +1036,7 @@ static bool associate_wifi(void)
     if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
         return false;
     }
-    if (esp_wifi_set_ps(WIFI_PS_MIN_MODEM) != ESP_OK ||
+    if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK ||
         esp_wifi_set_max_tx_power(SETUP_WIFI_MAX_TX_POWER_QDBM) != ESP_OK) {
         return false;
     }
@@ -1197,7 +1197,7 @@ static void tunnel_backend(int socket_fd)
             !allowed_backend_sassi_frame(payload, length)) {
             break;
         }
-        if (!setup_mode && !setup_protocol_active &&
+        if (!setup_protocol_active &&
             write_line((const char *)payload, length)) {
             confirm_usb_session_started();
         }
@@ -1253,9 +1253,14 @@ static void cdc_rx_callback(int interface, cdcacm_event_t *event)
 static void cdc_line_state_callback(int interface, cdcacm_event_t *event)
 {
     (void)interface;
-    setup_mode = event->line_state_changed_data.dtr;
-    setup_protocol_active = setup_mode;
-    if (!setup_mode) {
+    /*
+     * Both a browser serial session and the Nano can assert DTR. DTR therefore
+     * cannot identify the peer. A setup session is selected only after the
+     * first JSON request byte is observed; Nano traffic begins with "KL" and
+     * must remain available to the bridge even while DTR is asserted.
+     */
+    if (!event->line_state_changed_data.dtr) {
+        setup_protocol_active = false;
         line_length = 0U;
         discarding_oversized_line = false;
     }
@@ -1363,8 +1368,9 @@ void app_main(void)
 
     if (configured_ssid[0] != '\0' &&
         (claim_token[0] != '\0' || device_token[0] != '\0')) {
-        if (xTaskCreate(network_task, "tan_bridge_network", 8192, NULL, 5,
-                        NULL) != pdPASS) {
+        if (xTaskCreatePinnedToCore(network_task, "tan_bridge_network", 8192,
+                                    NULL, 5, NULL,
+                                    SETUP_NETWORK_TASK_CORE) != pdPASS) {
             abort();
         }
     }
@@ -1372,8 +1378,7 @@ void app_main(void)
     setup_rx_event_t event;
     while (true) {
         if (xQueueReceive(rx_queue, &event, portMAX_DELAY) == pdTRUE) {
-            bool setup_bytes = setup_mode || setup_protocol_active ||
-                               event.bytes[0] == '{';
+            bool setup_bytes = setup_protocol_active || event.bytes[0] == '{';
             if (setup_bytes) {
                 set_usb_stage(DIAGNOSTIC_USB_SETUP);
                 setup_protocol_active = true;
