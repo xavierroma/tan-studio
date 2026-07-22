@@ -7,6 +7,8 @@ dist/
 !plugins/tan-studio/dist/server.js
 .turbo/
 coverage/
+__pycache__/
+*.pyc
 *.tsbuildinfo
 .env
 .env.*

@@ -25,6 +25,7 @@
 #include "tinyusb.h"
 #include "tinyusb_cdc_acm.h"
 #include "tinyusb_default_config.h"
+#include "tunnel_policy.h"
 
 #define SETUP_SCHEMA_VERSION 1
 #define SETUP_LINE_BYTES 4096U
@@ -34,8 +35,8 @@
 #define SETUP_MAX_NETWORKS 12U
 #define SETUP_BACKEND_HOST "xrc.local"
 #define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.6-local"
-#define SETUP_BUILD_ID "local-lan-v7-coredump"
+#define SETUP_FIRMWARE_VERSION "0.2.7-local"
+#define SETUP_BUILD_ID "local-lan-v8-heap-tunnel"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
 #define SETUP_NETWORK_TASK_CORE 0
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
@@ -934,28 +935,6 @@ static bool receive_json_line(int socket_fd, char *line, size_t capacity)
     return false;
 }
 
-static bool allowed_backend_sassi_frame(const uint8_t *bytes, size_t length)
-{
-    if (length < 5U || bytes[0] != 'K' || bytes[1] != 'L' ||
-        bytes[length - 1U] != '\r') {
-        return false;
-    }
-    uint32_t message_type = 0U;
-    size_t index = 2U;
-    bool has_digit = false;
-    while (index < length && bytes[index] >= '0' && bytes[index] <= '9') {
-        has_digit = true;
-        message_type = message_type * 10U + (uint32_t)(bytes[index] - '0');
-        index++;
-    }
-    if (!has_digit || index >= length || bytes[index] != ',') {
-        return false;
-    }
-    return message_type == 1U || message_type == 3U ||
-           message_type == 5U || message_type == 7U ||
-           message_type == 13U;
-}
-
 static bool send_tunnel_frame(int socket_fd, const uint8_t *bytes,
                               size_t length)
 {
@@ -1180,11 +1159,22 @@ static bool authenticate_backend(int socket_fd)
 
 static void tunnel_backend(int socket_fd)
 {
+    /*
+     * The network task has an 8 KiB stack. Keeping an equally large receive
+     * buffer there corrupts that stack as soon as the first tunnel payload is
+     * read. The buffer is bounded and owned for exactly one tunnel session.
+     */
+    uint8_t *payload = malloc(TUNNEL_MAX_PAYLOAD_BYTES);
+    if (payload == NULL) {
+        shutdown(socket_fd, SHUT_RDWR);
+        close(socket_fd);
+        backend_state = "backoff";
+        return;
+    }
     set_network_stage(DIAGNOSTIC_NETWORK_TUNNEL);
     backend_state = "online";
     lifecycle_state = "operational";
     set_bridge_socket(socket_fd);
-    uint8_t payload[TUNNEL_MAX_PAYLOAD_BYTES];
     while (true) {
         uint8_t header[3];
         if (!receive_exact(socket_fd, header, sizeof(header))) {
@@ -1192,9 +1182,9 @@ static void tunnel_backend(int socket_fd)
         }
         size_t length = ((size_t)header[1] << 8U) | header[2];
         if (header[0] != TUNNEL_BACKEND_TO_USB || length == 0U ||
-            length > sizeof(payload) ||
+            length > TUNNEL_MAX_PAYLOAD_BYTES ||
             !receive_exact(socket_fd, payload, length) ||
-            !allowed_backend_sassi_frame(payload, length)) {
+            !tan_tunnel_allows_backend_frame(payload, length)) {
             break;
         }
         if (!setup_protocol_active &&
@@ -1202,6 +1192,7 @@ static void tunnel_backend(int socket_fd)
             confirm_usb_session_started();
         }
     }
+    free(payload);
     clear_bridge_socket(socket_fd);
     shutdown(socket_fd, SHUT_RDWR);
     close(socket_fd);

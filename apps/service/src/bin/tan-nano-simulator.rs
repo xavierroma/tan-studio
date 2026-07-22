@@ -10,7 +10,7 @@ use std::{
 };
 
 use serde_json::json;
-use serialport::{DataBits, FlowControl, Parity, SerialPortType, StopBits};
+use serialport::{DataBits, FlowControl, Parity, SerialPort, SerialPortType, StopBits};
 use tan_studio_service::virtual_nano::{
     VirtualNanoScenario, VirtualNanoTranscript, VirtualNanoTransport, VirtualNanoVerification,
 };
@@ -30,12 +30,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transcript_path = absolute_path(&options, "transcript")?;
     let (mut nano, transcript) = VirtualNanoTransport::new(VirtualNanoScenario::smoke())?;
 
-    let verification = match mode.as_str() {
-        "bridge" => run_bridge(&options, duration, &mut nano)?,
-        "cdc" => run_cdc(&options, duration, &mut nano)?,
+    let run_result = match mode.as_str() {
+        "bridge" => run_bridge(&options, duration, &mut nano),
+        "cdc" => run_cdc(&options, duration, &mut nano),
         _ => return Err("unknown mode; expected bridge or cdc".into()),
     };
     write_transcript(&transcript_path, &transcript)?;
+    let verification = match run_result {
+        Ok(verification) => verification,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "schemaVersion": 1,
+                    "mode": mode,
+                    "transcriptPath": transcript_path,
+                    "verification": nano.verification(),
+                    "error": "transport_failed",
+                }))?
+            );
+            return Err(error);
+        }
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
@@ -131,29 +147,10 @@ fn run_cdc(
     if !port_path.starts_with("/dev/cu.usbmodem") || port_path.len() > 1_024 {
         return Err("CDC port must be an explicit macOS /dev/cu.usbmodem path".into());
     }
-    let descriptor = serialport::available_ports()?
-        .into_iter()
-        .find(|port| port.port_name == port_path.as_str())
-        .ok_or("CDC port is not currently available")?;
-    let SerialPortType::UsbPort(usb) = descriptor.port_type else {
-        return Err("CDC port is not a USB device".into());
-    };
-    if !usb
-        .product
-        .as_deref()
-        .is_some_and(|product| product.starts_with("Tan "))
-    {
-        return Err("CDC product is not a Tan device".into());
-    }
-    let mut port = serialport::new(port_path, 115_200)
-        .timeout(Duration::from_millis(25))
-        .data_bits(DataBits::Eight)
-        .flow_control(FlowControl::None)
-        .parity(Parity::None)
-        .stop_bits(StopBits::One)
-        .dtr_on_open(true)
-        .open()?;
-    port.write_data_terminal_ready(true)?;
+    // A watchdog reset or software reboot makes macOS remove and recreate the
+    // same CDC node. Waiting here distinguishes that enumeration gap from an
+    // unsafe attempt to open an arbitrary serial device.
+    let mut port = open_tan_cdc(port_path, Duration::from_secs(15))?;
 
     let started = Instant::now();
     let mut bytes = [0u8; MAX_TUNNEL_PAYLOAD_BYTES];
@@ -193,6 +190,50 @@ fn run_cdc(
         thread::sleep(Duration::from_millis(1));
     }
     Ok(nano.verification())
+}
+
+fn open_tan_cdc(
+    port_path: &str,
+    timeout: Duration,
+) -> Result<Box<dyn SerialPort>, Box<dyn std::error::Error>> {
+    let deadline = Instant::now() + timeout;
+    let mut observed_tan_device = false;
+    while Instant::now() < deadline {
+        if let Ok(ports) = serialport::available_ports() {
+            if let Some(descriptor) = ports.into_iter().find(|port| port.port_name == port_path) {
+                let SerialPortType::UsbPort(usb) = descriptor.port_type else {
+                    return Err("CDC port is not a USB device".into());
+                };
+                if !usb
+                    .product
+                    .as_deref()
+                    .is_some_and(|product| product.starts_with("Tan "))
+                {
+                    return Err("CDC product is not a Tan device".into());
+                }
+                observed_tan_device = true;
+                if let Ok(mut port) = serialport::new(port_path, 115_200)
+                    .timeout(Duration::from_millis(25))
+                    .data_bits(DataBits::Eight)
+                    .flow_control(FlowControl::None)
+                    .parity(Parity::None)
+                    .stop_bits(StopBits::One)
+                    .dtr_on_open(true)
+                    .open()
+                {
+                    if port.write_data_terminal_ready(true).is_ok() {
+                        return Ok(port);
+                    }
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    if observed_tan_device {
+        Err("Tan CDC device was observed but could not be opened before timeout".into())
+    } else {
+        Err("Tan CDC device did not enumerate before timeout".into())
+    }
 }
 
 fn pump_nano_to_bridge(

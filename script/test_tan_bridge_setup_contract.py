@@ -47,12 +47,12 @@ def main() -> int:
     require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
     require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.2\.6-local"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.2\.7-local"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.2\.6-local"',
+        r'firmware_version="0\.2\.7-local"',
         build_script,
         "reproducible build firmware version",
     )
@@ -111,6 +111,18 @@ def main() -> int:
         firmware,
         "network task core isolation",
     )
+    require(
+        r"tan_tunnel_allows_backend_frame\(payload, length\)",
+        firmware,
+        "host-tested backend-to-Nano safety policy",
+    )
+    require(
+        r"uint8_t \*payload = malloc\(TUNNEL_MAX_PAYLOAD_BYTES\)",
+        firmware,
+        "bounded heap tunnel payload",
+    )
+    if re.search(r"uint8_t\s+payload\[TUNNEL_MAX_PAYLOAD_BYTES\]", firmware):
+        raise AssertionError("tunnel payload must not consume the network task stack")
     require(
         r"write-flash\s+\\\s+0x10000",
         update_script,

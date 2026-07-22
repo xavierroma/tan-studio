@@ -11,7 +11,7 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "typecheck": "tsc -b --pretty false",
-    "contract:generate": "cargo run --quiet --manifest-path ../service/Cargo.toml -- openapi src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/api.ts"
+    "contract:generate": "cargo run --quiet --manifest-path ../service/Cargo.toml --bin tan-studio-service -- openapi src/generated/openapi.json && openapi-typescript src/generated/openapi.json -o src/generated/api.ts"
   },
   "dependencies": {
     "@tan-studio/api-contract": "workspace:*",

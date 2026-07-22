@@ -117,7 +117,7 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
             : {
                 protocolVersion: 1,
                 bridgeId: "abcdefghijklmnopqrstuvwxyz",
-                firmware: { version: "0.2.6-local", build: "local-lan-v7-coredump" },
+                firmware: { version: "0.2.7-local", build: "local-lan-v8-heap-tunnel" },
                 lifecycle: "operational",
                 wifi: { state: "online" },
                 backend: { state: "online", host: "xrc.local", port: 8081 },

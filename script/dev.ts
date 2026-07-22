@@ -1,7 +1,14 @@
 const workspaceRoot = new URL("..", import.meta.url).pathname
 
 const service = Bun.spawn(
-  ["cargo", "run", "--manifest-path", "apps/service/Cargo.toml"],
+  [
+    "cargo",
+    "run",
+    "--manifest-path",
+    "apps/service/Cargo.toml",
+    "--bin",
+    "tan-studio-service",
+  ],
   {
     cwd: workspaceRoot,
     stdin: "inherit",

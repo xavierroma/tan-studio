@@ -17,8 +17,10 @@ and the exact boundary that still requires the physical Kaffeelogic Nano.
 - The failure therefore does not require Nano power or Nano USB enumeration.
   It can be investigated with the Atom connected to the Mac while the Mac acts
   as the USB CDC host and simulates the Nano byte stream.
-- The diagnostic 0.2.6-local firmware with flash core-dump support builds
-  reproducibly. It has not been flashed.
+- The diagnostic 0.2.6-local firmware with flash core-dump support built
+  reproducibly but could not be flashed: the currently installed TinyUSB image
+  does not remotely enter the ESP32-S3 ROM downloader. A physical reset/download
+  gesture is still required. It has not been flashed.
 - The backend already has a `Read + Write + Send` session transport boundary.
   Direct serial and LAN bridge traffic both enter the same SASSI session code.
 - The modular production firmware foundation already has host-testable SASSI,
@@ -41,6 +43,22 @@ and the exact boundary that still requires the physical Kaffeelogic Nano.
 - Docker is appropriate for deterministic C/Rust/TypeScript tests, database and
   browser smoke tests. It is not a faithful simulator of ESP32-S3 USB interrupt,
   Wi-Fi radio, or watchdog timing. Real-Atom HIL runs directly on macOS.
+- With the LAN service stopped, two redacted setup-status reads separated by ten
+  seconds left boot, watchdog, and interrupt-watchdog counters unchanged. An
+  authenticated fake backend that held a tunnel open without data was likewise
+  stable. This excludes idle power, Wi-Fi association, setup CDC reads, and an
+  empty authenticated tunnel as causes of the observed reset loop.
+- Sending one printable, read-only SASSI-shaped tunnel frame reproduced the
+  interrupt-watchdog reset both with the Mac CDC port closed and with it open.
+  The latter run received zero bytes before the Atom reset.
+- The reproduced cause was an 8,192-byte local payload in `tunnel_backend()` on
+  a network task whose entire stack was also 8,192 bytes. The first socket read
+  overwrote the task stack. Firmware 0.2.7-local moves that bounded buffer to a
+  per-session heap allocation, uses the verified `KL*<type>|...\r` safety
+  policy from a separately host-tested C module, and retains the core-dump
+  partition. Its image builds successfully but is not yet flashed.
+- Firmware 0.2.7-local application SHA-256 is
+  `0ca95a370966768193c9ee4eb1a615496513a6f7afb95a6504b1fad918d2cfee`.
 
 Acceptance matrix
 -----------------
@@ -56,8 +74,9 @@ Acceptance matrix
     boundaries remain in the expanded property suite.
 [x] CRC corruption, duplicate/out-of-order chunks, disconnect, and busy status
     fail safely with stable reasons.
-[ ] Malformed tunnel lengths, oversized transfers, response timeout, reconnect,
-    and queue/backpressure scenarios pass the expanded fault suite.
+[x] Malformed tunnel lengths, oversized transfers, response timeout, reconnect,
+    and queue/backpressure scenarios pass the expanded Rust and embedded-host
+    fault suites.
 [x] The real authenticated LAN tunnel works against a virtual bridge/Nano.
 [x] REST API, SQLite, static web UI and chart data
     are exercised in one hardware-free smoke scenario.
@@ -90,3 +109,27 @@ Safety boundary
 - Ignored diagnostic artifacts and JSONL transcripts are retained under
   `tmp/simulation/`; the latest machine-readable summary is
   `tmp/simulation/latest-summary.json`.
+
+2026-07-22 - first real-Atom HIL and isolated reset reproduction
+----------------------------------------------------------------
+- The real-Atom harness builds the service and web app, backs up production
+  SQLite through SQLite's backup API, stops the launchd service, runs against a
+  disposable database on ports 8080/8081, and restores production in `finally`.
+- The installed 0.2.5-local image failed the ten-second virtual-Nano run with
+  two additional interrupt-watchdog resets. The CDC simulator observed a broken
+  pipe, no synthetic records entered the copied database, and the production
+  LAN service was healthy after automatic restoration.
+- A later five-second run using the corrected cleanup ordering measured one
+  additional interrupt-watchdog reset before restoring production. This proves
+  the counter delta belongs to the isolated HIL interval rather than launchd
+  reconnecting immediately after restoration. Its seven-event partial JSONL
+  transcript was preserved even though synchronization could not begin.
+- The CDC simulator now waits up to fifteen seconds for a verified `Tan *`
+  `/dev/cu.usbmodem*` device, so a transient enumeration gap cannot be mistaken
+  for a protocol failure. A disappearance after opening remains a hard failure.
+- A pure C host test covers all allowed read-only SASSI types plus unverified,
+  obsolete, malformed, control-character, overflow, and missing-terminator
+  cases. The source contract rejects any future 8 KiB tunnel stack allocation.
+- The next physical action is only to enter ROM download mode and install
+  0.2.7-local. Then rerun the same HIL; a pass requires the full synthetic import
+  and zero boot/watchdog counter deltas before connecting the real Nano.
