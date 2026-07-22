@@ -128,6 +128,7 @@ try {
     nestedField(status, "bootstrap", "applicationVersion"),
     "codex-plugin-e2e"
   )
+  assert.deepEqual(nestedField(status, "bridges", "items"), [])
   await callOk(primaryClient, "tan_list_pantry")
 
   const profiles = await callOk(primaryClient, "tan_search_profiles", {

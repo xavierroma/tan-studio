@@ -54,6 +54,45 @@ describe("Tan Studio MCP contract", () => {
     ).toBe(true)
   })
 
+  test("reports registered bridge state through the same status use case", async () => {
+    const { client } = await connect(
+      fakeApi({
+        status: async () => ({
+          bootstrap: {} as never,
+          device: { connection: "reconnecting" } as never,
+          bridges: {
+            items: [
+              {
+                bridgeId: "abcdefghijklmnopqrstuvwxyz",
+                firmwareVersion: "0.2.1-local",
+                buildId: "local-lan-v2",
+                state: "connected",
+              } as never,
+            ],
+          },
+        }),
+      })
+    )
+
+    const result = await client.callTool({ name: "tan_status" })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      data: {
+        device: { connection: "reconnecting" },
+        bridges: {
+          items: [
+            {
+              firmwareVersion: "0.2.1-local",
+              buildId: "local-lan-v2",
+              state: "connected",
+            },
+          ],
+        },
+      },
+    })
+  })
+
   test("records human brew units as exact API integers", async () => {
     let received: BrewCreate | undefined
     const api = fakeApi({
@@ -223,7 +262,7 @@ async function connect(api: TanStudioGateway) {
 
 function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
   return {
-    status: async () => ({ bootstrap: {}, device: {} }),
+    status: async () => ({ bootstrap: {}, device: {}, bridges: { items: [] } }),
     pantry: async () => ({ items: [] }),
     searchProfiles: async () => ({ items: [] }),
     searchCoffees: async () => ({ items: [] }),

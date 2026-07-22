@@ -6,7 +6,7 @@ The plugin runs a local stdio MCP adapter and calls the same Tan Studio HTTP API
 
 | Variable                 | Meaning                                                                       | Default                                  |
 | ------------------------ | ----------------------------------------------------------------------------- | ---------------------------------------- |
-| `TAN_STUDIO_URL`         | Tan Studio service origin. An optional trailing `/api/v1` is normalized away. | `http://tan-studio.local`                |
+| `TAN_STUDIO_URL`         | Tan Studio service origin. An optional trailing `/api/v1` is normalized away. | `http://xrc.local:8080`                  |
 | `TAN_STUDIO_API_TOKEN`   | Bearer token supplied directly to the process.                                | none                                     |
 | `TAN_STUDIO_TOKEN_FILE`  | Absolute path to a token file.                                                | token discovery described below          |
 | `TAN_STUDIO_CONFIG_FILE` | Persistent JSON configuration path.                                           | `~/.config/tan-studio/codex-plugin.json` |

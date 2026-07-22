@@ -10,6 +10,7 @@ import {
   type AttachmentFileInput,
   type AttachmentPage,
   type Bootstrap,
+  type BridgePage,
   type Brew,
   type BrewCreate,
   type CoffeePage,
@@ -66,12 +67,17 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     })
   }
 
-  async status(): Promise<{ bootstrap: Bootstrap; device: Device }> {
-    const [bootstrap, device] = await Promise.all([
+  async status(): Promise<{
+    bootstrap: Bootstrap
+    device: Device
+    bridges: BridgePage
+  }> {
+    const [bootstrap, device, bridges] = await Promise.all([
       this.bootstrap(),
       this.device(),
+      this.bridges(),
     ])
-    return { bootstrap, device }
+    return { bootstrap, device, bridges }
   }
 
   async bootstrap(): Promise<Bootstrap> {
@@ -80,6 +86,10 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
 
   async device(): Promise<Device> {
     return unwrap(await this.client.GET("/api/v1/device"))
+  }
+
+  async bridges(): Promise<BridgePage> {
+    return unwrap(await this.client.GET("/api/v1/bridges"))
   }
 
   async synchronizeDevice(): Promise<Device> {

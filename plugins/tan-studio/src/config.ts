@@ -1,7 +1,7 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-export const DEFAULT_TAN_STUDIO_URL = "http://tan-studio.local"
+export const DEFAULT_TAN_STUDIO_URL = "http://xrc.local:8080"
 export const DEFAULT_TIMEOUT_MS = 5_000
 
 export interface TanStudioConfig {

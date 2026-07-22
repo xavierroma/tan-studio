@@ -74,7 +74,7 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
     {
       title: "Tan Studio status",
       description:
-        "Check the Tan Studio service, enabled features, database recovery state, and connected Kaffeelogic device without changing anything.",
+        "Check the Tan Studio service, enabled features, database recovery state, registered Wi-Fi bridges, and connected Kaffeelogic device without changing anything.",
       annotations: readOnlyAnnotations,
     },
     async () =>

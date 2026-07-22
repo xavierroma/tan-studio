@@ -10,7 +10,7 @@ import {
 } from "../src/config"
 
 describe("Tan Studio plugin configuration", () => {
-  test("defaults to the Raspberry Pi mDNS origin", async () => {
+  test("defaults to the current always-on Mac LAN origin", async () => {
     const config = await loadConfig(
       { TAN_STUDIO_API_TOKEN: "a".repeat(64) },
       "/unused"

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/server.ts --target=bun --minify --outfile dist/server.js",
+    "build": "bun run scripts/build.ts",
     "contract:generate": "openapi-typescript ../../apps/web/src/generated/openapi.json -o src/generated/api.ts",
     "smoke": "bun run build && bun run scripts/smoke.ts",
     "test": "bun test",

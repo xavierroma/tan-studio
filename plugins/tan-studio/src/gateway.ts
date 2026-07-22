@@ -1,6 +1,8 @@
 import type { components } from "./generated/api"
 
 export type Bootstrap = components["schemas"]["BootstrapResponse"]
+export type Bridge = components["schemas"]["BridgeResource"]
+export type BridgePage = components["schemas"]["BridgePage"]
 export type Brew = components["schemas"]["BrewResource"]
 export type BrewCreate = components["schemas"]["BrewCreate"]
 export type Attachment = components["schemas"]["AttachmentResource"]
@@ -51,7 +53,11 @@ export interface AttachmentFileInput {
  * SQLite, files, or the Rust service's implementation details.
  */
 export interface TanStudioGateway {
-  status(): Promise<{ bootstrap: Bootstrap; device: Device }>
+  status(): Promise<{
+    bootstrap: Bootstrap
+    device: Device
+    bridges: BridgePage
+  }>
   device(): Promise<Device>
   synchronizeDevice(): Promise<Device>
   pantry(): Promise<Pantry>

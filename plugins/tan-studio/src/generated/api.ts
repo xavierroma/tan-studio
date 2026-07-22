@@ -100,6 +100,38 @@ export interface paths {
         patch: operations["updateBrew"];
         trace?: never;
     };
+    "/api/v1/bridges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["bridges_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bridges/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["bridge_claim_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/coffees": {
         parameters: {
             query?: never;
@@ -629,6 +661,26 @@ export interface components {
             /** Format: int64 */
             waterTemperatureMilliC?: number | null;
         };
+        BridgeClaimResource: {
+            backendHost: string;
+            /** Format: int32 */
+            backendPort: number;
+            claimToken: string;
+            expiresAt: string;
+        };
+        BridgePage: {
+            items: components["schemas"]["BridgeResource"][];
+        };
+        BridgeResource: {
+            bridgeId: string;
+            buildId: string;
+            createdAt: string;
+            firmwareVersion: string;
+            id: string;
+            lastSeenAt?: string | null;
+            state: string;
+            updatedAt: string;
+        };
         CoffeeCreate: {
             /** Format: int64 */
             altitudeMaxM?: number | null;
@@ -736,6 +788,7 @@ export interface components {
             roast?: null | components["schemas"]["RoastResource"];
         };
         DeviceSnapshot: {
+            bridgeId?: string | null;
             busy?: boolean | null;
             connection: string;
             firmware?: string | null;
@@ -764,6 +817,7 @@ export interface components {
             reason?: string | null;
             state: string;
             syncState: string;
+            transport?: string | null;
             /** Format: int32 */
             updatedLogCount: number;
         };
@@ -1512,6 +1566,60 @@ export interface operations {
                 };
             };
             412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    bridges_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgePage"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    bridge_claim_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BridgeClaimResource"];
+                };
+            };
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

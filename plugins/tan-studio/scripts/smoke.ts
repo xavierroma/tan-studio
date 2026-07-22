@@ -38,6 +38,8 @@ try {
         status: "ok",
         toolCount: tools.tools.length,
         deviceConnection: nestedString(status, "device", "connection"),
+        bridgeCount: nestedItems(status, "bridges").length,
+        bridgeState: objectString(nestedItems(status, "bridges")[0], "state"),
         pantryCount: asItems(pantry).length,
         roastCount: roastItems.length,
         sampledRoastId: firstRoastId ?? null,
@@ -83,9 +85,19 @@ function numericId(value: unknown): number | undefined {
 function nestedString(value: unknown, parent: string, child: string) {
   if (value === null || typeof value !== "object") return null
   const nested = (value as Record<string, unknown>)[parent]
-  if (nested === null || typeof nested !== "object") return null
-  const result = (nested as Record<string, unknown>)[child]
+  return objectString(nested, child)
+}
+
+function objectString(value: unknown, key: string) {
+  if (value === null || typeof value !== "object") return null
+  const result = (value as Record<string, unknown>)[key]
   return typeof result === "string" ? result : null
+}
+
+function nestedItems(value: unknown, parent: string): unknown[] {
+  if (value === null || typeof value !== "object") return []
+  const nested = (value as Record<string, unknown>)[parent]
+  return asItems(nested)
 }
 
 function seriesPointCount(value: unknown): number {
