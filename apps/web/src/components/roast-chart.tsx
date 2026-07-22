@@ -443,10 +443,12 @@ export function RoastChart({
                     label: { color: muted, fontSize: 10, formatter: "{b}" },
                     lineStyle: { color: border, type: "dashed", width: 1 },
                     data: [
-                      ...events.map((event) => ({
-                        name: event.label,
-                        xAxis: event.elapsedMs,
-                      })),
+                      ...events
+                        .filter((event) => event.label !== "roast end")
+                        .map((event) => ({
+                          name: event.label,
+                          xAxis: event.elapsedMs,
+                        })),
                       ...(durationMs === undefined ||
                       events.some((event) => event.label === "roast end")
                         ? []
