@@ -112,6 +112,24 @@ impl Decoder {
                 }
                 continue;
             }
+
+            // A CDC consumer can attach while the Nano is already part-way
+            // through a frame. Seek the protocol prefix before buffering so a
+            // truncated first read, USB line noise, or an idle LF cannot poison
+            // every later frame (and every bridge reconnect that replays it).
+            if self.buffer.len() < 3 {
+                match (self.buffer.as_slice(), *byte) {
+                    ([], b'K') => self.buffer.push(*byte),
+                    ([b'K'], b'L') => self.buffer.push(*byte),
+                    ([b'K', b'L'], b'*') => self.buffer.push(*byte),
+                    ([b'K'], b'K') | ([b'K', b'L'], b'K') => {
+                        self.buffer.clear();
+                        self.buffer.push(*byte);
+                    }
+                    _ => self.buffer.clear(),
+                }
+                continue;
+            }
             if *byte == FRAME_TERMINATOR {
                 self.buffer.push(*byte);
                 let frame = std::mem::take(&mut self.buffer);
@@ -409,6 +427,35 @@ mod tests {
             events.extend(decoder.push(&TYPE_2.as_bytes()[split..]));
             assert_eq!(events.len(), 1);
             assert!(events[0].is_ok());
+        }
+    }
+
+    #[test]
+    fn resynchronizes_after_a_partial_initial_frame_and_usb_noise() {
+        let mut decoder = Decoder::default();
+        let mut bytes = b"serial-tail|1234\r\n\0junkKxKL".to_vec();
+        bytes.extend_from_slice(TYPE_2.as_bytes());
+        let events = decoder.push(&bytes);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            Ok(DecodedMessage {
+                message: Message::ConnectionRequest(_),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn resynchronizes_at_every_noise_and_frame_fragment_boundary() {
+        let mut stream = b"tail-of-an-earlier-frame\r\n".to_vec();
+        stream.extend_from_slice(TYPE_2.as_bytes());
+        for split in 0..=stream.len() {
+            let mut decoder = Decoder::default();
+            let mut events = decoder.push(&stream[..split]);
+            events.extend(decoder.push(&stream[split..]));
+            assert_eq!(events.len(), 1, "split {split}");
+            assert!(events[0].is_ok(), "split {split}");
         }
     }
 

@@ -231,6 +231,16 @@ fn device_loop(
             active.phase != Phase::Ready && active.phase_started.elapsed() >= NEGOTIATION_TIMEOUT
         });
         if negotiation_timed_out {
+            let transport = snapshot
+                .read()
+                .transport
+                .clone()
+                .unwrap_or_else(|| "unknown".into());
+            tracing::warn!(
+                event = "device_session_failed",
+                reason = "negotiation_timeout",
+                transport
+            );
             *snapshot.write() = degraded("negotiation_timeout");
             session = None;
             next_scan = Instant::now() + SCAN_INTERVAL;
@@ -260,6 +270,16 @@ fn device_loop(
                     }
                 }
                 Err(reason) => {
+                    let transport = snapshot
+                        .read()
+                        .transport
+                        .clone()
+                        .unwrap_or_else(|| "unknown".into());
+                    tracing::warn!(
+                        event = "device_session_failed",
+                        reason = %reason,
+                        transport
+                    );
                     *snapshot.write() = degraded(&reason);
                     session = None;
                     next_scan = Instant::now() + SCAN_INTERVAL;
