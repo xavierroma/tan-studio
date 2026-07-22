@@ -80,7 +80,7 @@ Acceptance matrix
 [x] The real authenticated LAN tunnel works against a virtual bridge/Nano.
 [x] REST API, SQLite, static web UI and chart data
     are exercised in one hardware-free smoke scenario.
-[ ] Real Atom connected to macOS completes the same happy-path scenario while
+[x] Real Atom connected to macOS completes the same happy-path scenario while
     forwarding USB CDC over Wi-Fi to the backend.
 [ ] Real-Atom soak leaves boot/watchdog counters unchanged and reconnects without
     duplicate imports or loss after deliberate host-side disconnects.
@@ -133,3 +133,21 @@ Safety boundary
 - The next physical action is only to enter ROM download mode and install
   0.2.7-local. Then rerun the same HIL; a pass requires the full synthetic import
   and zero boot/watchdog counter deltas before connecting the real Nano.
+
+2026-07-22 - corrected firmware real-Atom HIL passes
+----------------------------------------------------
+- The guarded application-only updater wrote 823,264 bytes at `0x10000` and
+  esptool verified the flashed data hash. NVS identity, Wi-Fi, and the issued
+  backend token were preserved.
+- The ESP32-S3 remained in its ROM interface after the normal hard reset. An
+  explicit esptool watchdog reset booted the application without a cable cycle.
+- Redacted status confirmed 0.2.7-local (`local-lan-v8-heap-tunnel`) online at
+  the fixed `xrc.local:8081` backend.
+- The 30-second real-Atom HIL completed the entire synthetic Nano filesystem
+  sync over physical USB CDC and Wi-Fi. The disposable database contained two
+  simulated profiles and three simulated logs.
+- Boot, brownout, total watchdog, interrupt-watchdog, task-watchdog, and other
+  watchdog counter deltas were all exactly zero. Production was restored.
+- Machine-readable evidence is retained under `tmp/atom-hil/1784738318178/`.
+  The only remaining compatibility gate is the powered real Nano read-only
+  integration test; the longer reconnect/soak gate remains separate.

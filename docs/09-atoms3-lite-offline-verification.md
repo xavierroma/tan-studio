@@ -570,3 +570,41 @@ the required physical reset/download gesture. The exact next gate is:
 
 No raw Nano payload, device serial, bridge identity, Wi-Fi credential, or API
 token is included in this evidence.
+
+## Corrected firmware real-Atom HIL
+
+Date: 22 July 2026
+
+Firmware source commit: `acd7007`
+
+With the Nano disconnected, the guarded application-only updater installed
+`0.2.7-local` at `0x10000`, preserved NVS, and verified the flashed data hash.
+The ESP32-S3 remained in its ROM interface after the normal hard reset; an
+explicit watchdog reset then booted `local-lan-v8-heap-tunnel`. Redacted status
+confirmed the preserved Wi-Fi and fixed `xrc.local:8081` backend configuration.
+
+The Mac then acted as the Nano over the Atom's physical USB CDC interface for a
+30-second HIL run. Traffic crossed the real Atom firmware and Wi-Fi tunnel into
+the Rust service using a disposable SQLite backup. Result:
+
+```json
+{
+  "result": "pass",
+  "firmware": "0.2.7-local",
+  "simulatedProfiles": 2,
+  "simulatedLogs": 3,
+  "bootCountDelta": 0,
+  "brownoutCountDelta": 0,
+  "watchdogCountDelta": 0,
+  "interruptWatchdogCountDelta": 0,
+  "taskWatchdogCountDelta": 0,
+  "productionServiceRestored": true
+}
+```
+
+The report and synthetic-only transcript are retained under the ignored local
+directory `tmp/atom-hil/1784738318178/`. The tunnel stack-overflow repair is
+therefore verified on the actual Atom. The final compatibility gate is to move
+the Atom's single cable to the powered Nano and validate its real read-only
+capability frame, profiles, logs, API resources, and UI charts. No write or
+roast-control command is authorized by this gate.
