@@ -497,3 +497,76 @@ The remaining hardware gate is:
 
 No bridge identity, Wi-Fi credential, raw Nano payload, or device serial is
 recorded in this evidence.
+
+## Stateful Nano simulation and tunnel watchdog diagnosis
+
+Date: 22 July 2026
+
+Repository commit: `acd7007`
+
+The hardware-free verification now uses one stateful Virtual Nano through the
+same Rust `Read + Write + Send` session boundary as direct serial and the LAN
+bridge. It serves two synthetic KPRO profiles and three synthetic KLOG files,
+including multi-chunk transfers and acknowledgements. Direct transport and an
+authenticated TCP bridge both completed the same process-level scenario:
+
+- KN1007B, SASSI v1 read-only, and negotiated packet limit 4,064;
+- two profiles and three logs discovered with zero import warnings or
+  quarantine;
+- three roasts, four provenance-preserving profile revisions, nine telemetry
+  samples, and five immutable native files persisted in SQLite;
+- a repeated synchronization imported zero duplicate logs;
+- REST list/detail/series resources, the served React UI and chart, and the MCP
+  live smoke test all passed.
+
+The simulator additionally verifies one-byte and 4,096-byte read patterns,
+fragmentation, CRC corruption, out-of-order chunks, disconnect, busy status,
+response timeout, malformed tunnel sizes, reconnect, and queue saturation. The
+complete consolidated command is:
+
+```sh
+./script/test_bridge_no_hardware.sh
+```
+
+The installed Atom firmware was still `0.2.5-local` (`local-lan-v6`). A real
+Atom HIL run used a SQLite backup, a disposable backend/database, and the Mac as
+the Nano-side CDC peer. It failed before import and added one interrupt-watchdog
+reset in five seconds. Production was restored automatically, and a seven-event
+partial, synthetic-only transcript was retained.
+
+Three controlled Mac experiments isolated the cause without the Nano:
+
+1. With no backend, setup status remained stable for ten seconds with zero
+   boot or watchdog delta.
+2. An authenticated tunnel held open without payload remained stable with zero
+   delta.
+3. One verified read-only SASSI-shaped payload reproduced the interrupt
+   watchdog both with the Mac CDC port closed and held open.
+
+The tunnel task had an 8,192-byte stack and declared an 8,192-byte receive
+array inside `tunnel_backend()`. Receiving the first payload overwrote the task
+stack. Candidate `0.2.7-local` (`local-lan-v8-heap-tunnel`) moves this bounded
+buffer to per-session heap storage and uses a separately host-tested C safety
+policy for printable `KL*<type>|...\r` frames of read-only types 1, 3, 5, 7,
+and 13. A source contract prevents the 8 KiB stack allocation from returning.
+
+The pinned ESP-IDF 5.5.5 build passed. Candidate application evidence:
+
+```text
+tan_bridge_setup.bin: 823,264 bytes
+SHA-256: 0ca95a370966768193c9ee4eb1a615496513a6f7afb95a6504b1fad918d2cfee
+```
+
+This candidate is not flashed. The installed TinyUSB application did not enter
+the ROM downloader through software reset, and the unattended user cannot make
+the required physical reset/download gesture. The exact next gate is:
+
+1. With the Nano disconnected, place the Atom in ROM download mode.
+2. Install `0.2.7-local` using the guarded application update workflow.
+3. Run `script/test_bridge_atom_hil.py` and require the complete synthetic
+   import plus zero boot/watchdog deltas.
+4. Only after that passes, connect the Atom to the Nano for the final read-only
+   power, enumeration, profile, and log integration test.
+
+No raw Nano payload, device serial, bridge identity, Wi-Fi credential, or API
+token is included in this evidence.
