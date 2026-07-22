@@ -303,6 +303,18 @@ export function TanBridgeSetupPanel() {
               <dd>{status.diagnostics.bootCount}</dd>
               <dt className="text-muted-foreground">Brownouts</dt>
               <dd>{status.diagnostics.brownoutCount}</dd>
+              <dt className="text-muted-foreground">Watchdogs</dt>
+              <dd>
+                {status.diagnostics.watchdogCount} (
+                {status.diagnostics.interruptWatchdogCount}/
+                {status.diagnostics.taskWatchdogCount}/
+                {status.diagnostics.otherWatchdogCount})
+              </dd>
+              <dt className="text-muted-foreground">Watchdog stage</dt>
+              <dd>
+                {status.diagnostics.watchdogUsbStage} /{" "}
+                {status.diagnostics.watchdogNetworkStage}
+              </dd>
             </dl>
           </div>
           <div className="rounded-lg border p-4">

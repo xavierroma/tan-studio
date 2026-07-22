@@ -5,7 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 idf_image="espressif/idf:v5.5.5"
 expected_digest="espressif/idf@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2"
 build_volume="tan-studio-esp-idf-5-5-5"
-firmware_version="0.2.2-local"
+firmware_version="0.2.3-local"
 clean_build=false
 if [[ "${1:-}" == "--clean" ]]; then
   clean_build=true

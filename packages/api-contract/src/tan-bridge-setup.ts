@@ -54,6 +54,42 @@ export const TanBridgeWifiAuthModeSchema = z.enum([
   "unknown",
 ])
 
+const TanBridgeResetReasonSchema = z.enum([
+  "unknown",
+  "powerOn",
+  "external",
+  "software",
+  "panic",
+  "interruptWatchdog",
+  "taskWatchdog",
+  "otherWatchdog",
+  "deepSleep",
+  "brownout",
+  "sdio",
+])
+
+const TanBridgeWatchdogUsbStageSchema = z.enum([
+  "boot",
+  "initializing",
+  "idle",
+  "receiving",
+  "setup",
+  "buffering",
+  "replaying",
+  "transmitting",
+])
+
+const TanBridgeWatchdogNetworkStageSchema = z.enum([
+  "notStarted",
+  "delaying",
+  "wifi",
+  "resolving",
+  "connecting",
+  "authenticating",
+  "tunnel",
+  "backoff",
+])
+
 export const TanBridgeSetupStatusSchema = z
   .object({
     protocolVersion: z.literal(TanBridgeSetupSchemaVersion),
@@ -90,17 +126,13 @@ export const TanBridgeSetupStatusSchema = z
         bootCount: z.number().int().min(1).max(4_294_967_295),
         brownoutCount: z.number().int().min(0).max(4_294_967_295),
         watchdogCount: z.number().int().min(0).max(4_294_967_295),
-        lastResetReason: z.enum([
-          "unknown",
-          "powerOn",
-          "external",
-          "software",
-          "panic",
-          "watchdog",
-          "deepSleep",
-          "brownout",
-          "sdio",
-        ]),
+        lastResetReason: TanBridgeResetReasonSchema,
+        previousResetReason: TanBridgeResetReasonSchema,
+        interruptWatchdogCount: z.number().int().min(0).max(4_294_967_295),
+        taskWatchdogCount: z.number().int().min(0).max(4_294_967_295),
+        otherWatchdogCount: z.number().int().min(0).max(4_294_967_295),
+        watchdogUsbStage: TanBridgeWatchdogUsbStageSchema,
+        watchdogNetworkStage: TanBridgeWatchdogNetworkStageSchema,
         persisted: z.boolean(),
         networkStartDelayMs: z.literal(2_500),
         wifiMaxTxPowerQuarterDbm: z.literal(44),

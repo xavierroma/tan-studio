@@ -47,12 +47,12 @@ def main() -> int:
     require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
     require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.2\.2-local"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.2\.3-local"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.2\.2-local"',
+        r'firmware_version="0\.2\.3-local"',
         build_script,
         "reproducible build firmware version",
     )

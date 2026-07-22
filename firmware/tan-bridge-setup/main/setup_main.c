@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "cJSON.h"
+#include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -33,8 +34,8 @@
 #define SETUP_MAX_NETWORKS 12U
 #define SETUP_BACKEND_HOST "xrc.local"
 #define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.2-local"
-#define SETUP_BUILD_ID "local-lan-v3"
+#define SETUP_FIRMWARE_VERSION "0.2.3-local"
+#define SETUP_BUILD_ID "local-lan-v4"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
 #define SETUP_TOKEN_BYTES 65U
@@ -43,6 +44,29 @@
 #define TUNNEL_MAX_PAYLOAD_BYTES 8192U
 #define TUNNEL_USB_TO_BACKEND 1U
 #define TUNNEL_BACKEND_TO_USB 2U
+#define DIAGNOSTIC_RTC_MAGIC 0x54414e44U
+
+typedef enum {
+    DIAGNOSTIC_USB_BOOT = 0,
+    DIAGNOSTIC_USB_INITIALIZING = 1,
+    DIAGNOSTIC_USB_IDLE = 2,
+    DIAGNOSTIC_USB_RECEIVING = 3,
+    DIAGNOSTIC_USB_SETUP = 4,
+    DIAGNOSTIC_USB_BUFFERING = 5,
+    DIAGNOSTIC_USB_REPLAYING = 6,
+    DIAGNOSTIC_USB_TRANSMITTING = 7,
+} diagnostic_usb_stage_t;
+
+typedef enum {
+    DIAGNOSTIC_NETWORK_NOT_STARTED = 0,
+    DIAGNOSTIC_NETWORK_DELAYING = 1,
+    DIAGNOSTIC_NETWORK_WIFI = 2,
+    DIAGNOSTIC_NETWORK_RESOLVING = 3,
+    DIAGNOSTIC_NETWORK_CONNECTING = 4,
+    DIAGNOSTIC_NETWORK_AUTHENTICATING = 5,
+    DIAGNOSTIC_NETWORK_TUNNEL = 6,
+    DIAGNOSTIC_NETWORK_BACKOFF = 7,
+} diagnostic_network_stage_t;
 
 typedef struct {
     size_t length;
@@ -77,11 +101,24 @@ static uint32_t configuration_generation;
 static uint32_t diagnostic_boot_count;
 static uint32_t diagnostic_brownout_count;
 static uint32_t diagnostic_watchdog_count;
+static uint32_t diagnostic_interrupt_watchdog_count;
+static uint32_t diagnostic_task_watchdog_count;
+static uint32_t diagnostic_other_watchdog_count;
 static const char *diagnostic_last_reset_reason = "unknown";
+static const char *diagnostic_previous_reset_reason = "unknown";
+static uint32_t diagnostic_watchdog_usb_stage = DIAGNOSTIC_USB_BOOT;
+static uint32_t diagnostic_watchdog_network_stage =
+    DIAGNOSTIC_NETWORK_NOT_STARTED;
 static bool diagnostics_persisted;
+RTC_NOINIT_ATTR static uint32_t diagnostic_rtc_magic;
+RTC_NOINIT_ATTR static uint32_t diagnostic_rtc_usb_stage;
+RTC_NOINIT_ATTR static uint32_t diagnostic_rtc_network_stage;
 
 static const char malformed_request_id[] =
     "00000000-0000-4000-8000-000000000000";
+
+static void set_usb_stage(diagnostic_usb_stage_t stage);
+static void set_network_stage(diagnostic_network_stage_t stage);
 
 static bool object_has_exact_properties(
     const cJSON *object, const char *const *properties, size_t property_count)
@@ -176,6 +213,7 @@ static bool request_id_was_seen(const char *request_id)
 
 static bool write_line(const char *line, size_t length)
 {
+    set_usb_stage(DIAGNOSTIC_USB_TRANSMITTING);
     size_t offset = 0U;
     while (offset < length) {
         size_t queued = tinyusb_cdcacm_write_queue(
@@ -184,10 +222,12 @@ static bool write_line(const char *line, size_t length)
         if (queued == 0U ||
             tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0,
                                        pdMS_TO_TICKS(250)) != ESP_OK) {
+            set_usb_stage(DIAGNOSTIC_USB_IDLE);
             return false;
         }
         offset += queued;
     }
+    set_usb_stage(DIAGNOSTIC_USB_IDLE);
     return true;
 }
 
@@ -230,9 +270,11 @@ static const char *reset_reason_name(esp_reset_reason_t reason)
     case ESP_RST_PANIC:
         return "panic";
     case ESP_RST_INT_WDT:
+        return "interruptWatchdog";
     case ESP_RST_TASK_WDT:
+        return "taskWatchdog";
     case ESP_RST_WDT:
-        return "watchdog";
+        return "otherWatchdog";
     case ESP_RST_DEEPSLEEP:
         return "deepSleep";
     case ESP_RST_BROWNOUT:
@@ -242,6 +284,60 @@ static const char *reset_reason_name(esp_reset_reason_t reason)
     default:
         return "unknown";
     }
+}
+
+static const char *usb_stage_name(uint32_t stage)
+{
+    switch (stage) {
+    case DIAGNOSTIC_USB_INITIALIZING:
+        return "initializing";
+    case DIAGNOSTIC_USB_IDLE:
+        return "idle";
+    case DIAGNOSTIC_USB_RECEIVING:
+        return "receiving";
+    case DIAGNOSTIC_USB_SETUP:
+        return "setup";
+    case DIAGNOSTIC_USB_BUFFERING:
+        return "buffering";
+    case DIAGNOSTIC_USB_REPLAYING:
+        return "replaying";
+    case DIAGNOSTIC_USB_TRANSMITTING:
+        return "transmitting";
+    default:
+        return "boot";
+    }
+}
+
+static const char *network_stage_name(uint32_t stage)
+{
+    switch (stage) {
+    case DIAGNOSTIC_NETWORK_DELAYING:
+        return "delaying";
+    case DIAGNOSTIC_NETWORK_WIFI:
+        return "wifi";
+    case DIAGNOSTIC_NETWORK_RESOLVING:
+        return "resolving";
+    case DIAGNOSTIC_NETWORK_CONNECTING:
+        return "connecting";
+    case DIAGNOSTIC_NETWORK_AUTHENTICATING:
+        return "authenticating";
+    case DIAGNOSTIC_NETWORK_TUNNEL:
+        return "tunnel";
+    case DIAGNOSTIC_NETWORK_BACKOFF:
+        return "backoff";
+    default:
+        return "notStarted";
+    }
+}
+
+static void set_usb_stage(diagnostic_usb_stage_t stage)
+{
+    diagnostic_rtc_usb_stage = (uint32_t)stage;
+}
+
+static void set_network_stage(diagnostic_network_stage_t stage)
+{
+    diagnostic_rtc_network_stage = (uint32_t)stage;
 }
 
 static bool reset_reason_is_watchdog(esp_reset_reason_t reason)
@@ -275,6 +371,25 @@ static void initialize_diagnostics(void)
         ESP_OK) {
         diagnostic_watchdog_count = 0U;
     }
+    uint32_t previous_reset_reason = (uint32_t)ESP_RST_UNKNOWN;
+    if (nvs_get_u32(store, "last_reset", &previous_reset_reason) == ESP_OK) {
+        diagnostic_previous_reset_reason =
+            reset_reason_name((esp_reset_reason_t)previous_reset_reason);
+    }
+    if (nvs_get_u32(store, "int_wdt", &diagnostic_interrupt_watchdog_count) !=
+        ESP_OK) {
+        diagnostic_interrupt_watchdog_count = 0U;
+    }
+    if (nvs_get_u32(store, "task_wdt", &diagnostic_task_watchdog_count) !=
+        ESP_OK) {
+        diagnostic_task_watchdog_count = 0U;
+    }
+    if (nvs_get_u32(store, "other_wdt", &diagnostic_other_watchdog_count) !=
+        ESP_OK) {
+        diagnostic_other_watchdog_count = 0U;
+    }
+    (void)nvs_get_u32(store, "wd_usb", &diagnostic_watchdog_usb_stage);
+    (void)nvs_get_u32(store, "wd_net", &diagnostic_watchdog_network_stage);
     diagnostic_boot_count = increment_saturating(diagnostic_boot_count);
     if (reset_reason == ESP_RST_BROWNOUT) {
         diagnostic_brownout_count =
@@ -283,7 +398,24 @@ static void initialize_diagnostics(void)
     if (reset_reason_is_watchdog(reset_reason)) {
         diagnostic_watchdog_count =
             increment_saturating(diagnostic_watchdog_count);
+        if (reset_reason == ESP_RST_INT_WDT) {
+            diagnostic_interrupt_watchdog_count =
+                increment_saturating(diagnostic_interrupt_watchdog_count);
+        } else if (reset_reason == ESP_RST_TASK_WDT) {
+            diagnostic_task_watchdog_count =
+                increment_saturating(diagnostic_task_watchdog_count);
+        } else {
+            diagnostic_other_watchdog_count =
+                increment_saturating(diagnostic_other_watchdog_count);
+        }
+        if (diagnostic_rtc_magic == DIAGNOSTIC_RTC_MAGIC) {
+            diagnostic_watchdog_usb_stage = diagnostic_rtc_usb_stage;
+            diagnostic_watchdog_network_stage = diagnostic_rtc_network_stage;
+        }
     }
+    diagnostic_rtc_magic = DIAGNOSTIC_RTC_MAGIC;
+    set_usb_stage(DIAGNOSTIC_USB_BOOT);
+    set_network_stage(DIAGNOSTIC_NETWORK_NOT_STARTED);
     esp_err_t result = nvs_set_u32(store, "boot_count", diagnostic_boot_count);
     if (result == ESP_OK) {
         result = nvs_set_u32(store, "brownout_count",
@@ -295,6 +427,25 @@ static void initialize_diagnostics(void)
     }
     if (result == ESP_OK) {
         result = nvs_set_u32(store, "last_reset", (uint32_t)reset_reason);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "int_wdt",
+                             diagnostic_interrupt_watchdog_count);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "task_wdt",
+                             diagnostic_task_watchdog_count);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "other_wdt",
+                             diagnostic_other_watchdog_count);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "wd_usb", diagnostic_watchdog_usb_stage);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "wd_net",
+                             diagnostic_watchdog_network_stage);
     }
     if (result == ESP_OK) {
         result = nvs_commit(store);
@@ -366,6 +517,19 @@ static void send_status(const char *request_id)
                             diagnostic_watchdog_count);
     cJSON_AddStringToObject(diagnostics, "lastResetReason",
                             diagnostic_last_reset_reason);
+    cJSON_AddStringToObject(diagnostics, "previousResetReason",
+                            diagnostic_previous_reset_reason);
+    cJSON_AddNumberToObject(diagnostics, "interruptWatchdogCount",
+                            diagnostic_interrupt_watchdog_count);
+    cJSON_AddNumberToObject(diagnostics, "taskWatchdogCount",
+                            diagnostic_task_watchdog_count);
+    cJSON_AddNumberToObject(diagnostics, "otherWatchdogCount",
+                            diagnostic_other_watchdog_count);
+    cJSON_AddStringToObject(diagnostics, "watchdogUsbStage",
+                            usb_stage_name(diagnostic_watchdog_usb_stage));
+    cJSON_AddStringToObject(
+        diagnostics, "watchdogNetworkStage",
+        network_stage_name(diagnostic_watchdog_network_stage));
     cJSON_AddBoolToObject(diagnostics, "persisted", diagnostics_persisted);
     cJSON_AddNumberToObject(diagnostics, "networkStartDelayMs",
                             SETUP_NETWORK_START_DELAY_MS);
@@ -808,10 +972,13 @@ static void set_bridge_socket(int socket_fd)
 {
     if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         bridge_socket = socket_fd;
-        if (pending_usb_length > 0U &&
-            !send_tunnel_frame(socket_fd, pending_usb_bytes,
-                               pending_usb_length)) {
-            shutdown(socket_fd, SHUT_RDWR);
+        if (pending_usb_length > 0U) {
+            set_usb_stage(DIAGNOSTIC_USB_REPLAYING);
+            if (!send_tunnel_frame(socket_fd, pending_usb_bytes,
+                                   pending_usb_length)) {
+                shutdown(socket_fd, SHUT_RDWR);
+            }
+            set_usb_stage(DIAGNOSTIC_USB_IDLE);
         }
         xSemaphoreGive(socket_mutex);
     }
@@ -829,8 +996,10 @@ static void clear_bridge_socket(int socket_fd)
 
 static void bridge_send_usb(const uint8_t *bytes, size_t length)
 {
+    set_usb_stage(DIAGNOSTIC_USB_BUFFERING);
     if (length == 0U || length > UINT16_MAX ||
         xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        set_usb_stage(DIAGNOSTIC_USB_IDLE);
         return;
     }
     int socket_fd = bridge_socket;
@@ -845,6 +1014,7 @@ static void bridge_send_usb(const uint8_t *bytes, size_t length)
         }
     }
     xSemaphoreGive(socket_mutex);
+    set_usb_stage(DIAGNOSTIC_USB_IDLE);
 }
 
 static void confirm_usb_session_started(void)
@@ -857,6 +1027,7 @@ static void confirm_usb_session_started(void)
 
 static bool associate_wifi(void)
 {
+    set_network_stage(DIAGNOSTIC_NETWORK_WIFI);
     wifi_state = "associating";
     if (initialize_wifi() != ESP_OK) {
         return false;
@@ -899,6 +1070,7 @@ static bool associate_wifi(void)
 
 static int connect_backend(void)
 {
+    set_network_stage(DIAGNOSTIC_NETWORK_RESOLVING);
     backend_state = "resolving";
     char service[6];
     snprintf(service, sizeof(service), "%u", SETUP_BACKEND_PORT);
@@ -915,6 +1087,7 @@ static int connect_backend(void)
         return -1;
     }
     backend_state = "connecting";
+    set_network_stage(DIAGNOSTIC_NETWORK_CONNECTING);
     int socket_fd = socket(addresses->ai_family, addresses->ai_socktype,
                            addresses->ai_protocol);
     if (socket_fd < 0 ||
@@ -955,6 +1128,7 @@ static bool persist_device_token(const char *token)
 
 static bool authenticate_backend(int socket_fd)
 {
+    set_network_stage(DIAGNOSTIC_NETWORK_AUTHENTICATING);
     backend_state = "authenticating";
     cJSON *hello = cJSON_CreateObject();
     if (hello == NULL) {
@@ -1006,6 +1180,7 @@ static bool authenticate_backend(int socket_fd)
 
 static void tunnel_backend(int socket_fd)
 {
+    set_network_stage(DIAGNOSTIC_NETWORK_TUNNEL);
     backend_state = "online";
     lifecycle_state = "operational";
     set_bridge_socket(socket_fd);
@@ -1036,11 +1211,13 @@ static void tunnel_backend(int socket_fd)
 static void network_task(void *context)
 {
     (void)context;
+    set_network_stage(DIAGNOSTIC_NETWORK_DELAYING);
     vTaskDelay(pdMS_TO_TICKS(SETUP_NETWORK_START_DELAY_MS));
     while (true) {
         if (!associate_wifi()) {
             wifi_state = "backoff";
             backend_state = "offline";
+            set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
             vTaskDelay(pdMS_TO_TICKS(3000));
             continue;
         }
@@ -1050,10 +1227,12 @@ static void network_task(void *context)
                 close(socket_fd);
             }
             backend_state = "backoff";
+            set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
             vTaskDelay(pdMS_TO_TICKS(3000));
             continue;
         }
         tunnel_backend(socket_fd);
+        set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
         vTaskDelay(pdMS_TO_TICKS(1500));
     }
 }
@@ -1061,12 +1240,14 @@ static void network_task(void *context)
 static void cdc_rx_callback(int interface, cdcacm_event_t *event)
 {
     (void)event;
+    set_usb_stage(DIAGNOSTIC_USB_RECEIVING);
     setup_rx_event_t message = {0};
     if (tinyusb_cdcacm_read(interface, message.bytes, sizeof(message.bytes),
                             &message.length) == ESP_OK &&
         message.length > 0U) {
         (void)xQueueSend(rx_queue, &message, 0);
     }
+    set_usb_stage(DIAGNOSTIC_USB_IDLE);
 }
 
 static void cdc_line_state_callback(int interface, cdcacm_event_t *event)
@@ -1168,6 +1349,7 @@ void app_main(void)
     }
 
     const tinyusb_config_t usb_configuration = TINYUSB_DEFAULT_CONFIG();
+    set_usb_stage(DIAGNOSTIC_USB_INITIALIZING);
     ESP_ERROR_CHECK(tinyusb_driver_install(&usb_configuration));
     const tinyusb_config_cdcacm_t cdc_configuration = {
         .cdc_port = TINYUSB_CDC_ACM_0,
@@ -1177,6 +1359,7 @@ void app_main(void)
         .callback_line_coding_changed = NULL,
     };
     ESP_ERROR_CHECK(tinyusb_cdcacm_init(&cdc_configuration));
+    set_usb_stage(DIAGNOSTIC_USB_IDLE);
 
     if (configured_ssid[0] != '\0' &&
         (claim_token[0] != '\0' || device_token[0] != '\0')) {
@@ -1192,8 +1375,10 @@ void app_main(void)
             bool setup_bytes = setup_mode || setup_protocol_active ||
                                event.bytes[0] == '{';
             if (setup_bytes) {
+                set_usb_stage(DIAGNOSTIC_USB_SETUP);
                 setup_protocol_active = true;
                 consume_bytes(event.bytes, event.length);
+                set_usb_stage(DIAGNOSTIC_USB_IDLE);
             } else {
                 bridge_send_usb(event.bytes, event.length);
             }

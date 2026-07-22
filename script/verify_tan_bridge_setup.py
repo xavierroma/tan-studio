@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import uuid
 
 import serial
@@ -105,7 +106,11 @@ def validate_negative_paths(device: serial.Serial) -> None:
         "invalid_request",
     )
 
-    device.write(b"x" * MAX_LINE_BYTES + b"\n")
+    oversized_request = b"x" * MAX_LINE_BYTES + b"\n"
+    for offset in range(0, len(oversized_request), 128):
+        device.write(oversized_request[offset : offset + 128])
+        device.flush()
+        time.sleep(0.005)
     oversized_response = json.loads(device.readline(MAX_LINE_BYTES + 1))
     error = oversized_response.get("error")
     if not isinstance(error, dict) or error.get("code") != "invalid_request":
@@ -142,6 +147,12 @@ def validate_status(status: dict[str, object]) -> None:
             "brownoutCount",
             "watchdogCount",
             "lastResetReason",
+            "previousResetReason",
+            "interruptWatchdogCount",
+            "taskWatchdogCount",
+            "otherWatchdogCount",
+            "watchdogUsbStage",
+            "watchdogNetworkStage",
             "persisted",
             "networkStartDelayMs",
             "wifiMaxTxPowerQuarterDbm",
@@ -152,6 +163,12 @@ def validate_status(status: dict[str, object]) -> None:
         or diagnostics["brownoutCount"] < 0
         or not isinstance(diagnostics["watchdogCount"], int)
         or diagnostics["watchdogCount"] < 0
+        or not isinstance(diagnostics["interruptWatchdogCount"], int)
+        or diagnostics["interruptWatchdogCount"] < 0
+        or not isinstance(diagnostics["taskWatchdogCount"], int)
+        or diagnostics["taskWatchdogCount"] < 0
+        or not isinstance(diagnostics["otherWatchdogCount"], int)
+        or diagnostics["otherWatchdogCount"] < 0
         or diagnostics["networkStartDelayMs"] != 2_500
         or diagnostics["wifiMaxTxPowerQuarterDbm"] != 44
     ):
