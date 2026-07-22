@@ -247,3 +247,89 @@ Do not flash `tan-bridge-setup` or `tan-bridge-esp32s3` onto the Nano
 connection based on this result. Repeat section 7 with the Atom disconnected
 from the Mac, connected only to the powered Nano for 30 seconds, then moved
 back to the Mac for exactly one diagnostic read.
+
+## At-home hardware gate pass
+
+Date: 21 July 2026
+
+Repository commit: `ce0059c1`
+
+Passive probe application SHA-256:
+`5f9fb53806f5444891d9737fcf1ccf1c33bb8df434b394cf32cc9ca50c301405`
+
+Command:
+
+```sh
+uv run script/read_usb_role_probe.py /dev/cu.usbmodemrole_probe1
+```
+
+Observed result:
+
+```json
+{
+  "current": {
+    "attached": 1,
+    "bitRate": 921600,
+    "boot": 10,
+    "detached": 0,
+    "droppedEvents": 0,
+    "dtr": 1,
+    "lastFrameLength": 0,
+    "lastSassiType": 0,
+    "lineCodingChanges": 9,
+    "lineStateChanges": 1,
+    "longestFrameLength": 0,
+    "malformedSassiFrames": 0,
+    "rts": 1,
+    "rxBytes": 15,
+    "rxCallbacks": 1,
+    "sassiFrames": 0
+  },
+  "previous": {
+    "attached": 1,
+    "bitRate": 0,
+    "boot": 9,
+    "detached": 0,
+    "droppedEvents": 0,
+    "dtr": 0,
+    "lastFrameLength": 71,
+    "lastSassiType": 2,
+    "lineCodingChanges": 0,
+    "lineStateChanges": 0,
+    "longestFrameLength": 71,
+    "malformedSassiFrames": 0,
+    "rts": 0,
+    "rxBytes": 560,
+    "rxCallbacks": 16,
+    "sassiFrames": 6
+  },
+  "previousAvailable": true,
+  "probe": "tan-usb-role",
+  "schemaVersion": 1
+}
+```
+
+Command exit status: `0`.
+
+Interpretation: pass. The previous session has Nano-compatible passive
+metadata: `attached > 0`, `rxBytes > 0`, `sassiFrames > 0`, `bitRate == 0`,
+`dtr == 0`, `rts == 0`, and last SASSI type `2`. This proves the Nano can power
+and enumerate the AtomS3 Lite as a USB CDC device and sends spontaneous SASSI
+traffic to it.
+
+Measurements were not available in this run:
+
+- cable identity: not recorded;
+- meter identity: not recorded;
+- VBUS voltage: not measured;
+- idle current: not measured;
+- peak current: not measured;
+- resets or brownouts: not observed by software;
+- Nano reset behavior: not observed by software;
+- backfeed indication: not measured.
+
+The next stage may proceed only as a staged proof. `tan-bridge-setup` remains a
+computer/browser setup image and must not be used while connected to the Nano.
+`tan-bridge-esp32s3` is the receive-only Nano foundation; its current release
+image intentionally has no Wi-Fi, no API server, no USB transmit path, and no
+Tan Studio UI integration.
