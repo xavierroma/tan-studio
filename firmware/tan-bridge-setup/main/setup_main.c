@@ -33,8 +33,10 @@
 #define SETUP_MAX_NETWORKS 12U
 #define SETUP_BACKEND_HOST "xrc.local"
 #define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.1-local"
-#define SETUP_BUILD_ID "local-lan-v2"
+#define SETUP_FIRMWARE_VERSION "0.2.2-local"
+#define SETUP_BUILD_ID "local-lan-v3"
+#define SETUP_NETWORK_START_DELAY_MS 2500U
+#define SETUP_WIFI_MAX_TX_POWER_QDBM 44
 #define SETUP_TOKEN_BYTES 65U
 #define SETUP_SSID_BYTES 33U
 #define SETUP_CREDENTIAL_BYTES 64U
@@ -72,6 +74,11 @@ static char configured_credential[SETUP_CREDENTIAL_BYTES];
 static char claim_token[SETUP_TOKEN_BYTES];
 static char device_token[SETUP_TOKEN_BYTES];
 static uint32_t configuration_generation;
+static uint32_t diagnostic_boot_count;
+static uint32_t diagnostic_brownout_count;
+static uint32_t diagnostic_watchdog_count;
+static const char *diagnostic_last_reset_reason = "unknown";
+static bool diagnostics_persisted;
 
 static const char malformed_request_id[] =
     "00000000-0000-4000-8000-000000000000";
@@ -211,6 +218,91 @@ static cJSON *new_response(const char *request_id)
     return response;
 }
 
+static const char *reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+    case ESP_RST_POWERON:
+        return "powerOn";
+    case ESP_RST_EXT:
+        return "external";
+    case ESP_RST_SW:
+        return "software";
+    case ESP_RST_PANIC:
+        return "panic";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+        return "watchdog";
+    case ESP_RST_DEEPSLEEP:
+        return "deepSleep";
+    case ESP_RST_BROWNOUT:
+        return "brownout";
+    case ESP_RST_SDIO:
+        return "sdio";
+    default:
+        return "unknown";
+    }
+}
+
+static bool reset_reason_is_watchdog(esp_reset_reason_t reason)
+{
+    return reason == ESP_RST_INT_WDT || reason == ESP_RST_TASK_WDT ||
+           reason == ESP_RST_WDT;
+}
+
+static uint32_t increment_saturating(uint32_t value)
+{
+    return value == UINT32_MAX ? value : value + 1U;
+}
+
+static void initialize_diagnostics(void)
+{
+    esp_reset_reason_t reset_reason = esp_reset_reason();
+    diagnostic_last_reset_reason = reset_reason_name(reset_reason);
+
+    nvs_handle_t store = 0;
+    if (nvs_open("tan_diag", NVS_READWRITE, &store) != ESP_OK) {
+        return;
+    }
+    if (nvs_get_u32(store, "boot_count", &diagnostic_boot_count) != ESP_OK) {
+        diagnostic_boot_count = 0U;
+    }
+    if (nvs_get_u32(store, "brownout_count", &diagnostic_brownout_count) !=
+        ESP_OK) {
+        diagnostic_brownout_count = 0U;
+    }
+    if (nvs_get_u32(store, "watchdog_count", &diagnostic_watchdog_count) !=
+        ESP_OK) {
+        diagnostic_watchdog_count = 0U;
+    }
+    diagnostic_boot_count = increment_saturating(diagnostic_boot_count);
+    if (reset_reason == ESP_RST_BROWNOUT) {
+        diagnostic_brownout_count =
+            increment_saturating(diagnostic_brownout_count);
+    }
+    if (reset_reason_is_watchdog(reset_reason)) {
+        diagnostic_watchdog_count =
+            increment_saturating(diagnostic_watchdog_count);
+    }
+    esp_err_t result = nvs_set_u32(store, "boot_count", diagnostic_boot_count);
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "brownout_count",
+                             diagnostic_brownout_count);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "watchdog_count",
+                             diagnostic_watchdog_count);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(store, "last_reset", (uint32_t)reset_reason);
+    }
+    if (result == ESP_OK) {
+        result = nvs_commit(store);
+    }
+    diagnostics_persisted = result == ESP_OK;
+    nvs_close(store);
+}
+
 static void send_error(const char *request_id, const char *code,
                        const char *message, bool retryable)
 {
@@ -236,14 +328,17 @@ static void send_status(const char *request_id)
     cJSON *wifi = cJSON_CreateObject();
     cJSON *backend = cJSON_CreateObject();
     cJSON *claim = cJSON_CreateObject();
+    cJSON *diagnostics = cJSON_CreateObject();
     if (response == NULL || result == NULL || firmware == NULL ||
-        wifi == NULL || backend == NULL || claim == NULL) {
+        wifi == NULL || backend == NULL || claim == NULL ||
+        diagnostics == NULL) {
         cJSON_Delete(response);
         cJSON_Delete(result);
         cJSON_Delete(firmware);
         cJSON_Delete(wifi);
         cJSON_Delete(backend);
         cJSON_Delete(claim);
+        cJSON_Delete(diagnostics);
         return;
     }
 
@@ -264,6 +359,19 @@ static void send_status(const char *request_id)
         device_token[0] != '\0' ? "claimed" :
         (claim_token[0] != '\0' ? "pending" : "unclaimed"));
     cJSON_AddItemToObject(result, "claim", claim);
+    cJSON_AddNumberToObject(diagnostics, "bootCount", diagnostic_boot_count);
+    cJSON_AddNumberToObject(diagnostics, "brownoutCount",
+                            diagnostic_brownout_count);
+    cJSON_AddNumberToObject(diagnostics, "watchdogCount",
+                            diagnostic_watchdog_count);
+    cJSON_AddStringToObject(diagnostics, "lastResetReason",
+                            diagnostic_last_reset_reason);
+    cJSON_AddBoolToObject(diagnostics, "persisted", diagnostics_persisted);
+    cJSON_AddNumberToObject(diagnostics, "networkStartDelayMs",
+                            SETUP_NETWORK_START_DELAY_MS);
+    cJSON_AddNumberToObject(diagnostics, "wifiMaxTxPowerQuarterDbm",
+                            SETUP_WIFI_MAX_TX_POWER_QDBM);
+    cJSON_AddItemToObject(result, "diagnostics", diagnostics);
     cJSON_AddItemToObject(response, "result", result);
     send_json(response);
 }
@@ -757,6 +865,10 @@ static bool associate_wifi(void)
     if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
         return false;
     }
+    if (esp_wifi_set_ps(WIFI_PS_MIN_MODEM) != ESP_OK ||
+        esp_wifi_set_max_tx_power(SETUP_WIFI_MAX_TX_POWER_QDBM) != ESP_OK) {
+        return false;
+    }
     wifi_config_t configuration = {0};
     memcpy(configuration.sta.ssid, configured_ssid,
            strlen(configured_ssid));
@@ -924,6 +1036,7 @@ static void tunnel_backend(int socket_fd)
 static void network_task(void *context)
 {
     (void)context;
+    vTaskDelay(pdMS_TO_TICKS(SETUP_NETWORK_START_DELAY_MS));
     while (true) {
         if (!associate_wifi()) {
             wifi_state = "backoff";
@@ -1045,6 +1158,7 @@ void app_main(void)
         nvs_result = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvs_result);
+    initialize_diagnostics();
     initialize_identity();
 
     rx_queue = xQueueCreate(16U, sizeof(setup_rx_event_t));

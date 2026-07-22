@@ -54,3 +54,16 @@ contract with:
 ```sh
 uv run script/verify_tan_bridge_setup.py /dev/cu.usbmodem...
 ```
+
+For an already-provisioned bridge, a reviewed application-only update can keep
+the NVS identity, Wi-Fi credential, and issued device token intact. Put the
+Atom in ROM download mode with the Nano disconnected, then use the separate
+guarded updater:
+
+```sh
+./script/update_tan_bridge_setup_firmware.sh /dev/cu.usbmodem...
+```
+
+The updater writes only the factory application partition at `0x10000`; it
+does not run `erase-flash` and does not touch the NVS partition. The original
+flash script remains the recovery path when configuration must be erased.

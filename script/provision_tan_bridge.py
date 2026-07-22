@@ -113,7 +113,7 @@ def wait_for_backend(bridge_id: str, token: str, timeout_seconds: int) -> None:
                 if (
                     isinstance(item, dict)
                     and item.get("bridgeId") == bridge_id
-                    and item.get("firmwareVersion") == "0.2.1-local"
+                    and item.get("firmwareVersion") == "0.2.2-local"
                     and item.get("state") == "connected"
                 ):
                     return
@@ -159,8 +159,8 @@ def main() -> int:
         bridge_id = status.get("bridgeId")
         if (
             not isinstance(firmware, dict)
-            or firmware.get("version") != "0.2.1-local"
-            or firmware.get("build") != "local-lan-v2"
+            or firmware.get("version") != "0.2.2-local"
+            or firmware.get("build") != "local-lan-v3"
             or not isinstance(backend, dict)
             or backend.get("host") != BACKEND_HOST
             or backend.get("port") != BACKEND_PORT
@@ -198,8 +198,8 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "firmware": "0.2.1-local",
-                "build": "local-lan-v2",
+                "firmware": "0.2.2-local",
+                "build": "local-lan-v3",
                 "configurationAccepted": True,
                 "backendHost": BACKEND_HOST,
                 "backendPort": BACKEND_PORT,

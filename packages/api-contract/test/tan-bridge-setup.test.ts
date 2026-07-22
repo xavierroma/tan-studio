@@ -32,6 +32,15 @@ describe("Tan Bridge Web Serial setup contract", () => {
           wifi: { state: "disabled" },
           backend: { state: "offline", host: TanBridgeBackendHost },
           claim: { state: "unclaimed" },
+          diagnostics: {
+            bootCount: 1,
+            brownoutCount: 0,
+            watchdogCount: 0,
+            lastResetReason: "powerOn",
+            persisted: true,
+            networkStartDelayMs: 2_500,
+            wifiMaxTxPowerQuarterDbm: 44,
+          },
         },
       }).success
     ).toBe(true)
@@ -60,6 +69,15 @@ describe("Tan Bridge Web Serial setup contract", () => {
           wifi: { state: "disabled", password: "must-not-leak" },
           backend: { state: "offline", host: TanBridgeBackendHost },
           claim: { state: "unclaimed" },
+          diagnostics: {
+            bootCount: 1,
+            brownoutCount: 0,
+            watchdogCount: 0,
+            lastResetReason: "powerOn",
+            persisted: true,
+            networkStartDelayMs: 2_500,
+            wifiMaxTxPowerQuarterDbm: 44,
+          },
         },
       }).success
     ).toBe(false)

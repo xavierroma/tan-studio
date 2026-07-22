@@ -83,6 +83,15 @@ describe("Tan Bridge Web Serial client", () => {
           host: "bridge.tanstudio.xroma.dev",
         },
         claim: { state: "unclaimed" },
+        diagnostics: {
+          bootCount: 1,
+          brownoutCount: 0,
+          watchdogCount: 0,
+          lastResetReason: "powerOn",
+          persisted: true,
+          networkStartDelayMs: 2_500,
+          wifiMaxTxPowerQuarterDbm: 44,
+        },
       })
     )
 

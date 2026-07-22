@@ -113,7 +113,16 @@ def validate_negative_paths(device: serial.Serial) -> None:
 
 
 def validate_status(status: dict[str, object]) -> None:
-    if set(status) != {"protocolVersion", "bridgeId", "firmware", "lifecycle", "wifi", "backend", "claim"}:
+    if set(status) != {
+        "protocolVersion",
+        "bridgeId",
+        "firmware",
+        "lifecycle",
+        "wifi",
+        "backend",
+        "claim",
+        "diagnostics",
+    }:
         raise AssertionError("status properties drifted")
     if status["protocolVersion"] != 1:
         raise AssertionError("unexpected setup protocol version")
@@ -124,6 +133,29 @@ def validate_status(status: dict[str, object]) -> None:
         or backend.get("port") != BACKEND_PORT
     ):
         raise AssertionError("unexpected backend status")
+    diagnostics = status["diagnostics"]
+    if (
+        not isinstance(diagnostics, dict)
+        or set(diagnostics)
+        != {
+            "bootCount",
+            "brownoutCount",
+            "watchdogCount",
+            "lastResetReason",
+            "persisted",
+            "networkStartDelayMs",
+            "wifiMaxTxPowerQuarterDbm",
+        }
+        or not isinstance(diagnostics["bootCount"], int)
+        or diagnostics["bootCount"] < 1
+        or not isinstance(diagnostics["brownoutCount"], int)
+        or diagnostics["brownoutCount"] < 0
+        or not isinstance(diagnostics["watchdogCount"], int)
+        or diagnostics["watchdogCount"] < 0
+        or diagnostics["networkStartDelayMs"] != 2_500
+        or diagnostics["wifiMaxTxPowerQuarterDbm"] != 44
+    ):
+        raise AssertionError("unexpected power diagnostics")
     encoded = json.dumps(status).lower()
     for forbidden in ("password", "credential", "claimtoken"):
         if forbidden in encoded:
@@ -170,6 +202,7 @@ def main() -> int:
                 "firmware": firmware,
                 "lifecycle": status["lifecycle"],
                 "wifiState": status["wifi"],
+                "diagnostics": status["diagnostics"],
                 "visibleNetworkCount": network_count,
                 "ssidValuesRedacted": True,
                 "unknownPropertiesRejected": True,

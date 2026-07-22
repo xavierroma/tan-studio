@@ -297,6 +297,12 @@ export function TanBridgeSetupPanel() {
               <dd>{status.wifi.state}</dd>
               <dt className="text-muted-foreground">Backend</dt>
               <dd>{status.backend.state}</dd>
+              <dt className="text-muted-foreground">Last reset</dt>
+              <dd>{status.diagnostics.lastResetReason}</dd>
+              <dt className="text-muted-foreground">Boots</dt>
+              <dd>{status.diagnostics.bootCount}</dd>
+              <dt className="text-muted-foreground">Brownouts</dt>
+              <dd>{status.diagnostics.brownoutCount}</dd>
             </dl>
           </div>
           <div className="rounded-lg border p-4">

@@ -85,6 +85,27 @@ export const TanBridgeSetupStatusSchema = z
         state: TanBridgeClaimStateSchema,
       })
       .strict(),
+    diagnostics: z
+      .object({
+        bootCount: z.number().int().min(1).max(4_294_967_295),
+        brownoutCount: z.number().int().min(0).max(4_294_967_295),
+        watchdogCount: z.number().int().min(0).max(4_294_967_295),
+        lastResetReason: z.enum([
+          "unknown",
+          "powerOn",
+          "external",
+          "software",
+          "panic",
+          "watchdog",
+          "deepSleep",
+          "brownout",
+          "sdio",
+        ]),
+        persisted: z.boolean(),
+        networkStartDelayMs: z.literal(2_500),
+        wifiMaxTxPowerQuarterDbm: z.literal(44),
+      })
+      .strict(),
   })
   .strict()
 
