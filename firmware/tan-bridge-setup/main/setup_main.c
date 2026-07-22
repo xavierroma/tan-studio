@@ -33,8 +33,8 @@
 #define SETUP_MAX_NETWORKS 12U
 #define SETUP_BACKEND_HOST "xrc.local"
 #define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.0-local"
-#define SETUP_BUILD_ID "local-lan-v1"
+#define SETUP_FIRMWARE_VERSION "0.2.1-local"
+#define SETUP_BUILD_ID "local-lan-v2"
 #define SETUP_TOKEN_BYTES 65U
 #define SETUP_SSID_BYTES 33U
 #define SETUP_CREDENTIAL_BYTES 64U
@@ -61,8 +61,12 @@ static const char *backend_state = "offline";
 static bool wifi_initialized;
 static esp_netif_t *wifi_netif;
 static volatile bool setup_mode;
+static volatile bool setup_protocol_active;
 static SemaphoreHandle_t socket_mutex;
 static int bridge_socket = -1;
+static uint8_t pending_usb_bytes[TUNNEL_MAX_PAYLOAD_BYTES];
+static size_t pending_usb_length;
+static bool usb_bootstrap_confirmed;
 static char configured_ssid[SETUP_SSID_BYTES];
 static char configured_credential[SETUP_CREDENTIAL_BYTES];
 static char claim_token[SETUP_TOKEN_BYTES];
@@ -163,7 +167,7 @@ static bool request_id_was_seen(const char *request_id)
     return false;
 }
 
-static void write_line(const char *line, size_t length)
+static bool write_line(const char *line, size_t length)
 {
     size_t offset = 0U;
     while (offset < length) {
@@ -173,10 +177,11 @@ static void write_line(const char *line, size_t length)
         if (queued == 0U ||
             tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0,
                                        pdMS_TO_TICKS(250)) != ESP_OK) {
-            return;
+            return false;
         }
         offset += queued;
     }
+    return true;
 }
 
 static void send_json(cJSON *response)
@@ -679,10 +684,27 @@ static bool allowed_backend_sassi_frame(const uint8_t *bytes, size_t length)
            message_type == 13U;
 }
 
+static bool send_tunnel_frame(int socket_fd, const uint8_t *bytes,
+                              size_t length)
+{
+    uint8_t header[3] = {
+        TUNNEL_USB_TO_BACKEND,
+        (uint8_t)(length >> 8U),
+        (uint8_t)(length & 0xffU),
+    };
+    return send_all(socket_fd, header, sizeof(header)) &&
+           send_all(socket_fd, bytes, length);
+}
+
 static void set_bridge_socket(int socket_fd)
 {
     if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         bridge_socket = socket_fd;
+        if (pending_usb_length > 0U &&
+            !send_tunnel_frame(socket_fd, pending_usb_bytes,
+                               pending_usb_length)) {
+            shutdown(socket_fd, SHUT_RDWR);
+        }
         xSemaphoreGive(socket_mutex);
     }
 }
@@ -704,18 +726,25 @@ static void bridge_send_usb(const uint8_t *bytes, size_t length)
         return;
     }
     int socket_fd = bridge_socket;
+    if (!usb_bootstrap_confirmed &&
+        length <= sizeof(pending_usb_bytes) - pending_usb_length) {
+        memcpy(pending_usb_bytes + pending_usb_length, bytes, length);
+        pending_usb_length += length;
+    }
     if (socket_fd >= 0) {
-        uint8_t header[3] = {
-            TUNNEL_USB_TO_BACKEND,
-            (uint8_t)(length >> 8U),
-            (uint8_t)(length & 0xffU),
-        };
-        if (!send_all(socket_fd, header, sizeof(header)) ||
-            !send_all(socket_fd, bytes, length)) {
+        if (!send_tunnel_frame(socket_fd, bytes, length)) {
             shutdown(socket_fd, SHUT_RDWR);
         }
     }
     xSemaphoreGive(socket_mutex);
+}
+
+static void confirm_usb_session_started(void)
+{
+    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
+        usb_bootstrap_confirmed = true;
+        xSemaphoreGive(socket_mutex);
+    }
 }
 
 static bool associate_wifi(void)
@@ -881,8 +910,9 @@ static void tunnel_backend(int socket_fd)
             !allowed_backend_sassi_frame(payload, length)) {
             break;
         }
-        if (!setup_mode) {
-            write_line((const char *)payload, length);
+        if (!setup_mode && !setup_protocol_active &&
+            write_line((const char *)payload, length)) {
+            confirm_usb_session_started();
         }
     }
     clear_bridge_socket(socket_fd);
@@ -930,6 +960,7 @@ static void cdc_line_state_callback(int interface, cdcacm_event_t *event)
 {
     (void)interface;
     setup_mode = event->line_state_changed_data.dtr;
+    setup_protocol_active = setup_mode;
     if (!setup_mode) {
         line_length = 0U;
         discarding_oversized_line = false;
@@ -1044,7 +1075,10 @@ void app_main(void)
     setup_rx_event_t event;
     while (true) {
         if (xQueueReceive(rx_queue, &event, portMAX_DELAY) == pdTRUE) {
-            if (setup_mode) {
+            bool setup_bytes = setup_mode || setup_protocol_active ||
+                               event.bytes[0] == '{';
+            if (setup_bytes) {
+                setup_protocol_active = true;
                 consume_bytes(event.bytes, event.length);
             } else {
                 bridge_send_usb(event.bytes, event.length);

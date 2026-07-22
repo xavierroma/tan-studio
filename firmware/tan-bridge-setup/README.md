@@ -23,11 +23,24 @@ accepted only for the five already verified read-only SASSI message types 1,
 transport is deliberately scoped to the trusted local-LAN milestone; the
 production remote design remains authenticated TLS/WSS.
 
+The Atom retains a bounded 8 KiB bootstrap buffer while Wi-Fi is associating.
+This preserves the Nano's spontaneous SASSI capability frame, which normally
+arrives before the bridge can authenticate. Capture freezes after the backend's
+first validated read-only SASSI response is delivered to the Nano, but the
+bootstrap stays available for replay after a later backend reconnect.
+
 Build and contract-check with:
 
 ```sh
 ./script/build_tan_bridge_setup_firmware.sh
 ```
+
+This uses a digest-pinned ESP-IDF container because no host IDF toolchain is
+required. The generated object cache and linker output stay in the named Docker
+volume `tan-studio-esp-idf-5-5-5`, avoiding the severe random-I/O cost of
+linking on a macOS bind mount; only the three flash binaries and flash manifest
+are copied back. Use `./script/build_tan_bridge_setup_firmware.sh --clean` only
+when the target or locked dependencies change.
 
 With the Nano disconnected, put the Atom in ROM download mode and flash with:
 

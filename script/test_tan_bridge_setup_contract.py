@@ -42,6 +42,26 @@ def main() -> int:
     )
     require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
     require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
+    require(
+        r"pending_usb_bytes\[TUNNEL_MAX_PAYLOAD_BYTES\]",
+        firmware,
+        "pre-network Nano bootstrap buffer",
+    )
+    require(
+        r"static void set_bridge_socket\(int socket_fd\)[\s\S]*?pending_usb_length[\s\S]*?send_tunnel_frame",
+        firmware,
+        "bootstrap replay after backend authentication",
+    )
+    require(
+        r"confirm_usb_session_started\(\)",
+        firmware,
+        "bootstrap freeze after backend-to-Nano progress",
+    )
+    require(
+        r"confirm_usb_session_started\(void\)[\s\S]*?usb_bootstrap_confirmed = true",
+        firmware,
+        "bootstrap retained for reconnect replay",
+    )
     for operation in ("setup.getStatus", "setup.scanWifi", "setup.configure"):
         if operation not in firmware or operation not in contract:
             raise AssertionError(f"operation drift: {operation}")
