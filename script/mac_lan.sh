@@ -47,6 +47,12 @@ TAN_ORIGINS="http://$TAN_NAME_AUTHORITY,http://$TAN_IP_AUTHORITY,http://$TAN_LOO
 
 tan_stop() {
   launchctl bootout "$TAN_LAUNCH_DOMAIN/$TAN_LABEL" >/dev/null 2>&1 || true
+  for _ in {1..30}; do
+    if ! launchctl print "$TAN_LAUNCH_DOMAIN/$TAN_LABEL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
 }
 
 tan_wait_healthy() {
@@ -66,7 +72,14 @@ tan_start() {
     exit 1
   fi
   if ! launchctl print "$TAN_LAUNCH_DOMAIN/$TAN_LABEL" >/dev/null 2>&1; then
-    launchctl bootstrap "$TAN_LAUNCH_DOMAIN" "$TAN_PLIST"
+    if ! launchctl bootstrap "$TAN_LAUNCH_DOMAIN" "$TAN_PLIST"; then
+      # launchd can briefly retain a just-booted-out label. Retry only after
+      # confirming that the requested service was not loaded concurrently.
+      sleep 0.5
+      if ! launchctl print "$TAN_LAUNCH_DOMAIN/$TAN_LABEL" >/dev/null 2>&1; then
+        launchctl bootstrap "$TAN_LAUNCH_DOMAIN" "$TAN_PLIST"
+      fi
+    fi
   else
     launchctl kickstart -k "$TAN_LAUNCH_DOMAIN/$TAN_LABEL"
   fi

@@ -51,6 +51,10 @@ function signalLabel(rssi: number) {
   return "Weak"
 }
 
+function networkLabel(network: TanBridgeVisibleWifiNetwork) {
+  return `${network.ssid || "Hidden network"} · ${signalLabel(network.rssi)} (${network.rssi} dBm)`
+}
+
 export function TanBridgeSetupPanel() {
   const queryClient = useQueryClient()
   const clientRef = useRef<TanBridgeSetupClient | null>(null)
@@ -74,6 +78,14 @@ export function TanBridgeSetupPanel() {
   const selectedNetwork = useMemo(
     () => networks?.find((network) => network.networkId === selectedNetworkId),
     [networks, selectedNetworkId]
+  )
+  const networkItems = useMemo(
+    () =>
+      networks?.map((network) => ({
+        value: network.networkId,
+        label: networkLabel(network),
+      })) ?? [],
+    [networks]
   )
   const needsCredential =
     selectedNetwork !== undefined && selectedNetwork.authMode !== "open"
@@ -149,7 +161,9 @@ export function TanBridgeSetupPanel() {
         claim.backendHost !== TanBridgeBackendHost ||
         claim.backendPort !== TanBridgeBackendPort
       ) {
-        throw new Error("The backend and bridge firmware endpoints do not match.")
+        throw new Error(
+          "The backend and bridge firmware endpoints do not match."
+        )
       }
       await client.configure({
         ssid: selectedNetwork.ssid,
@@ -206,7 +220,10 @@ export function TanBridgeSetupPanel() {
                 <UnplugIcon data-icon="inline-start" />
                 Disconnect
               </Button>
-              <Button onClick={() => void scan()} disabled={activity !== "idle"}>
+              <Button
+                onClick={() => void scan()}
+                disabled={activity !== "idle"}
+              >
                 <RefreshCwIcon data-icon="inline-start" />
                 {activity === "scanning" ? "Scanning…" : "Scan Wi-Fi"}
               </Button>
@@ -245,9 +262,10 @@ export function TanBridgeSetupPanel() {
           <RefreshCwIcon />
           <AlertTitle>Firmware update required</AlertTitle>
           <AlertDescription>
-            This Atom is still running setup-only firmware {status.firmware.version}.
-            You can scan and choose Wi-Fi now, but connecting it to xrc.local
-            requires the local-LAN firmware currently being prepared.
+            This Atom is still running setup-only firmware{" "}
+            {status.firmware.version}. You can scan and choose Wi-Fi now, but
+            connecting it to xrc.local requires the local-LAN firmware currently
+            being prepared.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -304,6 +322,7 @@ export function TanBridgeSetupPanel() {
                 <Field>
                   <FieldLabel htmlFor="tan-bridge-network">Network</FieldLabel>
                   <Select
+                    items={networkItems}
                     value={selectedNetworkId}
                     onValueChange={(value) => {
                       setSelectedNetworkId(value)
@@ -319,20 +338,23 @@ export function TanBridgeSetupPanel() {
                           key={network.networkId}
                           value={network.networkId}
                         >
-                          {network.ssid || "Hidden network"} · {signalLabel(network.rssi)} ({network.rssi} dBm)
+                          {networkLabel(network)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   {selectedNetwork ? (
                     <FieldDescription>
-                      {selectedNetwork.authMode.replaceAll("-", " ")} · channel {selectedNetwork.channel}
+                      {selectedNetwork.authMode.replaceAll("-", " ")} · channel{" "}
+                      {selectedNetwork.channel}
                     </FieldDescription>
                   ) : null}
                 </Field>
                 {needsCredential ? (
                   <Field>
-                    <FieldLabel htmlFor="tan-bridge-password">Wi-Fi password</FieldLabel>
+                    <FieldLabel htmlFor="tan-bridge-password">
+                      Wi-Fi password
+                    </FieldLabel>
                     <Input
                       id="tan-bridge-password"
                       type="password"
@@ -372,7 +394,9 @@ export function TanBridgeSetupPanel() {
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-medium">Registered bridge</h3>
             <Badge
-              variant={bridges.data[0]?.state === "connected" ? "secondary" : "outline"}
+              variant={
+                bridges.data[0]?.state === "connected" ? "secondary" : "outline"
+              }
             >
               {bridges.data[0]?.state}
             </Badge>
