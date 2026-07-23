@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 
-import { listRoasts, updateRoast } from "@/lib/api"
+import { getCoffee, listRoasts, updateRoast } from "@/lib/api"
 
 function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -42,6 +42,21 @@ describe("generated API client integration", () => {
     expect(request.method).toBe("PATCH")
     expect(request.headers.get("If-Match")).toBe('"revision:3"')
     await expect(request.clone().json()).resolves.toEqual({ coffeeId: 2 })
+  })
+
+  test("loads a single coffee through the generated path contract", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ id: 12, name: "Buku Abel" }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getCoffee(12)).resolves.toMatchObject({
+      id: 12,
+      name: "Buku Abel",
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(request.url).pathname).toBe("/api/v1/coffees/12")
   })
 
   test("propagates API problem details instead of inventing demo data", async () => {

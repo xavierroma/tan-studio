@@ -21,7 +21,7 @@ describe("AppShell primary navigation", () => {
       ["/profiles", "Profiles view"],
       ["/coffees", "Coffees view"],
       ["/brews", "Brews view"],
-      ["/devices", "Devices view"],
+      ["/settings", "Settings view"],
     ].map(([path, label]) =>
       createRoute({
         getParentRoute: () => root,

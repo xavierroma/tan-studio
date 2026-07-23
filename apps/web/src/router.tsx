@@ -171,6 +171,24 @@ const coffeesRoute = createRoute({
   ),
 })
 
+const coffeeCreateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/coffees/new",
+  component: lazyRouteComponent(
+    () => import("@/screens/coffee-editor-screen"),
+    "CoffeeEditorScreen"
+  ),
+})
+
+const coffeeDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/coffees/$coffeeId",
+  component: lazyRouteComponent(
+    () => import("@/screens/coffee-editor-screen"),
+    "CoffeeEditorScreen"
+  ),
+})
+
 const brewsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/brews",
@@ -184,6 +202,14 @@ const brewsRoute = createRoute({
     hidden: typeof search.hidden === "string" ? search.hidden : undefined,
     density: search.density === "expanded" ? ("expanded" as const) : undefined,
   }),
+  beforeLoad: ({ search }) => {
+    if (search.tab === "defaults") {
+      throw redirect({
+        to: "/settings",
+        search: { section: undefined },
+      })
+    }
+  },
   component: lazyRouteComponent(
     () => import("@/screens/brews-screen"),
     "BrewsScreen"
@@ -202,13 +228,27 @@ const labelsRoute = createRoute({
   ),
 })
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  validateSearch: (search: Record<string, unknown>) => ({
+    section: search.section === "devices" ? ("devices" as const) : undefined,
+  }),
+  component: lazyRouteComponent(
+    () => import("@/screens/settings-screen"),
+    "SettingsScreen"
+  ),
+})
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
-  component: lazyRouteComponent(
-    () => import("@/screens/device-screen"),
-    "DeviceScreen"
-  ),
+  beforeLoad: () => {
+    throw redirect({
+      to: "/settings",
+      search: { section: "devices" },
+    })
+  },
 })
 
 const routeTree = rootRoute.addChildren([
@@ -218,8 +258,11 @@ const routeTree = rootRoute.addChildren([
   roastDetailRoute,
   profilesRoute,
   coffeesRoute,
+  coffeeCreateRoute,
+  coffeeDetailRoute,
   brewsRoute,
   labelsRoute,
+  settingsRoute,
   devicesRoute,
 ])
 

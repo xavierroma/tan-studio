@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button } from "@tan-studio/ui/components/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@tan-studio/ui/components/card"
 import { CableIcon, ChevronDownIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
-import { PageHeader } from "@/components/page-header"
 import { TanBridgeSetupPanel } from "@/components/tan-bridge-setup-panel"
 import {
   getDevice,
@@ -14,7 +20,7 @@ import {
   synchronizeDevice,
 } from "@/lib/api"
 
-export function DeviceScreen() {
+export function DeviceSettings() {
   const queryClient = useQueryClient()
   const device = useQuery({
     queryKey: queryKeys.device(),
@@ -41,52 +47,51 @@ export function DeviceScreen() {
   const item = device.data
   const connected = item?.connection === "connected"
   return (
-    <div className="min-h-screen">
-      <PageHeader
-        title="Nano"
-        actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
-            >
-              <RefreshCwIcon data-icon="inline-start" />
-              Refresh
-            </Button>
-            <Button
-              onClick={() => sync.mutate()}
-              disabled={!connected || sync.isPending}
-            >
-              Synchronize
-            </Button>
-          </>
-        }
-      />
-      <div className="flex max-w-4xl flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
-        <section className="bg-card rounded-xl border p-4 sm:p-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-muted flex size-10 items-center justify-center rounded-full">
-              <CableIcon />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="font-semibold">
-                  {item?.model ?? "Kaffelogic Nano"}
-                </h2>
-                <Badge variant={connected ? "success" : "warning"}>
-                  {item?.connection ?? "checking"}
-                </Badge>
+    <div className="flex max-w-4xl flex-col gap-5">
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="bg-muted flex size-10 items-center justify-center rounded-full">
+                <CableIcon />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2>{item?.model ?? "Kaffelogic Nano"}</h2>
+                  <Badge variant={connected ? "success" : "warning"}>
+                    {item?.connection ?? "checking"}
+                  </Badge>
+                </div>
+                {!connected && item?.reason ? (
+                  <p className="text-muted-foreground mt-1 text-sm font-normal">
+                    {item.reason}
+                  </p>
+                ) : null}
               </div>
-              {!connected && item?.reason ? (
-                <p className="text-muted-foreground mt-1 text-sm">
-                  {item.reason}
-                </p>
-              ) : null}
             </div>
-          </div>
+          </CardTitle>
+          <CardAction className="flex flex-wrap gap-2">
+            <>
+              <Button
+                variant="outline"
+                onClick={() => refresh.mutate()}
+                disabled={refresh.isPending}
+              >
+                <RefreshCwIcon data-icon="inline-start" />
+                Refresh
+              </Button>
+              <Button
+                onClick={() => sync.mutate()}
+                disabled={!connected || sync.isPending}
+              >
+                Synchronize
+              </Button>
+            </>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
           {item ? (
-            <details className="mt-4 border-t pt-4">
+            <details>
               <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
                 <ChevronDownIcon className="size-4" />
                 Device details
@@ -107,30 +112,36 @@ export function DeviceScreen() {
               </div>
             </details>
           ) : null}
-        </section>
-        {connected ? (
-          <details>
-            <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
-              <ChevronDownIcon className="size-4" />
-              Set up another bridge
-            </summary>
-            <div className="mt-3">
-              <TanBridgeSetupPanel />
-            </div>
-          </details>
-        ) : (
-          <TanBridgeSetupPanel />
-        )}
-        {item ? (
-          <section className="bg-card rounded-xl border p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Last synchronization</h2>
+        </CardContent>
+      </Card>
+      {connected ? (
+        <details>
+          <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+            <ChevronDownIcon className="size-4" />
+            Set up another bridge
+          </summary>
+          <div className="mt-3">
+            <TanBridgeSetupPanel />
+          </div>
+        </details>
+      ) : (
+        <TanBridgeSetupPanel />
+      )}
+      {item ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <h2>Last synchronization</h2>
+            </CardTitle>
+            <CardAction>
               <Badge
                 variant={item.syncState === "failed" ? "warning" : "secondary"}
               >
                 {item.syncState}
               </Badge>
-            </div>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
               <Metric
                 label="Imported logs"
@@ -153,9 +164,9 @@ export function DeviceScreen() {
                 }).format(new Date(item.lastSyncedAt))}
               </p>
             ) : null}
-          </section>
-        ) : null}
-      </div>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

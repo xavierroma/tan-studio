@@ -174,11 +174,15 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
       },
     })
   })
-  await page.goto("/devices")
+  await page.goto("/settings?section=devices")
 
   await expect(
-    page.getByRole("heading", { name: "Nano", exact: true })
+    page.getByRole("heading", { name: "Settings", exact: true })
   ).toBeVisible()
+  await expect(page.getByRole("tab", { name: "Devices" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  )
   const anotherBridge = page.getByText("Set up another bridge", { exact: true })
   if (await anotherBridge.isVisible()) await anotherBridge.click()
   await page.getByRole("button", { name: "Connect Atom" }).click()
@@ -222,6 +226,28 @@ test("coffee and brew tables keep their view state in the URL", async ({
     page.getByRole("button", { name: "Expanded rows" })
   ).toHaveAttribute("aria-pressed", "true")
 
+  await page
+    .getByRole("link", { name: /^#\d+ · .+/u })
+    .first()
+    .click()
+  await expect(page).toHaveURL(/\/coffees\/\d+$/u)
+  await expect(page.getByLabel("Green remaining · g")).toBeVisible()
+  await expect(page.getByLabel("Add files")).toBeVisible()
+
+  await page.goto("/coffees")
+  await page.getByRole("link", { name: "Add coffee" }).click()
+  await expect(page).toHaveURL(/\/coffees\/new$/u)
+  await expect(
+    page.getByRole("heading", { name: "Add coffee", exact: true })
+  ).toBeVisible()
+  await page.getByLabel("Documents & media").setInputFiles({
+    name: "coffee-card.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4 Tan Studio smoke fixture"),
+  })
+  await expect(page.getByText("coffee-card.pdf", { exact: true })).toBeVisible()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+
   await page.goto("/brews")
   await expect(page.getByText("Brew history", { exact: true })).toBeVisible()
   await expect(
@@ -231,6 +257,17 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect
     .poll(() => new URL(page.url()).searchParams.get("density"))
     .toBe("expanded")
+
+  await page.getByRole("link", { name: "Brew settings" }).click()
+  await expect(page).toHaveURL(/\/settings(?:\?|$)/u)
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true })
+  ).toBeVisible()
+  await expect(page.getByLabel("Method", { exact: true })).toBeVisible()
+  await page.getByRole("tab", { name: "Devices" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("section"))
+    .toBe("devices")
   expect(problems).toEqual([])
 })
 
@@ -263,6 +300,20 @@ test("mobile roast preparation and data views fit without horizontal overflow", 
   await page.goto("/roasts")
   await expect(page.getByRole("article").first()).toBeVisible()
   await expect(page.getByRole("table")).toBeHidden()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    )
+    .toBe(true)
+
+  await page.goto("/coffees/new")
+  await expect(
+    page.getByRole("heading", { name: "Add coffee", exact: true })
+  ).toBeVisible()
+  await expect(page.getByLabel("Documents & media")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Settings" })).toBeVisible()
   await expect
     .poll(() =>
       page.evaluate(

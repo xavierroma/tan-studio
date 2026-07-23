@@ -82,6 +82,16 @@ export async function createCoffee(input: CoffeeCreate) {
   )
 }
 
+export async function getCoffee(id: number, signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET("/api/v1/coffees/{id}", {
+      params: { path: { id } },
+      ...(signal ? { signal } : {}),
+    })
+  )
+}
+
 export async function updateCoffee(
   id: number,
   revision: number,
@@ -380,6 +390,7 @@ export const queryKeys = {
   profiles: (q?: string) => ["profiles", q ?? ""] as const,
   profile: (id: number) => ["profile", id] as const,
   coffees: (q?: string) => ["coffees", q ?? ""] as const,
+  coffee: (id: number) => ["coffee", id] as const,
   roasts: (options: object = {}) => ["roasts", options] as const,
   roast: (id: number) => ["roast", id] as const,
   roastContext: (id: number) => ["roast-context", id] as const,

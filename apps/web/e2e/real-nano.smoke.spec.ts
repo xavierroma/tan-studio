@@ -14,9 +14,9 @@ test("real Nano bridge sync is visible through the production LAN UI", async ({
   })
   page.on("pageerror", (error) => runtimeErrors.push(error.message))
 
-  await page.goto("/devices")
+  await page.goto("/settings?section=devices")
   await expect(page).toHaveTitle(/Tan Studio/i)
-  await expect(page.getByRole("heading", { name: "Nano" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible()
   await expect(page.getByText("connected", { exact: true })).toBeVisible()
   await expect(page.getByRole("heading", { name: "KN1007B" })).toBeVisible()
   await page.getByText("Device details", { exact: true }).click()

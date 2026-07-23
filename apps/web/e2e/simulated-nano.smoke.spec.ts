@@ -3,9 +3,9 @@ import { expect, test } from "@playwright/test"
 test("simulated Nano sync is visible through the production UI", async ({
   page,
 }) => {
-  await page.goto("/devices")
+  await page.goto("/settings?section=devices")
 
-  await expect(page.getByRole("heading", { name: "Nano" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible()
   await expect(page.getByText("connected", { exact: true })).toBeVisible()
   await expect(page.getByRole("heading", { name: "KN1007B" })).toBeVisible()
   await page.getByText("Device details", { exact: true }).click()

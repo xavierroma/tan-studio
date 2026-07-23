@@ -8,11 +8,11 @@ import {
 } from "@tan-studio/ui/components/tooltip"
 import {
   BookOpenTextIcon,
-  CableIcon,
   ChartNoAxesCombinedIcon,
   CoffeeIcon,
   CupSodaIcon,
   FlameIcon,
+  SettingsIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
 
@@ -75,7 +75,12 @@ const navigation = [
       density: undefined,
     },
   },
-  { label: "Devices", to: "/devices", icon: CableIcon, search: {} },
+  {
+    label: "Settings",
+    to: "/settings",
+    icon: SettingsIcon,
+    search: { section: undefined },
+  },
 ] as const
 
 function NavLink({
@@ -180,7 +185,7 @@ export function AppShell() {
           className="bg-sidebar/95 fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t px-2 py-1 backdrop-blur md:hidden"
           aria-label="Primary navigation"
         >
-          {navigation.slice(0, 5).map((item) => (
+          {navigation.map((item) => (
             <NavLink key={item.to} {...item} compact />
           ))}
         </nav>
