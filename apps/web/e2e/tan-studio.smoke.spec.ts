@@ -88,7 +88,9 @@ test("profile and roast pickers show human labels", async ({ page }) => {
     .poll(() => new URL(page.url()).searchParams.get("compare"))
     .toMatch(/^\d+$/u)
   await expect(
-    page.getByRole("img", { name: "Profile comparison chart" })
+    page.getByRole("img", {
+      name: /Overlaid Kaffelogic profile temperature and fan curves/u,
+    })
   ).toBeVisible()
 
   await page.goto("/roast")
