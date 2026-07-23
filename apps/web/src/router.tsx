@@ -3,7 +3,9 @@ import {
   createRoute,
   createRouter,
   lazyRouteComponent,
+  parseSearchWith,
   redirect,
+  stringifySearchWith,
 } from "@tanstack/react-router"
 import { Link } from "@tanstack/react-router"
 import { buttonVariants } from "@tan-studio/ui/components/button"
@@ -190,10 +192,11 @@ const profilesRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({
     profileId: integer(search.profileId),
     compare:
-      typeof search.compare === "string" &&
-      /^([1-9]\d*)(,[1-9]\d*){0,3}$/u.test(search.compare)
+      integer(search.compare) ??
+      (typeof search.compare === "string" &&
+      /^([1-9]\d*)(,[1-9]\d*){1,2}$/u.test(search.compare)
         ? search.compare
-        : undefined,
+        : undefined),
   }),
   component: lazyRouteComponent(
     () => import("@/screens/profile-editor-screen"),
@@ -341,6 +344,8 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  parseSearch: parseSearchWith((value) => value),
+  stringifySearch: stringifySearchWith(JSON.stringify),
   defaultPendingMs: 120,
   defaultPendingMinMs: 240,
 })

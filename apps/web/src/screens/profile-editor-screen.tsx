@@ -209,9 +209,10 @@ export function ProfileEditorScreen() {
   })
   const compareIds = useMemo(
     () =>
-      (search.compare?.split(",").map(Number) ?? []).filter(
-        (id) => Number.isSafeInteger(id) && id > 0 && id !== selectedId
-      ),
+      (search.compare == null
+        ? []
+        : String(search.compare).split(",").map(Number)
+      ).filter((id) => Number.isSafeInteger(id) && id > 0 && id !== selectedId),
     [search.compare, selectedId]
   )
   const comparisons = useQueries({
@@ -491,7 +492,12 @@ export function ProfileEditorScreen() {
                           void navigate({
                             search: {
                               profileId: item.id,
-                              compare: next.length ? next.join(",") : undefined,
+                              compare:
+                                next.length === 1
+                                  ? next[0]
+                                  : next.length
+                                    ? next.join(",")
+                                    : undefined,
                             },
                             replace: true,
                           })
