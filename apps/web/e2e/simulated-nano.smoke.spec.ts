@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test"
 
+test.skip(
+  process.env.TAN_STUDIO_SIMULATED_NANO !== "smoke",
+  "requires the isolated simulated Nano service fixture"
+)
+
 test("simulated Nano sync is visible through the production UI", async ({
   page,
 }) => {

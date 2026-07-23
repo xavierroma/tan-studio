@@ -437,7 +437,7 @@ export function CoffeeEditorScreen() {
           onSubmit={submit}
           className="flex flex-col gap-5"
         >
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid items-start gap-5 lg:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle>
