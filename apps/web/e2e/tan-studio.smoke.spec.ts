@@ -4,10 +4,12 @@ function captureBrowserProblems(page: Page) {
   const problems: string[] = []
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warning") {
-      problems.push(`${message.type()}: ${message.text()}`)
+      problems.push(`${message.type()} at ${page.url()}: ${message.text()}`)
     }
   })
-  page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`))
+  page.on("pageerror", (error) =>
+    problems.push(`pageerror at ${page.url()}: ${error.message}`)
+  )
   return problems
 }
 
@@ -235,7 +237,7 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect(page.getByLabel("Add files")).toBeVisible()
 
   await page.goto("/coffees")
-  await page.getByRole("link", { name: "Add coffee" }).click()
+  await page.locator("header").getByRole("link", { name: "Add coffee" }).click()
   await expect(page).toHaveURL(/\/coffees\/new$/u)
   await expect(
     page.getByRole("heading", { name: "Add coffee", exact: true })

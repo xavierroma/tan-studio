@@ -268,7 +268,6 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
-  defaultPreload: "intent",
   defaultPendingMs: 120,
   defaultPendingMinMs: 240,
 })
