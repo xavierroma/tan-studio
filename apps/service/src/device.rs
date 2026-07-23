@@ -169,7 +169,7 @@ fn device_loop(
     discover_physical_device: bool,
 ) {
     let log_importer = KlogImporter::new(database.clone());
-    let profile_importer = KproImporter::new(database);
+    let profile_importer = KproImporter::new(database.clone());
     let mut session = initial_transport.map(|transport| {
         let mut current = reconnecting("awaiting_sassi_handshake");
         current.transport = Some("simulated-nano".into());
@@ -192,7 +192,14 @@ fn device_loop(
                 }
                 Ok(Command::Synchronize(reply)) => {
                     let result = if let Some(active) = session.as_mut() {
-                        synchronize(active, &snapshot, &log_importer, &profile_importer)
+                        synchronize(
+                            active,
+                            &snapshot,
+                            &log_importer,
+                            &profile_importer,
+                            &database,
+                            "manual",
+                        )
                     } else {
                         Err("device_not_connected".into())
                     };
@@ -254,9 +261,14 @@ fn device_loop(
                 Ok(()) => {
                     if active.phase == Phase::Ready && !active.sync_attempted {
                         active.sync_attempted = true;
-                        if let Err(reason) =
-                            synchronize(active, &snapshot, &log_importer, &profile_importer)
-                        {
+                        if let Err(reason) = synchronize(
+                            active,
+                            &snapshot,
+                            &log_importer,
+                            &profile_importer,
+                            &database,
+                            "startup",
+                        ) {
                             let waiting =
                                 matches!(reason.as_str(), "device_busy" | "sassi_outcome_103");
                             if waiting {
@@ -525,6 +537,84 @@ struct DirectoryEntry {
 }
 
 fn synchronize(
+    session: &mut Session,
+    snapshot: &RwLock<DeviceSnapshot>,
+    log_importer: &KlogImporter,
+    profile_importer: &KproImporter,
+    database: &Database,
+    trigger: &str,
+) -> Result<(), String> {
+    let started_at = chrono::Utc::now().timestamp_millis();
+    let (transport, device_model) = {
+        let current = snapshot.read();
+        (
+            current.transport.clone().unwrap_or_default(),
+            current.model.clone().unwrap_or_default(),
+        )
+    };
+    let run_id = {
+        let connection = database.connection();
+        connection
+            .execute(
+                "INSERT INTO sync_runs(trigger, state, transport, device_model, started_at_ms)
+                 VALUES (?, 'running', ?, ?, ?)",
+                rusqlite::params![trigger, transport, device_model, started_at],
+            )
+            .map_err(|_| "sync_history_failed".to_owned())?;
+        connection.last_insert_rowid()
+    };
+    {
+        let mut current = snapshot.write();
+        current.imported_log_count = 0;
+        current.updated_log_count = 0;
+        current.import_warning_count = 0;
+        current.quarantined_log_count = 0;
+        current.imported_profile_count = 0;
+        current.profile_warning_count = 0;
+        current.quarantined_profile_count = 0;
+    }
+    let result = synchronize_run(session, snapshot, log_importer, profile_importer);
+    let current = snapshot.read().clone();
+    {
+        let connection = database.connection();
+        let state = if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        };
+        let error_code = result.as_ref().err().map(String::as_str);
+        if connection
+            .execute(
+                "UPDATE sync_runs
+                 SET state=?, imported_log_count=?, updated_log_count=?,
+                     import_warning_count=?, quarantined_log_count=?,
+                     imported_profile_count=?, profile_warning_count=?,
+                     quarantined_profile_count=?, error_code=?,
+                     completed_at_ms=?
+                 WHERE id=?",
+                rusqlite::params![
+                    state,
+                    current.imported_log_count,
+                    current.updated_log_count,
+                    current.import_warning_count,
+                    current.quarantined_log_count,
+                    current.imported_profile_count,
+                    current.profile_warning_count,
+                    current.quarantined_profile_count,
+                    error_code,
+                    chrono::Utc::now().timestamp_millis(),
+                    run_id
+                ],
+            )
+            .is_err()
+        {
+            tracing::error!(run_id, "sync_history_completion_failed");
+        }
+    }
+    result
+}
+
+fn synchronize_run(
     session: &mut Session,
     snapshot: &RwLock<DeviceSnapshot>,
     log_importer: &KlogImporter,
@@ -889,7 +979,15 @@ mod tests {
         let profile_importer = KproImporter::new(database.clone());
         let (mut session, snapshot, transcript) = negotiate_virtual(VirtualNanoScenario::smoke());
 
-        synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+        synchronize(
+            &mut session,
+            &snapshot,
+            &log_importer,
+            &profile_importer,
+            &database,
+            "manual",
+        )
+        .unwrap();
         let first = snapshot.read().clone();
         assert_eq!(first.connection, "connected");
         assert_eq!(first.profile_count, Some(2));
@@ -919,13 +1017,35 @@ mod tests {
             assert_eq!((roast_count, profile_count, sample_count), (3, 4, 9));
         }
 
-        synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+        synchronize(
+            &mut session,
+            &snapshot,
+            &log_importer,
+            &profile_importer,
+            &database,
+            "manual",
+        )
+        .unwrap();
         let connection = database.connection();
         let repeated_roast_count: i64 = connection
             .query_row("SELECT count(*) FROM roasts", [], |row| row.get(0))
             .unwrap();
         assert_eq!(repeated_roast_count, 3);
         assert_eq!(snapshot.read().imported_log_count, 0);
+        let sync_runs: Vec<(String, i64)> = connection
+            .prepare(
+                "SELECT state, imported_log_count
+                 FROM sync_runs ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            sync_runs,
+            vec![("completed".into(), 3), ("completed".into(), 0)]
+        );
 
         let events = transcript.events();
         assert!(events.iter().any(|event| event.frame_type == Some(2)));
@@ -974,11 +1094,18 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
             let log_importer = KlogImporter::new(database.clone());
-            let profile_importer = KproImporter::new(database);
+            let profile_importer = KproImporter::new(database.clone());
             let mut scenario = VirtualNanoScenario::smoke();
             scenario.fault = fault;
             let (mut session, snapshot, _) = negotiate_virtual(scenario);
-            let result = synchronize(&mut session, &snapshot, &log_importer, &profile_importer);
+            let result = synchronize(
+                &mut session,
+                &snapshot,
+                &log_importer,
+                &profile_importer,
+                &database,
+                "manual",
+            );
             assert_eq!(result.unwrap_err(), expected, "{fault:?}");
         }
 
@@ -1006,12 +1133,20 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
             let log_importer = KlogImporter::new(database.clone());
-            let profile_importer = KproImporter::new(database);
+            let profile_importer = KproImporter::new(database.clone());
             let mut scenario = VirtualNanoScenario::smoke();
             scenario.read_pattern = pattern.clone();
             scenario.transfer_payload_bytes = if pattern == vec![4_096] { 2_048 } else { 37 };
             let (mut session, snapshot, _) = negotiate_virtual(scenario);
-            synchronize(&mut session, &snapshot, &log_importer, &profile_importer).unwrap();
+            synchronize(
+                &mut session,
+                &snapshot,
+                &log_importer,
+                &profile_importer,
+                &database,
+                "manual",
+            )
+            .unwrap();
             assert_eq!(snapshot.read().imported_log_count, 3, "{pattern:?}");
         }
     }

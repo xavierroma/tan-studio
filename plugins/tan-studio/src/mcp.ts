@@ -32,6 +32,9 @@ const resourceLink = z.object({
   resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
   resourceId: shortId,
 })
+const attachmentLink = resourceLink.extend({
+  role: z.enum(["gallery", "profile"]).default("gallery"),
+})
 const coffeeFields = {
   provider: z.string().trim().max(300).optional(),
   providerUrl: z.url().optional(),
@@ -416,7 +419,7 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
         sourceUrl: z.url().optional(),
         description: z.string().trim().max(10_000).optional(),
         capturedAt: z.iso.datetime({ offset: true }).optional(),
-        links: z.array(resourceLink).min(1).max(20),
+        links: z.array(attachmentLink).min(1).max(20),
       },
       annotations: writeAnnotations,
     },
@@ -440,6 +443,31 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
           links,
         })
         return success(`Attached file ${stored.id}`, stored)
+      })
+  )
+
+  server.registerTool(
+    "tan_set_profile_image",
+    {
+      title: "Set entity profile image",
+      description:
+        "Choose one already-attached image as the prominent profile image for a profile, coffee, roast, or brew. Pass null to clear it.",
+      inputSchema: {
+        resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
+        resourceId: shortId,
+        attachmentId: shortId.nullable(),
+      },
+      annotations: writeAnnotations,
+    },
+    async ({ resourceType, resourceId, attachmentId }) =>
+      protect(async () => {
+        await api.setProfileImage(resourceType, resourceId, attachmentId)
+        return success(
+          attachmentId == null
+            ? `Cleared ${resourceType} ${resourceId} profile image`
+            : `Set attachment ${attachmentId} as ${resourceType} ${resourceId} profile image`,
+          { resourceType, resourceId, attachmentId }
+        )
       })
   )
 

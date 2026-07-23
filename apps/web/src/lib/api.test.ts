@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 
-import { getCoffee, listRoasts, updateRoast } from "@/lib/api"
+import {
+  getCoffee,
+  getUiPreferences,
+  listRoasts,
+  setEntityProfileImage,
+  updateRoast,
+  updateUiPreferences,
+} from "@/lib/api"
 
 function response(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -57,6 +64,41 @@ describe("generated API client integration", () => {
 
     const request = fetchMock.mock.calls[0]?.[0] as Request
     expect(new URL(request.url).pathname).toBe("/api/v1/coffees/12")
+  })
+
+  test("uses the generated preference and profile-image contracts", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          defaultTableDensity: "expanded",
+          tablePreferences: {},
+          revision: 2,
+        })
+      )
+      .mockResolvedValueOnce(
+        response({
+          defaultTableDensity: "expanded",
+          tablePreferences: { coffees: { hidden: ["harvest"] } },
+          revision: 3,
+        })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const preferences = await getUiPreferences()
+    await updateUiPreferences(preferences.revision, {
+      tablePreferences: { coffees: { hidden: ["harvest"] } },
+    })
+    await setEntityProfileImage("coffee", 7, 11)
+
+    const patch = fetchMock.mock.calls[1]?.[0] as Request
+    expect(patch.headers.get("If-Match")).toBe('"revision:2"')
+    const image = fetchMock.mock.calls[2]?.[0] as Request
+    expect(new URL(image.url).pathname).toBe(
+      "/api/v1/entity-profile-images/coffee/7"
+    )
+    await expect(image.clone().json()).resolves.toEqual({ attachmentId: 11 })
   })
 
   test("propagates API problem details instead of inventing demo data", async () => {

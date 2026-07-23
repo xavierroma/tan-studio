@@ -17,6 +17,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_get,
         crate::api::device_refresh,
         crate::api::device_synchronize,
+        crate::api::device_sync_runs,
         crate::api::bridges_list,
         crate::api::bridge_claim_create,
         crate::core_api::openapi_get,
@@ -55,13 +56,16 @@ use crate::error::{FieldError, ProblemDetails};
         crate::core_api::attachments_get,
         crate::core_api::attachments_patch,
         crate::core_api::attachments_put_links,
+        crate::core_api::entity_profile_image_put,
         crate::core_api::attachments_put_content,
         crate::core_api::attachments_get_content,
         crate::core_api::labels_list,
         crate::core_api::labels_create,
         crate::core_api::labels_get,
         crate::core_api::settings_get,
-        crate::core_api::settings_patch
+        crate::core_api::settings_patch,
+        crate::core_api::ui_preferences_get,
+        crate::core_api::ui_preferences_patch
     ),
     components(schemas(
         FieldError, ProblemDetails, BridgeClaimResource, BridgeResource, BridgePage,
@@ -72,14 +76,18 @@ use crate::error::{FieldError, ProblemDetails};
         RestWindow, PantryResource, PantryRoast,
         BrewResource, BrewCreate, BrewPatch, BrewPage,
         NoteResource, NoteCreate, NotePatch, NoteLinksPut, NoteLink, NotePage,
-        AttachmentResource, AttachmentCreate, AttachmentPatch, AttachmentLinksPut, AttachmentPage,
+        AttachmentResource, AttachmentCreate, AttachmentPatch, AttachmentLinksPut, AttachmentLink, AttachmentPage,
+        EntityProfileImagePut,
         LabelResource, LabelCreate, LabelPage,
-        SettingsResource, SettingsPatch
+        SettingsResource, SettingsPatch,
+        UiPreferencesResource, UiPreferencesPatch,
+        SyncRunResource, SyncRunPage
     )),
     tags(
         (name = "system"), (name = "device"), (name = "bridges"), (name = "profiles"),
         (name = "coffees"), (name = "roasts"), (name = "brews"),
         (name = "notes"), (name = "attachments"), (name = "labels"), (name = "settings"),
+        (name = "ui-preferences"), (name = "sync"),
         (name = "contract")
     )
 )]
@@ -107,6 +115,7 @@ pub struct ProfileResource {
     pub source_hash: Option<String>,
     pub roast_count: i64,
     pub child_count: i64,
+    pub profile_image_attachment_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
     pub revision: i64,
@@ -123,6 +132,7 @@ pub struct ProfileSummary {
     pub reference_load_mg: Option<i64>,
     pub roast_count: i64,
     pub child_count: i64,
+    pub profile_image_attachment_id: Option<i64>,
     pub updated_at: String,
     pub revision: i64,
 }
@@ -187,6 +197,7 @@ pub struct CoffeeResource {
     pub storage_location: String,
     pub metadata: Value,
     pub roast_count: i64,
+    pub profile_image_attachment_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
     pub revision: i64,
@@ -316,6 +327,7 @@ pub struct RoastResource {
     pub brew_count: i64,
     pub note_count: i64,
     pub label_count: i64,
+    pub profile_image_attachment_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
     pub revision: i64,
@@ -338,6 +350,7 @@ pub struct RoastSummary {
     pub brew_count: i64,
     pub note_count: i64,
     pub label_count: i64,
+    pub profile_image_attachment_id: Option<i64>,
     pub revision: i64,
 }
 
@@ -456,6 +469,7 @@ pub struct BrewResource {
     pub water_temperature_milli_c: Option<i64>,
     pub recipe: Value,
     pub notes: Vec<NoteResource>,
+    pub profile_image_attachment_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
     pub revision: i64,
@@ -570,7 +584,7 @@ pub struct AttachmentResource {
     pub source_url: Option<String>,
     pub description: String,
     pub captured_at: Option<String>,
-    pub links: Vec<NoteLink>,
+    pub links: Vec<AttachmentLink>,
     pub created_at: String,
     pub updated_at: String,
     pub revision: i64,
@@ -586,7 +600,7 @@ pub struct AttachmentCreate {
     #[serde(default)]
     pub description: String,
     pub captured_at: Option<String>,
-    pub links: Vec<NoteLink>,
+    pub links: Vec<AttachmentLink>,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema, Default)]
@@ -603,7 +617,22 @@ pub struct AttachmentPatch {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttachmentLinksPut {
-    pub links: Vec<NoteLink>,
+    pub links: Vec<AttachmentLink>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttachmentLink {
+    pub resource_type: String,
+    pub resource_id: i64,
+    #[serde(default = "gallery_role")]
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EntityProfileImagePut {
+    pub attachment_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -686,6 +715,48 @@ pub struct SettingsPatch {
     pub default_label_height_micrometers: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UiPreferencesResource {
+    pub default_table_density: String,
+    pub table_preferences: Value,
+    pub updated_at: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UiPreferencesPatch {
+    pub default_table_density: Option<String>,
+    pub table_preferences: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRunResource {
+    pub id: i64,
+    pub trigger: String,
+    pub state: String,
+    pub transport: String,
+    pub device_model: String,
+    pub imported_log_count: i64,
+    pub updated_log_count: i64,
+    pub import_warning_count: i64,
+    pub quarantined_log_count: i64,
+    pub imported_profile_count: i64,
+    pub profile_warning_count: i64,
+    pub quarantined_profile_count: i64,
+    pub error_code: Option<String>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRunPage {
+    pub items: Vec<SyncRunResource>,
+}
+
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct ListQuery {
@@ -718,4 +789,7 @@ fn user_source() -> String {
 }
 fn one() -> i64 {
     1
+}
+fn gallery_role() -> String {
+    "gallery".into()
 }

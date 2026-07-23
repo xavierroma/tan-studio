@@ -16,6 +16,7 @@ import {
   DataTableSortHeader,
   type DataTableViewState,
 } from "@/components/data-table"
+import { EntityImage } from "@/components/entity-image"
 import type { Brew } from "@/lib/api"
 
 export type BrewTableSearch = DataTableViewState & {
@@ -60,6 +61,20 @@ export function BrewDataTable({
     ].some((value) => String(value).toLocaleLowerCase().includes(needle))
   })
   const columns: ColumnDef<Brew>[] = [
+    {
+      id: "image",
+      header: "Image",
+      cell: ({ row }) => (
+        <EntityImage
+          attachmentId={row.original.profileImageAttachmentId}
+          entityType="brew"
+          alt=""
+        />
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { label: "Image", mobile: "image" },
+    },
     {
       accessorKey: "id",
       header: ({ column }) => (
@@ -144,6 +159,7 @@ export function BrewDataTable({
 
   return (
     <DataTable
+      preferenceKey="brews"
       columns={columns}
       data={filtered}
       state={search}

@@ -15,6 +15,7 @@ import {
   DataTableSortHeader,
   type DataTableViewState,
 } from "@/components/data-table"
+import { EntityImage } from "@/components/entity-image"
 import type { Coffee, ProfileSummary, RoastSummary } from "@/lib/api"
 
 export type RoastTableSearch = DataTableViewState & {
@@ -59,6 +60,20 @@ function statusVariant(status: string) {
 }
 
 const columns: ColumnDef<RoastSummary>[] = [
+  {
+    id: "image",
+    header: "Image",
+    cell: ({ row }) => (
+      <EntityImage
+        attachmentId={row.original.profileImageAttachmentId}
+        entityType="roast"
+        alt=""
+      />
+    ),
+    enableHiding: false,
+    enableSorting: false,
+    meta: { label: "Image", mobile: "image" },
+  },
   {
     accessorKey: "id",
     header: ({ column }) => (
@@ -207,6 +222,7 @@ export function RoastDataTable({
 
   return (
     <DataTable
+      preferenceKey="roasts"
       columns={columns}
       data={data}
       state={search}

@@ -258,6 +258,27 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     return this.putAttachmentContent(attachment, file)
   }
 
+  async setProfileImage(
+    resourceType: "profile" | "coffee" | "roast" | "brew",
+    resourceId: number,
+    attachmentId: number | null
+  ): Promise<void> {
+    unwrap(
+      await this.client.PUT(
+        "/api/v1/entity-profile-images/{resource_type}/{resource_id}",
+        {
+          params: {
+            path: {
+              resource_type: resourceType,
+              resource_id: resourceId,
+            },
+          },
+          body: { attachmentId },
+        }
+      )
+    )
+  }
+
   private async createAttachment(input: AttachmentCreate): Promise<Attachment> {
     return unwrap(
       await this.client.POST("/api/v1/attachments", { body: input })
@@ -302,6 +323,7 @@ function unwrap<T>(result: {
   response: Response
 }): T {
   if (result.data !== undefined) return result.data
+  if (result.response.status === 204) return undefined as T
   const details = asProblem(result.error)
   throw new TanStudioGatewayError({
     code: details?.code ?? "tan_studio.request_failed",

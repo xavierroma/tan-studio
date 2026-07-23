@@ -8,6 +8,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@tan-studio/ui/components/button"
 import {
   DropdownMenu,
@@ -39,7 +40,14 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { useMemo } from "react"
+import { toast } from "sonner"
 
+import {
+  getUiPreferences,
+  queryKeys,
+  updateUiPreferences,
+  type UiPreferences,
+} from "@/lib/api"
 import {
   ToggleGroup,
   ToggleGroupItem,
@@ -48,14 +56,14 @@ import {
 declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     label?: string
-    mobile?: "primary" | "detail" | "hidden"
+    mobile?: "image" | "primary" | "detail" | "hidden"
   }
 }
 
 export type DataTableViewState = {
   sort: string | undefined
   hidden: string | undefined
-  density: "expanded" | undefined
+  density: "compact" | "expanded" | undefined
 }
 
 type SearchControl = {
@@ -76,6 +84,18 @@ type DataTableProps<TData, TValue> = {
   search?: SearchControl
   filters?: ReactNode
   getRowId?: (row: TData) => string
+  preferenceKey: string
+  defaultHidden?: string[]
+}
+
+type TablePreference = {
+  density?: "compact" | "expanded"
+  hidden?: string[]
+}
+
+function preferenceRecord(value: unknown): Record<string, TablePreference> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return value as Record<string, TablePreference>
 }
 
 function sortingState(
@@ -158,7 +178,47 @@ export function DataTable<TData, TValue>({
   search,
   filters,
   getRowId,
+  preferenceKey,
+  defaultHidden = [],
 }: DataTableProps<TData, TValue>) {
+  const queryClient = useQueryClient()
+  const preferences = useQuery({
+    queryKey: queryKeys.uiPreferences(),
+    queryFn: ({ signal }) => getUiPreferences(signal),
+  })
+  const persistPreference = useMutation({
+    scope: { id: "ui-preferences" },
+    mutationFn: async (patch: TablePreference) => {
+      const current = await queryClient.fetchQuery({
+        queryKey: queryKeys.uiPreferences(),
+        queryFn: ({ signal }) => getUiPreferences(signal),
+      })
+      const tables = preferenceRecord(current.tablePreferences)
+      return updateUiPreferences(current.revision, {
+        tablePreferences: {
+          ...tables,
+          [preferenceKey]: {
+            ...tables[preferenceKey],
+            ...patch,
+          },
+        },
+      })
+    },
+    onSuccess: (updated) =>
+      queryClient.setQueryData<UiPreferences>(
+        queryKeys.uiPreferences(),
+        updated
+      ),
+    onError: () => toast.error("Table preferences could not be saved"),
+  })
+  const stored = preferenceRecord(preferences.data?.tablePreferences)[
+    preferenceKey
+  ]
+  const effectiveHidden =
+    state.hidden ??
+    (stored?.hidden !== undefined
+      ? stored.hidden.join(",") || undefined
+      : defaultHidden.join(",") || undefined)
   const sorting = useMemo(
     () =>
       sortingState(
@@ -169,8 +229,8 @@ export function DataTable<TData, TValue>({
     [columns, defaultSorting, state.sort]
   )
   const columnVisibility = useMemo(
-    () => visibilityState(state.hidden),
-    [state.hidden]
+    () => visibilityState(effectiveHidden),
+    [effectiveHidden]
   )
   const table = useReactTable({
     data,
@@ -183,13 +243,22 @@ export function DataTable<TData, TValue>({
     onColumnVisibilityChange: (updater) => {
       const next =
         typeof updater === "function" ? updater(columnVisibility) : updater
-      updateState({ hidden: visibilityValue(next) })
+      const hidden = visibilityValue(next)
+      updateState({ hidden })
+      persistPreference.mutate({
+        hidden: hidden?.split(",").filter(Boolean) ?? [],
+      })
     },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     ...(getRowId ? { getRowId } : {}),
   })
-  const density = state.density ?? "compact"
+  const density =
+    state.density ??
+    stored?.density ??
+    (preferences.data?.defaultTableDensity === "compact"
+      ? "compact"
+      : "expanded")
   const rows = table.getRowModel().rows
 
   return (
@@ -226,8 +295,9 @@ export function DataTable<TData, TValue>({
               const value = values.at(-1)
               if (value === "compact" || value === "expanded") {
                 updateState({
-                  density: value === "expanded" ? "expanded" : undefined,
+                  density: value,
                 })
+                persistPreference.mutate({ density: value })
               }
             }}
             variant="outline"
@@ -276,7 +346,7 @@ export function DataTable<TData, TValue>({
       </div>
 
       <div className="bg-card overflow-hidden rounded-xl border">
-        <div className="hidden md:block">
+        <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               {table.getHeaderGroups().map((headerGroup) => (
@@ -322,21 +392,39 @@ export function DataTable<TData, TValue>({
             const primary =
               cells.find(
                 (cell) => cell.column.columnDef.meta?.mobile === "primary"
-              ) ?? cells[0]
-            const details = cells.filter((cell) => cell !== primary)
+              ) ??
+              cells.find(
+                (cell) => cell.column.columnDef.meta?.mobile !== "image"
+              )
+            const image = cells.find(
+              (cell) => cell.column.columnDef.meta?.mobile === "image"
+            )
+            const details = cells.filter(
+              (cell) => cell !== primary && cell !== image
+            )
             return (
               <article
                 key={row.id}
                 className={density === "expanded" ? "p-5" : "p-4"}
               >
-                {primary ? (
-                  <div className="text-base font-semibold">
-                    {flexRender(
-                      primary.column.columnDef.cell,
-                      primary.getContext()
-                    )}
+                <div className="flex items-start gap-4">
+                  {image
+                    ? flexRender(
+                        image.column.columnDef.cell,
+                        image.getContext()
+                      )
+                    : null}
+                  <div className="min-w-0 flex-1">
+                    {primary ? (
+                      <div className="text-base font-semibold">
+                        {flexRender(
+                          primary.column.columnDef.cell,
+                          primary.getContext()
+                        )}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                </div>
                 <dl
                   className={`grid grid-cols-2 gap-x-4 ${density === "expanded" ? "mt-4 gap-y-4" : "mt-3 gap-y-2"}`}
                 >

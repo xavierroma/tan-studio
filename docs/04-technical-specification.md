@@ -160,7 +160,16 @@ Kinds are observation, tasting, annotation, recommendation, or general. Sources 
 
 Purpose: provider documents and process/result photos or videos linked to core records.
 
-`attachments` fields: integer ID, title, safe filename, media type, byte length, SHA-256, source URL, description, capture time, timestamps, revision. `attachment_links` uses the same exactly-one-target N-M pattern as notes.
+`attachments` fields: integer ID, title, safe filename, media type, byte length, SHA-256, source URL, description, capture time, timestamps, revision. `attachment_links` uses the same exactly-one-target N-M pattern as notes and adds the semantic role `gallery` or `profile`.
+
+An entity profile image is not a copied blob or a foreign key added to every
+domain table. It is an image attachment whose link to that profile, coffee,
+roast, or brew has role `profile`. Each entity can have at most one such link;
+the database enforces this with partial unique indexes. The same attachment may
+remain linked to other entities as gallery media. Selecting a profile image is
+an atomic use case that demotes the previous link and promotes the requested
+one. Non-image media cannot be promoted. Clearing the role leaves the
+attachment intact and returns the UI to its entity-specific placeholder.
 
 File bytes are streamed to a temporary file, flushed, hashed, and atomically renamed into a local content-addressed object path. SQLite never stores large blobs. A metadata record without a hash is an explicit pending upload that an agent may safely retry. Each file is limited to 512 MiB.
 
@@ -178,6 +187,17 @@ Purpose: singleton user defaults.
 
 Values: roaster, grinder, setting, kettle, water, brew method, dose, water mass, temperature, rest days, peak days, and label dimensions. The row has a revision for safe concurrent edits.
 
+### 4.9 `ui_preferences`
+
+Purpose: a single backend-owned record for Studio presentation defaults.
+
+The initial shape deliberately contains only a default table density and a JSON
+object keyed by stable table IDs. Each table may retain density and hidden
+column IDs. URLs remain the shareable current-view state and override these
+defaults; the preference record supplies the next view when no URL override is
+present. It uses the same revision guard as other editable resources. No
+product or roast data may be stored here.
+
 ## 5. Internal evidence tables
 
 Internal tables are not public product resources:
@@ -185,6 +205,7 @@ Internal tables are not public product resources:
 | Table | Purpose |
 | --- | --- |
 | `native_files` | immutable original bytes, SHA-256, parser version, source identity, warnings |
+| `sync_runs` | durable startup/manual synchronization attempts, current state, bounded counters, redacted error code, and start/completion times |
 | `native_file_quarantine` | rejected KLOG evidence and diagnostics |
 | `profile_file_quarantine` | rejected KPRO evidence and diagnostics |
 | `roast_sample_streams` | versioned stream descriptor, counts, time range |
@@ -246,9 +267,12 @@ CI/release checks regenerate the files and fail on an uncommitted contract diff.
 | `GET/PATCH /attachments/{id}` | detail / revision-guarded metadata edit |
 | `PUT /attachments/{id}/links` | atomically replace attachment relationships |
 | `GET/PUT /attachments/{id}/content` | authenticated streaming download/upload |
+| `PUT /entity-profile-images/{type}/{id}` | atomically select or clear one attached image |
 | `GET/POST /labels` | filter / create generated label record |
 | `GET /labels/{id}` | label detail |
 | `GET/PATCH /settings` | defaults / revision-guarded update |
+| `GET/PATCH /ui-preferences` | Studio table defaults / revision-guarded update |
+| `GET /device/sync-runs` | newest synchronization attempts, including a running attempt |
 | `GET /device` | current device/capability/sync snapshot |
 | `POST /device/refresh` | request rediscovery |
 | `POST /device/synchronize` | read and import current device files |

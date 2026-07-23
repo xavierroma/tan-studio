@@ -46,6 +46,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         10,
         include_str!("../../companion/migrations/0010_roast_date_override.sql"),
     ),
+    (
+        11,
+        include_str!("../../companion/migrations/0011_sync_ui_and_profile_images.sql"),
+    ),
 ];
 
 #[derive(Clone)]
@@ -79,6 +83,14 @@ impl Database {
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.busy_timeout(Duration::from_secs(5))?;
         migrate(&mut connection, path)?;
+        connection.execute(
+            "UPDATE sync_runs
+             SET state='interrupted',
+                 completed_at_ms=CAST(unixepoch('subsec') * 1000 AS INTEGER),
+                 error_code='service_restarted'
+             WHERE state='running'",
+            [],
+        )?;
         Ok(Self(Arc::new(Mutex::new(connection))))
     }
 
@@ -246,7 +258,7 @@ mod tests {
     fn applies_the_existing_forward_migrations() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (9, 4));
+        assert_eq!(database.schema_versions().unwrap(), (11, 4));
         assert!(database.quick_check().unwrap());
     }
 
@@ -280,7 +292,7 @@ mod tests {
 
         let database = Database::open(&path).unwrap();
 
-        assert_eq!(database.schema_versions().unwrap(), (9, 4));
+        assert_eq!(database.schema_versions().unwrap(), (11, 4));
         let connection = database.connection();
         assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
         let applied: i64 = connection
@@ -288,7 +300,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 10);
+        assert_eq!(applied, 11);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

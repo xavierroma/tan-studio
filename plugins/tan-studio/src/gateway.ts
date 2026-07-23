@@ -83,6 +83,11 @@ export interface TanStudioGateway {
     resourceId: number
   ): Promise<AttachmentPage>
   attachLocalFile(input: AttachmentFileInput): Promise<Attachment>
+  setProfileImage(
+    resourceType: "profile" | "coffee" | "roast" | "brew",
+    resourceId: number,
+    attachmentId: number | null
+  ): Promise<void>
 }
 
 export interface GatewayErrorDetails {

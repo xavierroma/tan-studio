@@ -900,7 +900,7 @@ pub async fn attachments_create(
     )?;
     let mut connection = state.database.connection();
     let transaction = connection.transaction()?;
-    validate_links(&transaction, &input.links)?;
+    validate_attachment_links(&transaction, &input.links, &input.media_type)?;
     let now = now_ms();
     transaction.execute(
         "INSERT INTO attachments(title, filename, media_type, source_url, description, captured_at_ms, created_at_ms, updated_at_ms)
@@ -954,6 +954,7 @@ pub async fn attachments_patch(
         &description,
         &current.links,
     )?;
+    validate_attachment_links(&connection, &current.links, &media_type)?;
     let changed = connection.execute(
         "UPDATE attachments SET title=?, filename=?, media_type=?, source_url=?, description=?, captured_at_ms=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![title.trim(), filename.trim(), media_type.trim().to_ascii_lowercase(), source_url.as_deref().map(str::trim), description.trim(), optional_instant(captured_at.as_deref())?, now_ms(), id, expected],
@@ -974,8 +975,8 @@ pub async fn attachments_put_links(
     let expected = expected_revision(&headers)?;
     let mut connection = state.database.connection();
     let transaction = connection.transaction()?;
-    get_attachment(&transaction, id)?;
-    validate_links(&transaction, &input.links)?;
+    let attachment = get_attachment(&transaction, id)?;
+    validate_attachment_links(&transaction, &input.links, &attachment.media_type)?;
     let changed = transaction.execute(
         "UPDATE attachments SET updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![now_ms(), id, expected],
@@ -987,6 +988,73 @@ pub async fn attachments_put_links(
     insert_attachment_links(&transaction, id, &input.links)?;
     transaction.commit()?;
     Ok(Json(get_attachment(&connection, id)?))
+}
+
+#[utoipa::path(put, path = "/api/v1/entity-profile-images/{resource_type}/{resource_id}", tag = "attachments", operation_id = "setEntityProfileImage", params(("resource_type" = String, Path), ("resource_id" = i64, Path)), request_body = EntityProfileImagePut, responses((status = 204), (status = 422, body = ProblemDetails)))]
+pub async fn entity_profile_image_put(
+    State(state): State<ApiState>,
+    Path((resource_type, resource_id)): Path<(String, i64)>,
+    Json(input): Json<EntityProfileImagePut>,
+) -> ApiResult<StatusCode> {
+    let column = link_column(&resource_type)?;
+    let table = link_table(&resource_type)?;
+    let mut connection = state.database.connection();
+    let transaction = connection.transaction()?;
+    ensure_exists(&transaction, table, resource_id)?;
+    if let Some(attachment_id) = input.attachment_id {
+        let media_type: String = transaction
+            .query_row(
+                "SELECT media_type FROM attachments WHERE id=?",
+                [attachment_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| ApiError::not_found("attachment", &attachment_id.to_string()))?;
+        if !media_type.starts_with("image/") {
+            return Err(ApiError::validation(
+                "Only image attachments can be used as a profile image.",
+            ));
+        }
+        let linked = transaction.query_row(
+            &format!(
+                "SELECT EXISTS(
+                   SELECT 1 FROM attachment_links
+                   WHERE attachment_id=? AND {column}=?
+                 )"
+            ),
+            params![attachment_id, resource_id],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !linked {
+            return Err(ApiError::validation(
+                "The profile image must already be attached to this resource.",
+            ));
+        }
+        transaction.execute(
+            &format!(
+                "UPDATE attachment_links SET role='gallery'
+                 WHERE {column}=? AND role='profile'"
+            ),
+            [resource_id],
+        )?;
+        transaction.execute(
+            &format!(
+                "UPDATE attachment_links SET role='profile'
+                 WHERE attachment_id=? AND {column}=?"
+            ),
+            params![attachment_id, resource_id],
+        )?;
+    } else {
+        transaction.execute(
+            &format!(
+                "UPDATE attachment_links SET role='gallery'
+                 WHERE {column}=? AND role='profile'"
+            ),
+            [resource_id],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 const MAX_ATTACHMENT_BYTES: u64 = 512 * 1024 * 1024;
@@ -1264,20 +1332,62 @@ pub async fn settings_patch(
     Ok(Json(get_settings(&connection)?))
 }
 
+#[utoipa::path(get, path = "/api/v1/ui-preferences", tag = "ui-preferences", operation_id = "getUiPreferences", responses((status = 200, body = UiPreferencesResource)))]
+pub async fn ui_preferences_get(
+    State(state): State<ApiState>,
+) -> ApiResult<Json<UiPreferencesResource>> {
+    Ok(Json(get_ui_preferences(&state.database.connection())?))
+}
+
+#[utoipa::path(patch, path = "/api/v1/ui-preferences", tag = "ui-preferences", operation_id = "updateUiPreferences", params(("If-Match" = String, Header)), request_body = UiPreferencesPatch, responses((status = 200, body = UiPreferencesResource), (status = 412, body = ProblemDetails), (status = 422, body = ProblemDetails)))]
+pub async fn ui_preferences_patch(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<UiPreferencesPatch>,
+) -> ApiResult<Json<UiPreferencesResource>> {
+    let expected = expected_revision(&headers)?;
+    let connection = state.database.connection();
+    let current = get_ui_preferences(&connection)?;
+    let density = input
+        .default_table_density
+        .unwrap_or(current.default_table_density);
+    if !matches!(density.as_str(), "compact" | "expanded") {
+        return Err(ApiError::validation(
+            "defaultTableDensity must be compact or expanded.",
+        ));
+    }
+    let tables = input.table_preferences.unwrap_or(current.table_preferences);
+    validate_table_preferences(&tables)?;
+    let changed = connection.execute(
+        "UPDATE ui_preferences
+         SET default_table_density=?, table_preferences_json=?,
+             updated_at_ms=?, revision=revision+1
+         WHERE id=1 AND revision=?",
+        params![density, json_text(&tables)?, now_ms(), expected],
+    )?;
+    if changed == 0 {
+        return Err(ApiError::revision());
+    }
+    Ok(Json(get_ui_preferences(&connection)?))
+}
+
 fn get_profile(connection: &Connection, id: i64) -> ApiResult<ProfileResource> {
-    connection.query_row(
+    let mut profile = connection.query_row(
         "SELECT p.*, (SELECT count(*) FROM roasts r WHERE r.profile_id=p.id), (SELECT count(*) FROM profiles c WHERE c.parent_profile_id=p.id) FROM profiles p WHERE p.id=?",
         [id], |row| Ok(ProfileResource {
             id: row.get("id")?, parent_profile_id: row.get("parent_profile_id")?, name: row.get("name")?, description: row.get("description")?, designer: row.get("designer")?, origin: row.get("origin")?,
             recommended_level_thousandths: row.get("recommended_level_thousandths")?, reference_load_mg: row.get("reference_load_mg")?,
             profile: json_column(row.get("profile_json")?), source_hash: row.get("source_hash")?, roast_count: row.get(14)?, child_count: row.get(15)?,
+            profile_image_attachment_id: None,
             created_at: iso(row.get("created_at_ms")?), updated_at: iso(row.get("updated_at_ms")?), revision: row.get("revision")?,
         })
-    ).optional()?.ok_or_else(|| ApiError::not_found("profile", &id.to_string()))
+    ).optional()?.ok_or_else(|| ApiError::not_found("profile", &id.to_string()))?;
+    profile.profile_image_attachment_id = profile_image_attachment_id(connection, "profile", id)?;
+    Ok(profile)
 }
 
 fn get_profile_summary(connection: &Connection, id: i64) -> ApiResult<ProfileSummary> {
-    connection
+    let mut profile = connection
         .query_row(
             "SELECT p.id, p.parent_profile_id, p.name, p.origin,
                     p.recommended_level_thousandths, p.reference_load_mg,
@@ -1296,20 +1406,25 @@ fn get_profile_summary(connection: &Connection, id: i64) -> ApiResult<ProfileSum
                     reference_load_mg: row.get(5)?,
                     roast_count: row.get(6)?,
                     child_count: row.get(7)?,
+                    profile_image_attachment_id: None,
                     updated_at: iso(row.get(8)?),
                     revision: row.get(9)?,
                 })
             },
         )
         .optional()?
-        .ok_or_else(|| ApiError::not_found("profile", &id.to_string()))
+        .ok_or_else(|| ApiError::not_found("profile", &id.to_string()))?;
+    profile.profile_image_attachment_id = profile_image_attachment_id(connection, "profile", id)?;
+    Ok(profile)
 }
 
 fn get_coffee(connection: &Connection, id: i64) -> ApiResult<CoffeeResource> {
-    connection.query_row(
+    let mut coffee = connection.query_row(
         "SELECT c.*, (SELECT count(*) FROM roasts r WHERE r.coffee_id=c.id) FROM coffees c WHERE c.id=? AND c.archived_at_ms IS NULL",
         [id], map_coffee
-    ).optional()?.ok_or_else(|| ApiError::not_found("coffee", &id.to_string()))
+    ).optional()?.ok_or_else(|| ApiError::not_found("coffee", &id.to_string()))?;
+    coffee.profile_image_attachment_id = profile_image_attachment_id(connection, "coffee", id)?;
+    Ok(coffee)
 }
 
 fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
@@ -1338,6 +1453,7 @@ fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
         storage_location: row.get("storage_location")?,
         metadata: json_column(row.get("metadata_json")?),
         roast_count: row.get(27)?,
+        profile_image_attachment_id: None,
         created_at: iso(row.get("created_at_ms")?),
         updated_at: iso(row.get("updated_at_ms")?),
         revision: row.get("revision")?,
@@ -1373,7 +1489,7 @@ fn list_roast_summaries(
 }
 
 fn get_roast_summary(connection: &Connection, id: i64) -> ApiResult<RoastSummary> {
-    connection
+    let mut roast = connection
         .query_row(
             "SELECT r.id, r.profile_id, p.name, r.coffee_id, c.name,
                     coalesce(r.user_roasted_at_ms, r.roasted_at_ms),
@@ -1424,12 +1540,15 @@ fn get_roast_summary(connection: &Connection, id: i64) -> ApiResult<RoastSummary
                     brew_count: row.get(13)?,
                     note_count: row.get(14)?,
                     label_count: row.get(15)?,
+                    profile_image_attachment_id: None,
                     revision: row.get(16)?,
                 })
             },
         )
         .optional()?
-        .ok_or_else(|| ApiError::not_found("roast", &id.to_string()))
+        .ok_or_else(|| ApiError::not_found("roast", &id.to_string()))?;
+    roast.profile_image_attachment_id = profile_image_attachment_id(connection, "roast", id)?;
+    Ok(roast)
 }
 
 fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
@@ -1454,7 +1573,9 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
             level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, end_reason: row.get("end_reason")?, native_log_number: row.get("native_log_number")?,
             profile_snapshot: json_column(row.get("profile_snapshot_json")?), adjustments: json_column(row.get("adjustments_json")?), roaster_parameters: json_column(row.get("roaster_parameters_json")?), native_metadata: json_column(row.get("native_metadata_json")?), import_warnings: json_array(row.get("import_warnings_json")?),
             sample_stream: row.get::<_, Option<i64>>("stream_version")?.map(|stream_version| SampleStreamResource { stream_version, row_count: row.get("row_count").unwrap_or(0), first_elapsed_ms: row.get("first_elapsed_ms").unwrap_or(0), last_elapsed_ms: row.get("last_elapsed_ms").unwrap_or(0), reconciliation_state: row.get("reconciliation_state").unwrap_or_else(|_| "reconciled".into()) }),
-            events: vec![], brew_count: row.get("brew_count")?, note_count: row.get("note_count")?, label_count: row.get("label_count")?, created_at: iso(row.get("created_at_ms")?), updated_at: iso(row.get("updated_at_ms")?), revision: row.get("revision")?,
+            events: vec![], brew_count: row.get("brew_count")?, note_count: row.get("note_count")?, label_count: row.get("label_count")?,
+            profile_image_attachment_id: None,
+            created_at: iso(row.get("created_at_ms")?), updated_at: iso(row.get("updated_at_ms")?), revision: row.get("revision")?,
         })}
     ).optional()?.ok_or_else(|| ApiError::not_found("roast", &id.to_string()))?;
     let mut events = connection.prepare("SELECT id, event_kind, elapsed_ms, temperature_milli_c, source FROM roast_events WHERE roast_id=? ORDER BY elapsed_ms, id")?;
@@ -1469,6 +1590,7 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
             })
         })?
         .collect::<Result<_, _>>()?;
+    roast.profile_image_attachment_id = profile_image_attachment_id(connection, "roast", id)?;
     Ok(roast)
 }
 
@@ -1481,7 +1603,7 @@ fn list_brews(connection: &Connection, roast_id: Option<i64>) -> ApiResult<Vec<B
 }
 
 fn get_brew(connection: &Connection, id: i64) -> ApiResult<BrewResource> {
-    connection
+    let mut brew = connection
         .query_row("SELECT * FROM brews WHERE id=?", [id], |row| {
             Ok(BrewResource {
                 id: row.get("id")?,
@@ -1498,6 +1620,7 @@ fn get_brew(connection: &Connection, id: i64) -> ApiResult<BrewResource> {
                 water_temperature_milli_c: row.get("water_temperature_milli_c")?,
                 recipe: json_column(row.get("recipe_json")?),
                 notes: vec![],
+                profile_image_attachment_id: None,
                 created_at: iso(row.get("created_at_ms")?),
                 updated_at: iso(row.get("updated_at_ms")?),
                 revision: row.get("revision")?,
@@ -1509,7 +1632,9 @@ fn get_brew(connection: &Connection, id: i64) -> ApiResult<BrewResource> {
                 list_notes(connection, Some("brew"), Some(brew.id), None).unwrap_or_default();
             brew
         })
-        .ok_or_else(|| ApiError::not_found("brew", &id.to_string()))
+        .ok_or_else(|| ApiError::not_found("brew", &id.to_string()))?;
+    brew.profile_image_attachment_id = profile_image_attachment_id(connection, "brew", id)?;
+    Ok(brew)
 }
 
 fn list_notes(
@@ -1609,7 +1734,8 @@ fn get_attachment(connection: &Connection, id: i64) -> ApiResult<AttachmentResou
         .optional()?
         .ok_or_else(|| ApiError::not_found("attachment", &id.to_string()))?;
     let mut statement = connection.prepare(
-        "SELECT profile_id, coffee_id, roast_id, brew_id FROM attachment_links WHERE attachment_id=? ORDER BY id",
+        "SELECT profile_id, coffee_id, roast_id, brew_id, role
+         FROM attachment_links WHERE attachment_id=? ORDER BY id",
     )?;
     attachment.links = statement
         .query_map([id], |row| {
@@ -1623,9 +1749,10 @@ fn get_attachment(connection: &Connection, id: i64) -> ApiResult<AttachmentResou
                 .into_iter()
                 .find_map(|(kind, value)| value.map(|resource_id| (kind.to_owned(), resource_id)))
                 .expect("attachment link constraint");
-            Ok(NoteLink {
+            Ok(AttachmentLink {
                 resource_type,
                 resource_id,
+                role: row.get(4)?,
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -1695,6 +1822,43 @@ fn get_settings(connection: &Connection) -> ApiResult<SettingsResource> {
         .map_err(Into::into)
 }
 
+fn get_ui_preferences(connection: &Connection) -> ApiResult<UiPreferencesResource> {
+    connection
+        .query_row(
+            "SELECT default_table_density, table_preferences_json, updated_at_ms, revision
+         FROM ui_preferences WHERE id=1",
+            [],
+            |row| {
+                Ok(UiPreferencesResource {
+                    default_table_density: row.get(0)?,
+                    table_preferences: json_column(row.get(1)?),
+                    updated_at: iso(row.get(2)?),
+                    revision: row.get(3)?,
+                })
+            },
+        )
+        .map_err(Into::into)
+}
+
+fn profile_image_attachment_id(
+    connection: &Connection,
+    resource_type: &str,
+    resource_id: i64,
+) -> ApiResult<Option<i64>> {
+    let column = link_column(resource_type)?;
+    Ok(connection
+        .query_row(
+            &format!(
+                "SELECT attachment_id FROM attachment_links
+                 WHERE {column}=? AND role='profile'
+                 LIMIT 1"
+            ),
+            [resource_id],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 fn create_profile_record(
     connection: &Connection,
     input: ProfileCreate,
@@ -1755,16 +1919,43 @@ fn insert_links(connection: &Connection, note_id: i64, links: &[NoteLink]) -> Ap
 fn insert_attachment_links(
     connection: &Connection,
     attachment_id: i64,
-    links: &[NoteLink],
+    links: &[AttachmentLink],
 ) -> ApiResult<()> {
     for link in links {
         let column = link_column(&link.resource_type)?;
         connection.execute(
             &format!(
-                "INSERT OR IGNORE INTO attachment_links(attachment_id, {column}) VALUES (?, ?)"
+                "INSERT OR IGNORE INTO attachment_links(attachment_id, {column}, role)
+                 VALUES (?, ?, ?)"
             ),
-            params![attachment_id, link.resource_id],
+            params![attachment_id, link.resource_id, link.role],
         )?;
+    }
+    Ok(())
+}
+fn validate_attachment_links(
+    connection: &Connection,
+    links: &[AttachmentLink],
+    media_type: &str,
+) -> ApiResult<()> {
+    if links.is_empty() {
+        return Err(ApiError::validation(
+            "An attachment must link to at least one resource.",
+        ));
+    }
+    for link in links {
+        if !matches!(link.role.as_str(), "gallery" | "profile") {
+            return Err(ApiError::validation(
+                "Attachment role must be gallery or profile.",
+            ));
+        }
+        if link.role == "profile" && !media_type.starts_with("image/") {
+            return Err(ApiError::validation(
+                "Only image attachments can be used as a profile image.",
+            ));
+        }
+        let table = link_table(&link.resource_type)?;
+        ensure_exists(connection, table, link.resource_id)?;
     }
     Ok(())
 }
@@ -1867,7 +2058,7 @@ fn validate_attachment_fields(
     media_type: &str,
     source_url: Option<&str>,
     description: &str,
-    links: &[NoteLink],
+    links: &[AttachmentLink],
 ) -> ApiResult<()> {
     if title.trim().is_empty() || title.len() > 300 {
         return Err(ApiError::validation(
@@ -1904,6 +2095,64 @@ fn validate_attachment_fields(
         return Err(ApiError::validation(
             "An attachment must link to at least one resource.",
         ));
+    }
+    Ok(())
+}
+
+fn validate_table_preferences(value: &Value) -> ApiResult<()> {
+    let Some(tables) = value.as_object() else {
+        return Err(ApiError::validation(
+            "tablePreferences must be a JSON object.",
+        ));
+    };
+    if tables.len() > 100 {
+        return Err(ApiError::validation(
+            "tablePreferences contains too many tables.",
+        ));
+    }
+    for (table, preference) in tables {
+        if table.is_empty()
+            || table.len() > 64
+            || !table
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        {
+            return Err(ApiError::validation(
+                "Table preference keys must be short identifiers.",
+            ));
+        }
+        let Some(preference) = preference.as_object() else {
+            return Err(ApiError::validation(
+                "Each table preference must be a JSON object.",
+            ));
+        };
+        if let Some(density) = preference.get("density") {
+            if !matches!(density.as_str(), Some("compact" | "expanded")) {
+                return Err(ApiError::validation(
+                    "Table density must be compact or expanded.",
+                ));
+            }
+        }
+        if let Some(hidden) = preference.get("hidden") {
+            let Some(hidden) = hidden.as_array() else {
+                return Err(ApiError::validation("Hidden columns must be an array."));
+            };
+            if hidden.len() > 100
+                || hidden.iter().any(|column| {
+                    column.as_str().is_none_or(|column| {
+                        column.is_empty()
+                            || column.len() > 64
+                            || !column.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
+                            })
+                    })
+                })
+            {
+                return Err(ApiError::validation(
+                    "Hidden columns contain an invalid identifier.",
+                ));
+            }
+        }
     }
     Ok(())
 }

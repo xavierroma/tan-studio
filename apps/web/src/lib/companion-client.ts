@@ -55,6 +55,7 @@ export function requireCompanion(): void {
 
 export function unwrapResponse<T>(result: ApiResponse<T>): T {
   if (result.data !== undefined) return result.data
+  if (result.response.status === 204) return undefined as T
 
   const problem = record(result.error)
   throw new Error(

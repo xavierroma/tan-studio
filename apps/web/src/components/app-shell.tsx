@@ -8,6 +8,7 @@ import {
 } from "@tan-studio/ui/components/tooltip"
 import {
   BookOpenTextIcon,
+  ArchiveIcon,
   ChartNoAxesCombinedIcon,
   CoffeeIcon,
   CupSodaIcon,
@@ -43,7 +44,19 @@ const navigation = [
     label: "Profiles",
     to: "/profiles",
     icon: ChartNoAxesCombinedIcon,
-    search: { profileId: undefined },
+    search: { profileId: undefined, compare: undefined },
+  },
+  {
+    label: "Pantry",
+    to: "/pantry",
+    icon: ArchiveIcon,
+    search: {
+      q: undefined,
+      rest: undefined,
+      sort: undefined,
+      hidden: undefined,
+      density: undefined,
+    },
   },
   {
     label: "Coffees",
@@ -100,7 +113,7 @@ function NavLink({
       activeOptions={{ exact: to !== "/roasts" }}
       className={
         compact
-          ? "text-muted-foreground flex min-w-14 flex-col items-center justify-center gap-1 rounded-lg px-2 py-2 text-[0.6875rem] font-medium transition-colors"
+          ? "text-muted-foreground flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-[0.625rem] font-medium transition-colors"
           : "text-muted-foreground flex h-[3.625rem] w-[4.375rem] flex-col items-center justify-center gap-1 rounded-xl text-[0.6875rem] font-medium transition-colors"
       }
       activeProps={{ className: "bg-accent text-foreground" }}

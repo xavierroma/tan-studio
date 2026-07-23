@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::{
     config::{LaunchMode, ServiceConfig},
     contract::*,
+    core_contract::{SyncRunPage, SyncRunResource},
     db::Database,
     device::NanoDeviceManager,
     error::{ApiError, ApiResult, ProblemDetails},
@@ -90,6 +91,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device", get(device_get))
         .route("/device/refresh", post(device_refresh))
         .route("/device/synchronize", post(device_synchronize))
+        .route("/device/sync-runs", get(device_sync_runs))
         .route("/bridges", get(bridges_list))
         .route("/bridges/claims", post(bridge_claim_create))
         .route(
@@ -171,6 +173,10 @@ pub fn build_router(state: ApiState) -> Router {
             axum::routing::put(crate::core_api::attachments_put_links),
         )
         .route(
+            "/entity-profile-images/{resource_type}/{resource_id}",
+            axum::routing::put(crate::core_api::entity_profile_image_put),
+        )
+        .route(
             "/attachments/{id}/content",
             get(crate::core_api::attachments_get_content)
                 .put(crate::core_api::attachments_put_content),
@@ -183,6 +189,10 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/settings",
             get(crate::core_api::settings_get).patch(crate::core_api::settings_patch),
+        )
+        .route(
+            "/ui-preferences",
+            get(crate::core_api::ui_preferences_get).patch(crate::core_api::ui_preferences_patch),
         )
         .fallback(api_not_found)
         .layer(middleware::from_fn_with_state(state.clone(), api_security));
@@ -487,6 +497,43 @@ pub async fn device_synchronize(State(state): State<ApiState>) -> ApiResult<Json
         ApiError::new(status, code, title, "The Nano cannot synchronize yet.")
     })?;
     Ok(Json(state.device.snapshot()))
+}
+
+#[utoipa::path(get, path = "/api/v1/device/sync-runs", tag = "sync", operation_id = "listDeviceSyncRuns", responses((status = 200, body = SyncRunPage), (status = 401, body = ProblemDetails)))]
+pub async fn device_sync_runs(State(state): State<ApiState>) -> ApiResult<Json<SyncRunPage>> {
+    let connection = state.database.connection();
+    let mut statement = connection.prepare(
+        "SELECT id, trigger, state, transport, device_model,
+                imported_log_count, updated_log_count, import_warning_count,
+                quarantined_log_count, imported_profile_count,
+                profile_warning_count, quarantined_profile_count, error_code,
+                started_at_ms, completed_at_ms
+         FROM sync_runs
+         ORDER BY started_at_ms DESC, id DESC
+         LIMIT 100",
+    )?;
+    let items = statement
+        .query_map([], |row| {
+            Ok(SyncRunResource {
+                id: row.get(0)?,
+                trigger: row.get(1)?,
+                state: row.get(2)?,
+                transport: row.get(3)?,
+                device_model: row.get(4)?,
+                imported_log_count: row.get(5)?,
+                updated_log_count: row.get(6)?,
+                import_warning_count: row.get(7)?,
+                quarantined_log_count: row.get(8)?,
+                imported_profile_count: row.get(9)?,
+                profile_warning_count: row.get(10)?,
+                quarantined_profile_count: row.get(11)?,
+                error_code: row.get(12)?,
+                started_at: iso(row.get(13)?),
+                completed_at: row.get::<_, Option<i64>>(14)?.map(iso),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(SyncRunPage { items }))
 }
 
 #[utoipa::path(get, path = "/api/v1/bridges", tag = "bridges", responses((status = 200, body = BridgePage), (status = 500, body = ProblemDetails)))]
@@ -3005,6 +3052,55 @@ mod tests {
         let uploaded: Value = serde_json::from_slice(&uploaded).unwrap();
         assert_eq!(uploaded["byteLength"], content.len() as i64);
         assert_eq!(uploaded["sha256"].as_str().unwrap().len(), 64);
+        assert!(uploaded["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|link| link["role"] == "gallery"));
+
+        let (status, _) = api_request(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/entity-profile-images/coffee/{coffee_id}"),
+            Some(json!({"attachmentId": attachment_id})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, coffee_with_image) = api_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/coffees/{coffee_id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(coffee_with_image["profileImageAttachmentId"], attachment_id);
+
+        let (status, preferences) =
+            api_request(&app, Method::GET, "/api/v1/ui-preferences", None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(preferences["defaultTableDensity"], "expanded");
+        let (status, preferences) = api_request(
+            &app,
+            Method::PATCH,
+            "/api/v1/ui-preferences",
+            Some(json!({
+                "defaultTableDensity": "compact",
+                "tablePreferences": {
+                    "coffees": {"density": "expanded", "hidden": ["harvest"]}
+                }
+            })),
+            preferences["revision"].as_i64(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{preferences}");
+        assert_eq!(preferences["defaultTableDensity"], "compact");
+        assert_eq!(
+            preferences["tablePreferences"]["coffees"]["hidden"][0],
+            "harvest"
+        );
 
         let (status, listed) = api_request(
             &app,

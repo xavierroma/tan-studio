@@ -18,6 +18,7 @@ describe("AppShell primary navigation", () => {
     const routes = [
       ["/roast", "Roast view"],
       ["/roasts", "Roasts view"],
+      ["/pantry", "Pantry view"],
       ["/profiles", "Profiles view"],
       ["/coffees", "Coffees view"],
       ["/brews", "Brews view"],
@@ -56,5 +57,8 @@ describe("AppShell primary navigation", () => {
     expect(await screen.findByText("Coffees view")).toBeVisible()
     expect(router.state.location.pathname).toBe("/coffees")
     expect(router.state.location.search).toEqual({})
+    expect(
+      within(primaryNavigation[1]!).getByRole("link", { name: "Pantry" })
+    ).toBeVisible()
   })
 })

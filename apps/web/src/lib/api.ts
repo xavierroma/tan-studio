@@ -23,8 +23,11 @@ export type LabelRecord = components["schemas"]["LabelResource"]
 export type LabelCreate = components["schemas"]["LabelCreate"]
 export type Settings = components["schemas"]["SettingsResource"]
 export type SettingsPatch = components["schemas"]["SettingsPatch"]
+export type UiPreferences = components["schemas"]["UiPreferencesResource"]
+export type UiPreferencesPatch = components["schemas"]["UiPreferencesPatch"]
 export type Pantry = components["schemas"]["PantryResource"]
 export type Device = components["schemas"]["DeviceSnapshot"]
+export type SyncRun = components["schemas"]["SyncRunResource"]
 export type Bridge = components["schemas"]["BridgeResource"]
 export type Series = components["schemas"]["SeriesResponse"]
 
@@ -308,13 +311,37 @@ export async function uploadAttachment(
   return putAttachmentContent(attachment, file)
 }
 
-export async function getAttachmentContent(attachment: Attachment) {
+export async function getAttachmentContent(
+  attachment: Attachment | { id: number }
+) {
   requireCompanion()
   const result = await companionClient.GET("/api/v1/attachments/{id}/content", {
     params: { path: { id: attachment.id } },
     parseAs: "blob",
   })
   return unwrapResponse(result as Parameters<typeof unwrapResponse<Blob>>[0])
+}
+
+export async function setEntityProfileImage(
+  resourceType: "profile" | "coffee" | "roast" | "brew",
+  resourceId: number,
+  attachmentId: number | null
+) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.PUT(
+      "/api/v1/entity-profile-images/{resource_type}/{resource_id}",
+      {
+        params: {
+          path: {
+            resource_type: resourceType,
+            resource_id: resourceId,
+          },
+        },
+        body: { attachmentId },
+      }
+    )
+  )
 }
 
 export async function listLabels(roastId?: number, signal?: AbortSignal) {
@@ -351,6 +378,29 @@ export async function updateSettings(revision: number, body: SettingsPatch) {
   )
 }
 
+export async function getUiPreferences(signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET(
+      "/api/v1/ui-preferences",
+      signal ? { signal } : {}
+    )
+  )
+}
+
+export async function updateUiPreferences(
+  revision: number,
+  body: UiPreferencesPatch
+) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.PATCH("/api/v1/ui-preferences", {
+      params: { header: matchRevision(revision) },
+      body,
+    })
+  )
+}
+
 export async function getDevice(signal?: AbortSignal) {
   requireCompanion()
   return unwrapResponse(
@@ -370,6 +420,16 @@ export async function synchronizeDevice() {
   return unwrapResponse(
     await companionClient.POST("/api/v1/device/synchronize", { body: {} })
   )
+}
+
+export async function listDeviceSyncRuns(signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET(
+      "/api/v1/device/sync-runs",
+      signal ? { signal } : {}
+    )
+  ).items
 }
 
 export async function createBridgeClaim() {
@@ -403,6 +463,8 @@ export const queryKeys = {
     ["attachments", resourceType ?? "all", resourceId ?? "all"] as const,
   labels: (roastId?: number) => ["labels", roastId ?? "all"] as const,
   settings: () => ["settings"] as const,
+  uiPreferences: () => ["ui-preferences"] as const,
   device: () => ["device"] as const,
+  deviceSyncRuns: () => ["device-sync-runs"] as const,
   bridges: () => ["bridges"] as const,
 }

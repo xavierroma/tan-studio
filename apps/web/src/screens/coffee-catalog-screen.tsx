@@ -18,10 +18,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
-import { BeanIcon, PlusIcon } from "lucide-react"
+import { BeanIcon, ExternalLinkIcon, PlusIcon } from "lucide-react"
 import { useEffect } from "react"
 
 import { DataTable, DataTableSortHeader } from "@/components/data-table"
+import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
 import { listCoffees, queryKeys, type Coffee } from "@/lib/api"
 
@@ -81,6 +82,20 @@ export function CoffeeCatalogScreen() {
     ) ?? []
   const columns: ColumnDef<Coffee>[] = [
     {
+      id: "image",
+      header: "Image",
+      cell: ({ row }) => (
+        <EntityImage
+          attachmentId={row.original.profileImageAttachmentId}
+          entityType="coffee"
+          alt=""
+        />
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { label: "Image", mobile: "image" },
+    },
+    {
       id: "id",
       accessorFn: (coffee) => coffee.id,
       header: ({ column }) => (
@@ -115,23 +130,111 @@ export function CoffeeCatalogScreen() {
       meta: { label: "Provider", mobile: "detail" },
     },
     {
-      id: "origin",
-      accessorFn: (coffee) =>
-        [coffee.country, coffee.region, coffee.farm]
-          .filter(Boolean)
-          .join(" · "),
+      id: "providerUrl",
+      accessorFn: (coffee) => coffee.providerUrl,
       header: ({ column }) => (
         <DataTableSortHeader
-          label="Origin"
+          label="Website"
           sorted={column.getIsSorted()}
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
       cell: ({ row }) =>
-        [row.original.country, row.original.region, row.original.farm]
-          .filter(Boolean)
-          .join(" · ") || "—",
-      meta: { label: "Origin", mobile: "detail" },
+        row.original.providerUrl ? (
+          <a
+            href={row.original.providerUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-52 items-center gap-1 truncate underline-offset-4 hover:underline"
+          >
+            <span className="truncate">{row.original.providerUrl}</span>
+            <ExternalLinkIcon className="size-3 shrink-0" />
+          </a>
+        ) : (
+          "—"
+        ),
+      meta: { label: "Website", mobile: "detail" },
+    },
+    ...(
+      [
+        ["providerProductId", "Product ID"],
+        ["purchaseReference", "Purchase reference"],
+        ["country", "Country"],
+        ["region", "Region"],
+        ["farm", "Farm"],
+        ["producer", "Producer"],
+        ["washingStation", "Washing station"],
+      ] as const
+    ).map(([key, label]): ColumnDef<Coffee> => ({
+      id: key,
+      accessorFn: (coffee) => coffee[key],
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label={label}
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => row.original[key] || "—",
+      meta: { label, mobile: key === "country" ? "detail" : "hidden" },
+    })),
+    {
+      id: "purchasedAt",
+      accessorFn: (coffee) =>
+        coffee.purchasedAt ? new Date(coffee.purchasedAt).getTime() : 0,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Purchased"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) =>
+        row.original.purchasedAt
+          ? new Intl.DateTimeFormat(undefined, {
+              dateStyle: "medium",
+            }).format(new Date(row.original.purchasedAt))
+          : "—",
+      meta: { label: "Purchased", mobile: "hidden" },
+    },
+    {
+      id: "price",
+      accessorFn: (coffee) => coffee.priceMinor ?? -1,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Price"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) =>
+        row.original.priceMinor == null
+          ? "—"
+          : new Intl.NumberFormat(undefined, {
+              style: "currency",
+              currency: row.original.currencyCode ?? "USD",
+            }).format(row.original.priceMinor / 100),
+      meta: { label: "Price", mobile: "hidden" },
+    },
+    {
+      accessorKey: "currencyCode",
+      header: "Currency",
+      cell: ({ row }) => row.original.currencyCode ?? "—",
+      meta: { label: "Currency", mobile: "hidden" },
+    },
+    {
+      id: "purchasedMass",
+      accessorFn: (coffee) => coffee.purchasedMassMg,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Purchased mass"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) =>
+        `${(row.original.purchasedMassMg / 1_000).toLocaleString()} g`,
+      meta: { label: "Purchased mass", mobile: "hidden" },
     },
     {
       accessorKey: "process",
@@ -144,6 +247,45 @@ export function CoffeeCatalogScreen() {
       ),
       cell: ({ row }) => row.original.process || "—",
       meta: { label: "Process", mobile: "detail" },
+    },
+    ...(
+      [
+        ["variety", "Variety"],
+        ["harvest", "Harvest"],
+        ["storageLocation", "Storage"],
+      ] as const
+    ).map(([key, label]): ColumnDef<Coffee> => ({
+      id: key,
+      accessorFn: (coffee) => coffee[key],
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label={label}
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => row.original[key] || "—",
+      meta: { label, mobile: key === "variety" ? "detail" : "hidden" },
+    })),
+    {
+      id: "altitudeMin",
+      accessorFn: (coffee) => coffee.altitudeMinM ?? -1,
+      header: "Altitude min",
+      cell: ({ row }) =>
+        row.original.altitudeMinM == null
+          ? "—"
+          : `${row.original.altitudeMinM} m`,
+      meta: { label: "Altitude min", mobile: "hidden" },
+    },
+    {
+      id: "altitudeMax",
+      accessorFn: (coffee) => coffee.altitudeMaxM ?? -1,
+      header: "Altitude max",
+      cell: ({ row }) =>
+        row.original.altitudeMaxM == null
+          ? "—"
+          : `${row.original.altitudeMaxM} m`,
+      meta: { label: "Altitude max", mobile: "hidden" },
     },
     {
       id: "remaining",
@@ -173,6 +315,42 @@ export function CoffeeCatalogScreen() {
       ),
       meta: { label: "Roasts", mobile: "detail" },
     },
+    {
+      id: "metadata",
+      accessorFn: (coffee) => JSON.stringify(coffee.metadata),
+      header: "Metadata",
+      cell: ({ row }) => (
+        <span className="line-clamp-2 max-w-72 font-mono text-xs">
+          {JSON.stringify(row.original.metadata)}
+        </span>
+      ),
+      meta: { label: "Metadata", mobile: "hidden" },
+    },
+    {
+      id: "createdAt",
+      accessorFn: (coffee) => new Date(coffee.createdAt).getTime(),
+      header: "Created",
+      cell: ({ row }) =>
+        new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+          new Date(row.original.createdAt)
+        ),
+      meta: { label: "Created", mobile: "hidden" },
+    },
+    {
+      id: "updatedAt",
+      accessorFn: (coffee) => new Date(coffee.updatedAt).getTime(),
+      header: "Updated",
+      cell: ({ row }) =>
+        new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
+          new Date(row.original.updatedAt)
+        ),
+      meta: { label: "Updated", mobile: "hidden" },
+    },
+    {
+      accessorKey: "revision",
+      header: "Revision",
+      meta: { label: "Revision", mobile: "hidden" },
+    },
   ]
 
   return (
@@ -189,6 +367,27 @@ export function CoffeeCatalogScreen() {
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         {coffees.data?.length ? (
           <DataTable
+            preferenceKey="coffees"
+            defaultHidden={[
+              "providerProductId",
+              "purchaseReference",
+              "purchasedAt",
+              "price",
+              "currencyCode",
+              "purchasedMass",
+              "region",
+              "farm",
+              "producer",
+              "washingStation",
+              "altitudeMin",
+              "altitudeMax",
+              "harvest",
+              "storageLocation",
+              "metadata",
+              "createdAt",
+              "updatedAt",
+              "revision",
+            ]}
             columns={columns}
             data={filtered}
             state={search}

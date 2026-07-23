@@ -13,6 +13,7 @@ import {
   ImageIcon,
   PaperclipIcon,
   UploadIcon,
+  StarIcon,
   VideoIcon,
 } from "lucide-react"
 import type { FormEvent } from "react"
@@ -22,9 +23,11 @@ import {
   getAttachmentContent,
   listAttachments,
   queryKeys,
+  setEntityProfileImage,
   uploadAttachment,
   type Attachment,
 } from "@/lib/api"
+import { EntityImage } from "@/components/entity-image"
 
 type AttachmentPanelProps = {
   resourceType: "profile" | "coffee" | "roast" | "brew"
@@ -68,33 +71,70 @@ export function AttachmentPanel({
   })
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
+      const created: Attachment[] = []
       for (const file of files) {
-        await uploadAttachment(
-          {
-            title: file.name,
-            sourceUrl: null,
-            description: "",
-            capturedAt:
-              file.lastModified > 0
-                ? new Date(file.lastModified).toISOString()
-                : null,
-            links: [{ resourceType, resourceId }],
-          },
-          file
+        created.push(
+          await uploadAttachment(
+            {
+              title: file.name,
+              sourceUrl: null,
+              description: "",
+              capturedAt:
+                file.lastModified > 0
+                  ? new Date(file.lastModified).toISOString()
+                  : null,
+              links: [{ resourceType, resourceId, role: "gallery" }],
+            },
+            file
+          )
         )
       }
-      return files.length
+      const alreadyHasProfile = attachments.data?.some((attachment) =>
+        attachment.links.some(
+          (link) =>
+            link.resourceType === resourceType &&
+            link.resourceId === resourceId &&
+            link.role === "profile"
+        )
+      )
+      const firstImage = created.find((attachment) =>
+        attachment.mediaType.startsWith("image/")
+      )
+      if (!alreadyHasProfile && firstImage) {
+        await setEntityProfileImage(resourceType, resourceId, firstImage.id)
+      }
+      return created.length
     },
     onSuccess: (count) => {
       toast.success(`${count} attachment${count === 1 ? "" : "s"} saved`)
       void queryClient.invalidateQueries({
         queryKey: queryKeys.attachments(resourceType, resourceId),
       })
+      void queryClient.invalidateQueries({ queryKey: [resourceType] })
+      if (resourceType === "coffee")
+        void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      if (resourceType === "roast")
+        void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      if (resourceType === "brew")
+        void queryClient.invalidateQueries({ queryKey: ["brews"] })
     },
     onError: (error) => toast.error(error.message),
   })
   const open = useMutation({
     mutationFn: openAttachment,
+    onError: (error) => toast.error(error.message),
+  })
+  const profileImage = useMutation({
+    mutationFn: (attachmentId: number) =>
+      setEntityProfileImage(resourceType, resourceId, attachmentId),
+    onSuccess: () => {
+      toast.success("Profile image updated")
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.attachments(resourceType, resourceId),
+      })
+      void queryClient.invalidateQueries({ queryKey: [resourceType] })
+      void queryClient.invalidateQueries({ queryKey: [`${resourceType}s`] })
+    },
     onError: (error) => toast.error(error.message),
   })
   if (attachments.error) throw attachments.error
@@ -123,9 +163,18 @@ export function AttachmentPanel({
               key={attachment.id}
               className="bg-muted/40 flex items-center gap-3 rounded-lg border p-3"
             >
-              <span className="text-muted-foreground [&_svg]:size-4">
-                <MediaIcon mediaType={attachment.mediaType} />
-              </span>
+              {attachment.mediaType.startsWith("image/") ? (
+                <EntityImage
+                  attachmentId={attachment.id}
+                  entityType={resourceType}
+                  alt=""
+                  className={compact ? "size-12" : "size-16"}
+                />
+              ) : (
+                <span className="text-muted-foreground [&_svg]:size-4">
+                  <MediaIcon mediaType={attachment.mediaType} />
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
                   {attachment.title}
@@ -135,16 +184,46 @@ export function AttachmentPanel({
                 </p>
               </div>
               {attachment.sha256 ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={open.isPending}
-                  onClick={() => open.mutate(attachment)}
-                >
-                  <ExternalLinkIcon data-icon="inline-start" />
-                  Open
-                </Button>
+                <div className="flex items-center gap-1">
+                  {attachment.mediaType.startsWith("image/") ? (
+                    <Button
+                      type="button"
+                      variant={
+                        attachment.links.some(
+                          (link) =>
+                            link.resourceType === resourceType &&
+                            link.resourceId === resourceId &&
+                            link.role === "profile"
+                        )
+                          ? "secondary"
+                          : "ghost"
+                      }
+                      size="sm"
+                      disabled={profileImage.isPending}
+                      onClick={() => profileImage.mutate(attachment.id)}
+                    >
+                      <StarIcon data-icon="inline-start" />
+                      {attachment.links.some(
+                        (link) =>
+                          link.resourceType === resourceType &&
+                          link.resourceId === resourceId &&
+                          link.role === "profile"
+                      )
+                        ? "Profile image"
+                        : "Use as profile"}
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={open.isPending}
+                    onClick={() => open.mutate(attachment)}
+                  >
+                    <ExternalLinkIcon data-icon="inline-start" />
+                    Open
+                  </Button>
+                </div>
               ) : (
                 <Badge variant="warning">Pending</Badge>
               )}

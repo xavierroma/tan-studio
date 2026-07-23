@@ -50,6 +50,7 @@ import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import { RoastChart } from "@/components/roast-chart"
 import { AttachmentPanel } from "@/components/attachment-panel"
+import { EntityImage } from "@/components/entity-image"
 import {
   createNote,
   getRoast,
@@ -445,6 +446,23 @@ export function RoastDetailScreen() {
 
       <div className="grid gap-6 px-3 py-4 sm:px-7 sm:py-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
         <main className="min-w-0">
+          <section className="bg-card mb-6 flex items-center gap-5 rounded-xl border p-5">
+            <EntityImage
+              attachmentId={item.profileImageAttachmentId}
+              entityType="roast"
+              alt={`Roast #${item.id}`}
+              className="size-28 rounded-xl sm:size-36"
+            />
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-sm">Roast #{item.id}</p>
+              <h2 className="mt-1 text-xl font-semibold">
+                {item.coffee?.name ?? "Unassigned coffee"}
+              </h2>
+              <p className="text-muted-foreground mt-2">
+                {item.profile?.name ?? "No profile"}
+              </p>
+            </div>
+          </section>
           <section
             className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-3 lg:grid-cols-6"
             aria-label="Roast summary"
@@ -552,17 +570,8 @@ export function RoastDetailScreen() {
             <h2 className="font-semibold">Next actions</h2>
             <div className="mt-4 flex flex-col gap-2">
               <Link
-                to="/brews"
-                search={{
-                  roastId: item.id,
-                  brewId: undefined,
-                  tab: undefined,
-                  q: undefined,
-                  method: undefined,
-                  sort: undefined,
-                  hidden: undefined,
-                  density: undefined,
-                }}
+                to="/brews/new"
+                search={{ roastId: item.id }}
                 className={buttonVariants()}
               >
                 <CoffeeIcon data-icon="inline-start" />
@@ -579,7 +588,7 @@ export function RoastDetailScreen() {
               {item.profile ? (
                 <Link
                   to="/profiles"
-                  search={{ profileId: item.profile.id }}
+                  search={{ profileId: item.profile.id, compare: undefined }}
                   className={buttonVariants({ variant: "outline" })}
                 >
                   View profile

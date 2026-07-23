@@ -228,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/device/sync-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listDeviceSyncRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/device/synchronize": {
         parameters: {
             query?: never;
@@ -238,6 +254,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["device_synchronize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-profile-images/{resource_type}/{resource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["setEntityProfileImage"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -532,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ui-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getUiPreferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["updateUiPreferences"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -545,13 +593,19 @@ export interface components {
             capturedAt?: string | null;
             description?: string;
             filename: string;
-            links: components["schemas"]["NoteLink"][];
+            links: components["schemas"]["AttachmentLink"][];
             mediaType: string;
             sourceUrl?: string | null;
             title: string;
         };
+        AttachmentLink: {
+            /** Format: int64 */
+            resourceId: number;
+            resourceType: string;
+            role?: string;
+        };
         AttachmentLinksPut: {
-            links: components["schemas"]["NoteLink"][];
+            links: components["schemas"]["AttachmentLink"][];
         };
         AttachmentPage: {
             items: components["schemas"]["AttachmentResource"][];
@@ -573,7 +627,7 @@ export interface components {
             filename: string;
             /** Format: int64 */
             id: number;
-            links: components["schemas"]["NoteLink"][];
+            links: components["schemas"]["AttachmentLink"][];
             mediaType: string;
             /** Format: int64 */
             revision: number;
@@ -648,6 +702,8 @@ export interface components {
             kettle: string;
             method: string;
             notes: components["schemas"]["NoteResource"][];
+            /** Format: int64 */
+            profileImageAttachmentId?: number | null;
             recipe: unknown;
             /** Format: int64 */
             revision: number;
@@ -760,6 +816,8 @@ export interface components {
             priceMinor?: number | null;
             process: string;
             producer: string;
+            /** Format: int64 */
+            profileImageAttachmentId?: number | null;
             provider: string;
             providerProductId: string;
             providerUrl: string;
@@ -820,6 +878,10 @@ export interface components {
             transport?: string | null;
             /** Format: int32 */
             updatedLogCount: number;
+        };
+        EntityProfileImagePut: {
+            /** Format: int64 */
+            attachmentId?: number | null;
         };
         FeatureSet: {
             aiProposals: boolean;
@@ -975,6 +1037,8 @@ export interface components {
             parentProfileId?: number | null;
             profile: unknown;
             /** Format: int64 */
+            profileImageAttachmentId?: number | null;
+            /** Format: int64 */
             recommendedLevelThousandths?: number | null;
             /** Format: int64 */
             referenceLoadMg?: number | null;
@@ -994,6 +1058,8 @@ export interface components {
             origin: string;
             /** Format: int64 */
             parentProfileId?: number | null;
+            /** Format: int64 */
+            profileImageAttachmentId?: number | null;
             /** Format: int64 */
             recommendedLevelThousandths?: number | null;
             /** Format: int64 */
@@ -1091,6 +1157,8 @@ export interface components {
             /** Format: int64 */
             noteCount: number;
             profile?: null | components["schemas"]["ResourceReference"];
+            /** Format: int64 */
+            profileImageAttachmentId?: number | null;
             profileSnapshot: unknown;
             result: string;
             /** Format: int64 */
@@ -1122,6 +1190,8 @@ export interface components {
             /** Format: int64 */
             noteCount: number;
             profile?: null | components["schemas"]["ResourceReference"];
+            /** Format: int64 */
+            profileImageAttachmentId?: number | null;
             result: string;
             /** Format: int64 */
             revision: number;
@@ -1224,6 +1294,45 @@ export interface components {
         SimpleAdapter: {
             reason?: string | null;
             state: string;
+        };
+        SyncRunPage: {
+            items: components["schemas"]["SyncRunResource"][];
+        };
+        SyncRunResource: {
+            completedAt?: string | null;
+            deviceModel: string;
+            errorCode?: string | null;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            importWarningCount: number;
+            /** Format: int64 */
+            importedLogCount: number;
+            /** Format: int64 */
+            importedProfileCount: number;
+            /** Format: int64 */
+            profileWarningCount: number;
+            /** Format: int64 */
+            quarantinedLogCount: number;
+            /** Format: int64 */
+            quarantinedProfileCount: number;
+            startedAt: string;
+            state: string;
+            transport: string;
+            trigger: string;
+            /** Format: int64 */
+            updatedLogCount: number;
+        };
+        UiPreferencesPatch: {
+            defaultTableDensity?: string | null;
+            tablePreferences?: unknown;
+        };
+        UiPreferencesResource: {
+            defaultTableDensity: string;
+            /** Format: int64 */
+            revision: number;
+            tablePreferences: unknown;
+            updatedAt: string;
         };
     };
     responses: never;
@@ -1837,6 +1946,33 @@ export interface operations {
             };
         };
     };
+    listDeviceSyncRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRunPage"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     device_synchronize: {
         parameters: {
             query?: never;
@@ -1859,6 +1995,38 @@ export interface operations {
                 };
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    setEntityProfileImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resource_type: string;
+                resource_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityProfileImagePut"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2599,6 +2767,66 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    getUiPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiPreferencesResource"];
+                };
+            };
+        };
+    };
+    updateUiPreferences: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UiPreferencesPatch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiPreferencesResource"];
+                };
+            };
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

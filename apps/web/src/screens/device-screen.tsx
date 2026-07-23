@@ -15,6 +15,7 @@ import { Metric } from "@/components/metric"
 import { TanBridgeSetupPanel } from "@/components/tan-bridge-setup-panel"
 import {
   getDevice,
+  listDeviceSyncRuns,
   queryKeys,
   refreshDevice,
   synchronizeDevice,
@@ -33,15 +34,32 @@ export function DeviceSettings() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.device() }),
     onError: (error) => toast.error(error.message),
   })
+  const syncRuns = useQuery({
+    queryKey: queryKeys.deviceSyncRuns(),
+    queryFn: ({ signal }) => listDeviceSyncRuns(signal),
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => run.state === "running") ? 1_000 : 5_000,
+  })
   const sync = useMutation({
     mutationFn: synchronizeDevice,
+    onMutate: () =>
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.deviceSyncRuns(),
+      }),
     onSuccess: () => {
-      toast.success("Synchronization started")
+      toast.success("Synchronization complete")
       void queryClient.invalidateQueries({ queryKey: queryKeys.device() })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.deviceSyncRuns(),
+      })
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
       void queryClient.invalidateQueries({ queryKey: ["profiles"] })
     },
     onError: (error) => toast.error(error.message),
+    onSettled: () =>
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.deviceSyncRuns(),
+      }),
   })
   if (device.error) throw device.error
   const item = device.data
@@ -84,7 +102,7 @@ export function DeviceSettings() {
                 onClick={() => sync.mutate()}
                 disabled={!connected || sync.isPending}
               >
-                Synchronize
+                {sync.isPending ? "Synchronizing…" : "Synchronize"}
               </Button>
             </>
           </CardAction>
@@ -167,6 +185,75 @@ export function DeviceSettings() {
           </CardContent>
         </Card>
       ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <h2>Synchronization history</h2>
+          </CardTitle>
+          <CardAction>
+            <Badge
+              variant={
+                syncRuns.data?.some((run) => run.state === "running")
+                  ? "info"
+                  : "secondary"
+              }
+            >
+              {syncRuns.data?.some((run) => run.state === "running")
+                ? "Syncing"
+                : `${syncRuns.data?.length ?? 0} runs`}
+            </Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          {syncRuns.data?.length ? (
+            <div className="divide-y">
+              {syncRuns.data.slice(0, 20).map((run) => (
+                <div
+                  key={run.id}
+                  className="grid gap-2 py-3 text-sm sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:items-center"
+                >
+                  <div>
+                    <Badge
+                      variant={
+                        run.state === "completed"
+                          ? "success"
+                          : run.state === "running"
+                            ? "info"
+                            : "warning"
+                      }
+                    >
+                      {run.state}
+                    </Badge>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-medium">
+                      {run.trigger} sync · {run.transport || "Nano"}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {new Intl.DateTimeFormat(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "medium",
+                      }).format(new Date(run.startedAt))}
+                      {run.errorCode ? ` · ${run.errorCode}` : ""}
+                    </p>
+                  </div>
+                  <p className="text-muted-foreground whitespace-nowrap">
+                    {run.importedLogCount} logs · {run.importedProfileCount}{" "}
+                    profiles
+                    {run.importWarningCount + run.profileWarningCount
+                      ? ` · ${run.importWarningCount + run.profileWarningCount} warnings`
+                      : ""}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No synchronization attempts recorded yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

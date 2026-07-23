@@ -117,7 +117,12 @@ const roastLibraryRoute = createRoute({
       )
         ? search.hidden
         : undefined,
-    density: search.density === "expanded" ? ("expanded" as const) : undefined,
+    density:
+      search.density === "compact"
+        ? ("compact" as const)
+        : search.density === "expanded"
+          ? ("expanded" as const)
+          : undefined,
     rest:
       typeof search.rest === "string" &&
       /^(resting|peak|pastPeak|unknown)$/u.test(search.rest)
@@ -125,6 +130,20 @@ const roastLibraryRoute = createRoute({
         : undefined,
     view: search.view === "pantry" ? ("pantry" as const) : undefined,
   }),
+  beforeLoad: ({ search }) => {
+    if (search.view === "pantry") {
+      throw redirect({
+        to: "/pantry",
+        search: {
+          q: search.q,
+          rest: search.rest,
+          sort: search.sort,
+          hidden: search.hidden,
+          density: search.density,
+        },
+      })
+    }
+  },
   component: lazyRouteComponent(
     () => import("@/screens/roast-library-screen"),
     "RoastLibraryScreen"
@@ -140,11 +159,41 @@ const roastDetailRoute = createRoute({
   ),
 })
 
+const pantryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pantry",
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+    rest:
+      typeof search.rest === "string" &&
+      /^(resting|peak|pastPeak|unknown)$/u.test(search.rest)
+        ? search.rest
+        : undefined,
+    sort: typeof search.sort === "string" ? search.sort : undefined,
+    hidden: typeof search.hidden === "string" ? search.hidden : undefined,
+    density:
+      search.density === "compact"
+        ? ("compact" as const)
+        : search.density === "expanded"
+          ? ("expanded" as const)
+          : undefined,
+  }),
+  component: lazyRouteComponent(
+    () => import("@/screens/pantry-screen"),
+    "PantryScreen"
+  ),
+})
+
 const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/profiles",
   validateSearch: (search: Record<string, unknown>) => ({
     profileId: integer(search.profileId),
+    compare:
+      typeof search.compare === "string" &&
+      /^([1-9]\d*)(,[1-9]\d*){0,3}$/u.test(search.compare)
+        ? search.compare
+        : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/profile-editor-screen"),
@@ -163,7 +212,12 @@ const coffeesRoute = createRoute({
     process: typeof search.process === "string" ? search.process : undefined,
     sort: typeof search.sort === "string" ? search.sort : undefined,
     hidden: typeof search.hidden === "string" ? search.hidden : undefined,
-    density: search.density === "expanded" ? ("expanded" as const) : undefined,
+    density:
+      search.density === "compact"
+        ? ("compact" as const)
+        : search.density === "expanded"
+          ? ("expanded" as const)
+          : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/coffee-catalog-screen"),
@@ -200,7 +254,12 @@ const brewsRoute = createRoute({
     method: typeof search.method === "string" ? search.method : undefined,
     sort: typeof search.sort === "string" ? search.sort : undefined,
     hidden: typeof search.hidden === "string" ? search.hidden : undefined,
-    density: search.density === "expanded" ? ("expanded" as const) : undefined,
+    density:
+      search.density === "compact"
+        ? ("compact" as const)
+        : search.density === "expanded"
+          ? ("expanded" as const)
+          : undefined,
   }),
   beforeLoad: ({ search }) => {
     if (search.tab === "defaults") {
@@ -213,6 +272,18 @@ const brewsRoute = createRoute({
   component: lazyRouteComponent(
     () => import("@/screens/brews-screen"),
     "BrewsScreen"
+  ),
+})
+
+const brewCreateRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/brews/new",
+  validateSearch: (search: Record<string, unknown>) => ({
+    roastId: integer(search.roastId),
+  }),
+  component: lazyRouteComponent(
+    () => import("@/screens/brew-editor-screen"),
+    "BrewEditorScreen"
   ),
 })
 
@@ -256,11 +327,13 @@ const routeTree = rootRoute.addChildren([
   roastRoute,
   roastLibraryRoute,
   roastDetailRoute,
+  pantryRoute,
   profilesRoute,
   coffeesRoute,
   coffeeCreateRoute,
   coffeeDetailRoute,
   brewsRoute,
+  brewCreateRoute,
   labelsRoute,
   settingsRoute,
   devicesRoute,

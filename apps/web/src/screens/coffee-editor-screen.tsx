@@ -23,6 +23,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { AttachmentPanel } from "@/components/attachment-panel"
+import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
 import {
   createCoffee,
@@ -30,6 +31,7 @@ import {
   getCoffee,
   listNotes,
   queryKeys,
+  setEntityProfileImage,
   updateCoffee,
   uploadAttachment,
   type Coffee,
@@ -59,6 +61,13 @@ function optionalInteger(value: FormDataEntryValue | null) {
   return Number.isFinite(parsed) ? Math.round(parsed) : null
 }
 
+function optionalPriceMinor(value: FormDataEntryValue | null) {
+  const text = String(value ?? "").trim()
+  if (!text) return null
+  const parsed = Number(text)
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : null
+}
+
 function dateInput(value?: string | null) {
   return value ? value.slice(0, 10) : ""
 }
@@ -73,11 +82,14 @@ function coffeeBody(form: FormData, coffee?: Coffee): CoffeeCreate {
     name: String(form.get("name") ?? "").trim(),
     provider: String(form.get("provider") ?? "").trim(),
     providerUrl: String(form.get("providerUrl") ?? "").trim(),
-    providerProductId: coffee?.providerProductId ?? "",
+    providerProductId: String(form.get("providerProductId") ?? "").trim(),
     purchaseReference: String(form.get("purchaseReference") ?? "").trim(),
     purchasedAt: instant(form.get("purchasedAt")),
-    priceMinor: coffee?.priceMinor ?? null,
-    currencyCode: coffee?.currencyCode ?? null,
+    priceMinor: optionalPriceMinor(form.get("price")),
+    currencyCode:
+      String(form.get("currencyCode") ?? "")
+        .trim()
+        .toUpperCase() || null,
     purchasedMassMg: grams(form.get("purchasedMass")),
     remainingMassMg: grams(form.get("remainingMass")),
     country: String(form.get("country") ?? "").trim(),
@@ -126,6 +138,38 @@ function GeneralFields({ coffee }: { coffee?: Coffee | undefined }) {
             type="url"
             defaultValue={coffee?.providerUrl}
             placeholder="https://…"
+          />
+        </Field>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field>
+          <FieldLabel htmlFor="provider-product-id">Product ID</FieldLabel>
+          <Input
+            id="provider-product-id"
+            name="providerProductId"
+            defaultValue={coffee?.providerProductId}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="price">Price</FieldLabel>
+          <Input
+            id="price"
+            name="price"
+            type="number"
+            min="0"
+            step="0.01"
+            defaultValue={
+              coffee?.priceMinor == null ? "" : coffee.priceMinor / 100
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="currency-code">Currency</FieldLabel>
+          <Input
+            id="currency-code"
+            name="currencyCode"
+            maxLength={3}
+            defaultValue={coffee?.currencyCode ?? "USD"}
           />
         </Field>
       </div>
@@ -316,12 +360,22 @@ async function attachFiles(coffeeId: number, files: File[]) {
             file.lastModified > 0
               ? new Date(file.lastModified).toISOString()
               : null,
-          links: [{ resourceType: "coffee", resourceId: coffeeId }],
+          links: [
+            { resourceType: "coffee", resourceId: coffeeId, role: "gallery" },
+          ],
         },
         file
       )
     )
   )
+  const firstImage = results.find(
+    (result) =>
+      result.status === "fulfilled" &&
+      result.value.mediaType.startsWith("image/")
+  )
+  if (firstImage?.status === "fulfilled") {
+    await setEntityProfileImage("coffee", coffeeId, firstImage.value.id)
+  }
   return results.filter((result) => result.status === "rejected").length
 }
 
@@ -431,6 +485,27 @@ export function CoffeeEditorScreen() {
         }
       />
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
+        {item ? (
+          <section className="bg-card flex items-center gap-5 rounded-xl border p-5">
+            <EntityImage
+              attachmentId={item.profileImageAttachmentId}
+              entityType="coffee"
+              alt={item.name}
+              className="size-28 rounded-xl sm:size-36"
+            />
+            <div className="min-w-0">
+              <p className="text-muted-foreground text-sm">
+                {item.provider || "Provider not set"}
+              </p>
+              <h2 className="mt-1 text-2xl font-semibold">{item.name}</h2>
+              <p className="text-muted-foreground mt-2">
+                {[item.country, item.region, item.process]
+                  .filter(Boolean)
+                  .join(" · ") || "Origin details not set"}
+              </p>
+            </div>
+          </section>
+        ) : null}
         <form
           id="coffee-editor-form"
           key={item ? `${item.id}-${item.revision}` : "new"}

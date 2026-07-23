@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   Alert,
@@ -7,6 +12,15 @@ import {
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@tan-studio/ui/components/dropdown-menu"
 import {
   Empty,
   EmptyDescription,
@@ -44,6 +58,7 @@ import {
   FileChartColumnIncreasingIcon,
   GitBranchIcon,
   InfoIcon,
+  Layers3Icon,
   PlusIcon,
 } from "lucide-react"
 import type { FormEvent } from "react"
@@ -52,7 +67,10 @@ import { toast } from "sonner"
 
 import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
-import { RoastChart } from "@/components/roast-chart"
+import {
+  ProfileComparisonChart,
+  type ProfileChartCurve,
+} from "@/components/profile-comparison-chart"
 import {
   createChildProfile,
   getProfile,
@@ -155,6 +173,25 @@ function interpolate(
   return left.value + (right.value - left.value) * progress
 }
 
+function profileChartPoints(value: unknown): ChartPoint[] {
+  const document = record(value)
+  const roast = sampleNativeCurve(
+    document.roastCurve ?? document.roast_profile
+  ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
+  const fan = sampleNativeCurve(
+    document.fanCurve ?? document.fan_profile
+  ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
+  return [...new Set([...roast, ...fan].map((point) => point.elapsedMs))]
+    .toSorted((a, b) => a - b)
+    .map((elapsedMs) => ({
+      elapsedMs,
+      temperatureC: interpolate(roast, elapsedMs) ?? 0,
+      profileC: null,
+      rorCPerMin: null,
+      actualFanRpm: interpolate(fan, elapsedMs),
+    }))
+}
+
 export function ProfileEditorScreen() {
   const search = useSearch({ from: "/profiles" })
   const navigate = useNavigate({ from: "/profiles" })
@@ -170,6 +207,19 @@ export function ProfileEditorScreen() {
     queryFn: ({ signal }) => getProfile(selectedId!, signal),
     enabled: selectedId != null,
   })
+  const compareIds = useMemo(
+    () =>
+      (search.compare?.split(",").map(Number) ?? []).filter(
+        (id) => Number.isSafeInteger(id) && id > 0 && id !== selectedId
+      ),
+    [search.compare, selectedId]
+  )
+  const comparisons = useQueries({
+    queries: compareIds.map((id) => ({
+      queryKey: queryKeys.profile(id),
+      queryFn: ({ signal }: { signal: AbortSignal }) => getProfile(id, signal),
+    })),
+  })
   const profileRoasts = useQuery({
     queryKey: queryKeys.roasts({ profileId: selectedId }),
     queryFn: ({ signal }) => listRoasts({ profileId: selectedId }, signal),
@@ -182,36 +232,37 @@ export function ProfileEditorScreen() {
       toast.success(`Profile #${created.id} created`)
       setChildOpen(false)
       void queryClient.invalidateQueries({ queryKey: ["profiles"] })
-      void navigate({ search: { profileId: created.id } })
+      void navigate({ search: { profileId: created.id, compare: undefined } })
     },
     onError: (error) => toast.error(error.message),
   })
 
   useEffect(() => {
     if (!search.profileId && selectedId)
-      void navigate({ search: { profileId: selectedId }, replace: true })
+      void navigate({
+        search: { profileId: selectedId, compare: search.compare },
+        replace: true,
+      })
   }, [navigate, search.profileId, selectedId])
   if (list.error) throw list.error
   if (profile.error) throw profile.error
 
-  const chart = useMemo(() => {
-    const document = record(profile.data?.profile)
-    const roast = sampleNativeCurve(
-      document.roastCurve ?? document.roast_profile
-    ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
-    const fan = sampleNativeCurve(
-      document.fanCurve ?? document.fan_profile
-    ).toSorted((a, b) => a.elapsedMs - b.elapsedMs)
-    return [...new Set([...roast, ...fan].map((point) => point.elapsedMs))]
-      .toSorted((a, b) => a - b)
-      .map((elapsedMs): ChartPoint => ({
-        elapsedMs,
-        temperatureC: interpolate(roast, elapsedMs) ?? 0,
-        profileC: null,
-        rorCPerMin: null,
-        actualFanRpm: interpolate(fan, elapsedMs),
-      }))
-  }, [profile.data?.profile])
+  const chartCurves = useMemo(
+    () =>
+      [profile.data, ...comparisons.map((query) => query.data)].flatMap(
+        (candidate): ProfileChartCurve[] =>
+          candidate
+            ? [
+                {
+                  id: candidate.id,
+                  name: candidate.name,
+                  points: profileChartPoints(candidate.profile),
+                },
+              ]
+            : []
+      ),
+    [comparisons, profile.data]
+  )
 
   if (list.isPending)
     return (
@@ -380,14 +431,20 @@ export function ProfileEditorScreen() {
       />
 
       <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
-        <div className="max-w-md">
+        <div className="flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
           <Field>
             <FieldLabel htmlFor="profile-picker">Inspect profile</FieldLabel>
             <Select
               items={profileItems}
               value={String(item.id)}
               onValueChange={(value) =>
-                value && void navigate({ search: { profileId: Number(value) } })
+                value &&
+                void navigate({
+                  search: {
+                    profileId: Number(value),
+                    compare: search.compare,
+                  },
+                })
               }
             >
               <SelectTrigger id="profile-picker" className="w-full">
@@ -404,6 +461,49 @@ export function ProfileEditorScreen() {
               </SelectContent>
             </Select>
           </Field>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button type="button" variant="outline">
+                  <Layers3Icon data-icon="inline-start" />
+                  Compare
+                  {compareIds.length ? ` · ${compareIds.length}` : ""}
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="start" className="w-72">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Overlay up to 3 profiles</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {list.data
+                  ?.filter((candidate) => candidate.id !== item.id)
+                  .map((candidate) => {
+                    const selected = compareIds.includes(candidate.id)
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={candidate.id}
+                        checked={selected}
+                        disabled={!selected && compareIds.length >= 3}
+                        onCheckedChange={(checked) => {
+                          const next = checked
+                            ? [...compareIds, candidate.id].slice(0, 3)
+                            : compareIds.filter((id) => id !== candidate.id)
+                          void navigate({
+                            search: {
+                              profileId: item.id,
+                              compare: next.length ? next.join(",") : undefined,
+                            },
+                            replace: true,
+                          })
+                        }}
+                      >
+                        #{candidate.id} · {candidate.name}
+                      </DropdownMenuCheckboxItem>
+                    )
+                  })}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <section className="bg-card overflow-hidden rounded-xl border">
@@ -421,8 +521,8 @@ export function ProfileEditorScreen() {
               <Badge variant="secondary">User profile</Badge>
             )}
           </div>
-          {chart.length > 0 ? (
-            <RoastChart points={chart} height={430} showFanAxis />
+          {chartCurves[0]?.points.length ? (
+            <ProfileComparisonChart curves={chartCurves} />
           ) : (
             <p className="text-muted-foreground p-8 text-center text-sm">
               This profile has no curve points yet.
@@ -487,7 +587,7 @@ export function ProfileEditorScreen() {
               {parent ? (
                 <Link
                   to="/profiles"
-                  search={{ profileId: parent.id }}
+                  search={{ profileId: parent.id, compare: undefined }}
                   className="underline-offset-4 hover:underline"
                 >
                   Parent · #{parent.id} {parent.name}
@@ -499,7 +599,7 @@ export function ProfileEditorScreen() {
                 <Link
                   key={candidate.id}
                   to="/profiles"
-                  search={{ profileId: candidate.id }}
+                  search={{ profileId: candidate.id, compare: undefined }}
                   className="underline-offset-4 hover:underline"
                 >
                   Child · #{candidate.id} {candidate.name}

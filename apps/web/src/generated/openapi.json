@@ -1056,6 +1056,36 @@
         }
       }
     },
+    "/api/v1/device/sync-runs": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "operationId": "listDeviceSyncRuns",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/device/synchronize": {
       "post": {
         "tags": [
@@ -1084,6 +1114,58 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/entity-profile-images/{resource_type}/{resource_id}": {
+      "put": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "setEntityProfileImage",
+        "parameters": [
+          {
+            "name": "resource_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityProfileImagePut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "422": {
             "description": "",
             "content": {
               "application/json": {
@@ -2429,6 +2511,84 @@
           }
         }
       }
+    },
+    "/api/v1/ui-preferences": {
+      "get": {
+        "tags": [
+          "ui-preferences"
+        ],
+        "operationId": "getUiPreferences",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiPreferencesResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ui-preferences"
+        ],
+        "operationId": "updateUiPreferences",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UiPreferencesPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiPreferencesResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2476,7 +2636,7 @@
           "links": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/NoteLink"
+              "$ref": "#/components/schemas/AttachmentLink"
             }
           },
           "mediaType": {
@@ -2494,6 +2654,26 @@
         },
         "additionalProperties": false
       },
+      "AttachmentLink": {
+        "type": "object",
+        "required": [
+          "resourceType",
+          "resourceId"
+        ],
+        "properties": {
+          "resourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resourceType": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "AttachmentLinksPut": {
         "type": "object",
         "required": [
@@ -2503,7 +2683,7 @@
           "links": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/NoteLink"
+              "$ref": "#/components/schemas/AttachmentLink"
             }
           }
         },
@@ -2608,7 +2788,7 @@
           "links": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/NoteLink"
+              "$ref": "#/components/schemas/AttachmentLink"
             }
           },
           "mediaType": {
@@ -2907,6 +3087,13 @@
             "items": {
               "$ref": "#/components/schemas/NoteResource"
             }
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "recipe": {},
           "revision": {
@@ -3344,6 +3531,13 @@
           "producer": {
             "type": "string"
           },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "provider": {
             "type": "string"
           },
@@ -3592,6 +3786,19 @@
             "minimum": 0
           }
         }
+      },
+      "EntityProfileImagePut": {
+        "type": "object",
+        "properties": {
+          "attachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "FeatureSet": {
         "type": "object",
@@ -4159,6 +4366,13 @@
             "format": "int64"
           },
           "profile": {},
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "recommendedLevelThousandths": {
             "type": [
               "integer",
@@ -4219,6 +4433,13 @@
             "type": "string"
           },
           "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileImageAttachmentId": {
             "type": [
               "integer",
               "null"
@@ -4575,6 +4796,13 @@
               }
             ]
           },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
           "profileSnapshot": {},
           "result": {
             "type": "string"
@@ -4690,6 +4918,13 @@
                 "$ref": "#/components/schemas/ResourceReference"
               }
             ]
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "result": {
             "type": "string"
@@ -5036,6 +5271,134 @@
             "type": "string"
           }
         }
+      },
+      "SyncRunPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncRunResource"
+            }
+          }
+        }
+      },
+      "SyncRunResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "trigger",
+          "state",
+          "transport",
+          "deviceModel",
+          "importedLogCount",
+          "updatedLogCount",
+          "importWarningCount",
+          "quarantinedLogCount",
+          "importedProfileCount",
+          "profileWarningCount",
+          "quarantinedProfileCount",
+          "startedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deviceModel": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importWarningCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importedProfileCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profileWarningCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quarantinedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quarantinedProfileCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "updatedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "UiPreferencesPatch": {
+        "type": "object",
+        "properties": {
+          "defaultTableDensity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tablePreferences": {}
+        },
+        "additionalProperties": false
+      },
+      "UiPreferencesResource": {
+        "type": "object",
+        "required": [
+          "defaultTableDensity",
+          "tablePreferences",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "defaultTableDensity": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tablePreferences": {},
+          "updatedAt": {
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -5072,6 +5435,12 @@
     },
     {
       "name": "settings"
+    },
+    {
+      "name": "ui-preferences"
+    },
+    {
+      "name": "sync"
     },
     {
       "name": "contract"

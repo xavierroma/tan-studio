@@ -13,6 +13,15 @@ function captureBrowserProblems(page: Page) {
   return problems
 }
 
+async function chooseDensity(page: Page, density: "Compact" | "Expanded") {
+  const target = page.getByRole("button", { name: `${density} rows` })
+  if ((await target.getAttribute("aria-pressed")) === "true") {
+    const other = density === "Compact" ? "Expanded" : "Compact"
+    await page.getByRole("button", { name: `${other} rows` }).click()
+  }
+  await target.click()
+}
+
 test("roast library keeps filters and sorting in the URL", async ({ page }) => {
   const problems = captureBrowserProblems(page)
   await page.goto("/roasts")
@@ -41,19 +50,17 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
     .poll(() => new URL(page.url()).searchParams.get("sort"))
     .toBe("id.asc")
 
-  await page.getByRole("button", { name: "Expanded rows" }).click()
+  await chooseDensity(page, "Compact")
   await expect
     .poll(() => new URL(page.url()).searchParams.get("density"))
-    .toBe("expanded")
+    .toBe("compact")
   await page.reload()
   await expect(
-    page.getByRole("button", { name: "Expanded rows" })
+    page.getByRole("button", { name: "Compact rows" })
   ).toHaveAttribute("aria-pressed", "true")
 
-  await page.getByRole("tab", { name: "Pantry" }).click()
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("view"))
-    .toBe("pantry")
+  await page.getByRole("link", { name: "Pantry" }).click()
+  await expect(page).toHaveURL(/\/pantry(?:\?|$)/u)
   await expect(
     page.getByPlaceholder("Roast #, coffee, profile, tasting note…")
   ).toBeVisible()
@@ -74,6 +81,15 @@ test("profile and roast pickers show human labels", async ({ page }) => {
   await profilePicker.click()
   await expect(page.getByRole("option").first()).toHaveText(/#\d+ · .+/u)
   await page.keyboard.press("Escape")
+  await page.getByRole("button", { name: /^Compare/u }).click()
+  const comparison = page.getByRole("menuitemcheckbox").first()
+  await comparison.click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("compare"))
+    .toMatch(/^\d+$/u)
+  await expect(
+    page.getByRole("img", { name: "Profile comparison chart" })
+  ).toBeVisible()
 
   await page.goto("/roast")
   await expect(
@@ -212,10 +228,14 @@ test("coffee and brew tables keep their view state in the URL", async ({
   const problems = captureBrowserProblems(page)
   await page.goto("/coffees")
   await expect(page.getByRole("table")).toBeVisible()
-  await page.getByRole("button", { name: "Expanded rows" }).click()
+  await expect(
+    page.getByRole("columnheader", { name: "Website" })
+  ).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Image" })).toBeVisible()
+  await chooseDensity(page, "Compact")
   await expect
     .poll(() => new URL(page.url()).searchParams.get("density"))
-    .toBe("expanded")
+    .toBe("compact")
   await page
     .getByRole("columnheader")
     .getByRole("button", { name: "Provider" })
@@ -225,7 +245,7 @@ test("coffee and brew tables keep their view state in the URL", async ({
     .toBe("provider.asc")
   await page.reload()
   await expect(
-    page.getByRole("button", { name: "Expanded rows" })
+    page.getByRole("button", { name: "Compact rows" })
   ).toHaveAttribute("aria-pressed", "true")
 
   await page
@@ -251,16 +271,19 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect(page.getByRole("dialog")).toHaveCount(0)
 
   await page.goto("/brews")
-  await expect(page.getByText("Brew history", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Brews", exact: true })
+  ).toBeVisible()
   await expect(
     page.getByPlaceholder("Brew #, roast #, method, grinder, note…")
   ).toBeVisible()
-  await page.getByRole("button", { name: "Expanded rows" }).click()
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get("density"))
-    .toBe("expanded")
+  await page.getByRole("link", { name: "Log brew" }).click()
+  await expect(page).toHaveURL(/\/brews\/new(?:\?|$)/u)
+  await expect(page.getByLabel("Roast")).toBeVisible()
+  await expect(page.getByLabel("Coffee · g")).toBeVisible()
+  await expect(page.getByLabel("Documents & media")).toHaveCount(0)
 
-  await page.getByRole("link", { name: "Brew settings" }).click()
+  await page.getByRole("link", { name: "Settings" }).click()
   await expect(page).toHaveURL(/\/settings(?:\?|$)/u)
   await expect(
     page.getByRole("heading", { name: "Settings", exact: true })
@@ -270,6 +293,9 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect
     .poll(() => new URL(page.url()).searchParams.get("section"))
     .toBe("devices")
+  await expect(
+    page.getByRole("heading", { name: "Synchronization history" })
+  ).toBeVisible()
   expect(problems).toEqual([])
 })
 

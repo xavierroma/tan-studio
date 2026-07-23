@@ -15,6 +15,7 @@ import {
   DataTableSortHeader,
   type DataTableViewState,
 } from "@/components/data-table"
+import { EntityImage } from "@/components/entity-image"
 import { getPantry } from "@/lib/api"
 
 type PantryItem = Awaited<ReturnType<typeof getPantry>>["items"][number]
@@ -42,6 +43,20 @@ function restVariant(state: string) {
 }
 
 const columns: ColumnDef<PantryItem>[] = [
+  {
+    id: "image",
+    header: "Image",
+    cell: ({ row }) => (
+      <EntityImage
+        attachmentId={row.original.roast.profileImageAttachmentId}
+        entityType="roast"
+        alt=""
+      />
+    ),
+    enableHiding: false,
+    enableSorting: false,
+    meta: { label: "Image", mobile: "image" },
+  },
   {
     id: "id",
     accessorFn: (item) => item.roast.id,
@@ -160,6 +175,7 @@ export function PantryDataTable({
 
   return (
     <DataTable
+      preferenceKey="pantry"
       columns={columns}
       data={filtered}
       state={search}

@@ -24,6 +24,7 @@ const expectedTools = [
   "tan_search_coffees",
   "tan_search_profiles",
   "tan_search_roasts",
+  "tan_set_profile_image",
   "tan_status",
   "tan_sync_device",
   "tan_update_coffee",
@@ -222,6 +223,33 @@ describe("Tan Studio MCP contract", () => {
     })
   })
 
+  test("sets an entity profile image through the shared gateway use case", async () => {
+    let received: unknown
+    const { client } = await connect(
+      fakeApi({
+        setProfileImage: async (resourceType, resourceId, attachmentId) => {
+          received = { resourceType, resourceId, attachmentId }
+        },
+      })
+    )
+
+    const result = await client.callTool({
+      name: "tan_set_profile_image",
+      arguments: {
+        resourceType: "coffee",
+        resourceId: 5,
+        attachmentId: 12,
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(received).toEqual({
+      resourceType: "coffee",
+      resourceId: 5,
+      attachmentId: 12,
+    })
+  })
+
   test("rejects note kinds the Rust service does not support", async () => {
     let invoked = false
     const { client } = await connect(
@@ -279,6 +307,7 @@ function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
     createLabel: async () => ({ id: 1, roastId: 1 }),
     listAttachments: async () => ({ items: [] }),
     attachLocalFile: async () => ({ id: 1, revision: 1 }) as Attachment,
+    setProfileImage: async () => undefined,
     device: async () => ({}),
     synchronizeDevice: async () => ({}),
     ...overrides,
