@@ -49,10 +49,10 @@ No live test creates a coffee, brew, note, roast, or label. `tan_sync_device` is
 | --- | --- | --- | --- |
 | MCP-01 | Static | Generate plugin client from Rust OpenAPI and check Git drift | Generated contract is unchanged |
 | MCP-02 | Static | Run dependency-boundary checker | MCP controller imports only the gateway port, result helper, unit helper, MCP SDK, and Zod |
-| MCP-03 | Unit | Enumerate tool definitions and annotations | Exactly 11 curated tools; no raw HTTP, SQL, serial, or device-write tool |
+| MCP-03 | Unit | Enumerate tool definitions and annotations | Exactly 17 curated tools; no raw HTTP, SQL, serial, or device-write tool |
 | MCP-04 | Unit | Convert grams, Celsius, percent, and millimeters | Exact integer API units without floating-point drift |
 | MCP-05 | Unit | Validate note kinds and agent attribution | Unsupported kinds fail before HTTP; source is `agent`, metadata identifies `codex` |
-| MCP-06 | Isolated E2E | Enumerate tools, static resources, and templates | 11 tools, 2 static resources, 4 resource templates |
+| MCP-06 | Isolated E2E | Enumerate tools, static resources, and templates | 17 tools, 2 static resources, 4 resource templates |
 | MCP-07 | Isolated E2E | Search and read profile, coffee, roast, brew, pantry, and device | Structured MCP data matches seeded HTTP resources |
 | MCP-08 | Isolated E2E | Record brew, linked note, and roast label | Rust persists exact values; note links are atomic; label status does not claim physical printing |
 | MCP-09 | Isolated E2E | Missing resource and invalid link | Stable MCP errors; failed linked note leaves no partial record |
@@ -114,3 +114,12 @@ classes. The live read traversal passed with 16 profiles, 6 coffees, 15 roasts,
 9 pantry records, 15 telemetry-bearing roasts, and 6,854 ordered telemetry
 points. Live mutation and device synchronization were intentionally disabled
 because the physical Wi-Fi bridge was offline during this run.
+
+## 25 July 2026 brew-update regression
+
+The installed bundle exposes `tan_update_brew` as the agent controller for the
+same revision-guarded OpenAPI operation used by the React UI. The isolated E2E
+run passed all 17 curated tools, updated brew date and recipe fields using human
+units, and verified that a stale revision fails with HTTP 412 semantics. The
+installed and repository bundle SHA-256 hashes both equalled
+`faa7788e64dab05b16206d0812a48b08dd994503221f86994a3ace1b4cc46071`.

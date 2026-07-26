@@ -102,8 +102,10 @@ try {
     "tan_search_coffees",
     "tan_search_profiles",
     "tan_search_roasts",
+    "tan_set_profile_image",
     "tan_status",
     "tan_sync_device",
+    "tan_update_brew",
     "tan_update_coffee",
   ])
 
@@ -234,6 +236,35 @@ try {
   assert.equal(brewNotes.length, 1)
   assert.equal(numericField(brewNotes[0], "ratingBasisPoints"), 8_825)
 
+  const updatedBrew = await callOk(primaryClient, "tan_update_brew", {
+    brewId: numericField(brew, "id"),
+    revision: numericField(brew, "revision"),
+    brewedAt: "2026-07-20T13:00:00-07:00",
+    sourceTimezone: "America/Los_Angeles",
+    coffeeGrams: 15.5,
+    waterGrams: 248,
+    waterTemperatureCelsius: 94.75,
+    method: "V60 pulse",
+    grinderSetting: "5.3.1",
+    technique: "45 second bloom, three pulses",
+  })
+  assert.equal(numericField(updatedBrew, "coffeeMassMg"), 15_500)
+  assert.equal(numericField(updatedBrew, "waterMassMg"), 248_000)
+  assert.equal(numericField(updatedBrew, "waterTemperatureMilliC"), 94_750)
+  assert.equal(stringField(updatedBrew, "method"), "V60 pulse")
+  assert.equal(stringField(updatedBrew, "grinderSetting"), "5.3.1")
+  assert.equal(
+    nestedField(updatedBrew, "recipe", "technique"),
+    "45 second bloom, three pulses"
+  )
+
+  const staleBrewUpdate = await callError(primaryClient, "tan_update_brew", {
+    brewId: numericField(brew, "id"),
+    revision: numericField(brew, "revision"),
+    method: "Stale method",
+  })
+  assert.match(staleBrewUpdate, /revision_precondition_failed|412/iu)
+
   const note = await callOk(primaryClient, "tan_add_note", {
     body: "Decrease boost slightly on the next disposable roast",
     kind: "recommendation",
@@ -347,6 +378,7 @@ try {
         verifiedFailures: [
           "missing-resource",
           "invalid-input-schema",
+          "stale-brew-revision",
           "atomic-link",
           "unauthorized",
           "unavailable",
