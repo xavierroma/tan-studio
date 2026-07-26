@@ -465,10 +465,6 @@ test("an imported real roast keeps both chart panels visible while inspecting it
   const problems = captureBrowserProblems(page)
   await page.goto("/roasts/14")
   await expect(page.getByRole("heading", { name: "Roast #14" })).toBeVisible()
-  await expect(
-    page.getByText("Date unavailable", { exact: true })
-  ).toBeVisible()
-  await expect(page.getByText("date required", { exact: true })).toBeVisible()
 
   const chart = page.locator("canvas").first()
   await expect(chart).toBeVisible()

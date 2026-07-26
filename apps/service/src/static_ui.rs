@@ -61,7 +61,7 @@ pub async fn serve(State(ui): State<StaticUi>, request: Request<Body>) -> Respon
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("no-store"),
     );
-    response.headers_mut().insert("content-security-policy", header::HeaderValue::from_static("default-src 'self'; base-uri 'none'; connect-src 'self' ws: wss:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"));
+    response.headers_mut().insert("content-security-policy", header::HeaderValue::from_static("default-src 'self'; base-uri 'none'; connect-src 'self' ws: wss:; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' blob: data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"));
     security_headers(&mut response);
     response
 }
