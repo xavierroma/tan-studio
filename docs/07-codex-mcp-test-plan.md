@@ -123,3 +123,6 @@ run passed all 17 curated tools, updated brew date and recipe fields using human
 units, and verified that a stale revision fails with HTTP 412 semantics. The
 installed and repository bundle SHA-256 hashes both equalled
 `faa7788e64dab05b16206d0812a48b08dd994503221f86994a3ace1b4cc46071`.
+The live read-only traversal also passed with 16 profiles, 6 coffees, 15
+roasts, 9 pantry records, 2 brews, and 6,854 ordered telemetry points across
+all 15 roasts. Device synchronization remained disabled.
