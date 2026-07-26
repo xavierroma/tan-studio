@@ -2980,6 +2980,12 @@
       "BrewPatch": {
         "type": "object",
         "properties": {
+          "brewedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "coffeeMassMg": {
             "type": [
               "integer",
@@ -3012,6 +3018,19 @@
             ]
           },
           "recipe": {},
+          "roastId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "sourceTimezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "water": {
             "type": [
               "string",

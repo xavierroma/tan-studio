@@ -356,6 +356,86 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
   )
 
   server.registerTool(
+    "tan_update_brew",
+    {
+      title: "Update brew",
+      description:
+        "Update supplied details on an existing brew. Use the current revision returned by tan_get_context so concurrent changes are never overwritten.",
+      inputSchema: {
+        brewId: shortId,
+        revision: z.number().int().positive(),
+        roastId: shortId.optional(),
+        brewedAt: z.iso.datetime({ offset: true }).optional(),
+        sourceTimezone: z.string().trim().min(1).max(200).optional(),
+        coffeeGrams: z.number().positive().max(500).optional(),
+        waterGrams: z.number().positive().max(10_000).optional(),
+        waterTemperatureCelsius: z
+          .number()
+          .min(0)
+          .max(100)
+          .nullable()
+          .optional(),
+        method: z.string().trim().min(1).max(100).optional(),
+        grinder: z.string().trim().max(200).optional(),
+        grinderSetting: z.string().trim().max(100).optional(),
+        kettle: z.string().trim().max(200).optional(),
+        water: z.string().trim().max(200).optional(),
+        technique: z.string().trim().max(10_000).optional(),
+      },
+      annotations: writeAnnotations,
+    },
+    async (input) =>
+      protect(async () => {
+        const current =
+          input.technique === undefined
+            ? undefined
+            : await api.context("brew", input.brewId)
+        const currentRecipe =
+          current && "recipe" in current && current.recipe ? current.recipe : {}
+        const brew = await api.updateBrew(input.brewId, input.revision, {
+          ...(input.roastId !== undefined ? { roastId: input.roastId } : {}),
+          ...(input.brewedAt !== undefined ? { brewedAt: input.brewedAt } : {}),
+          ...(input.sourceTimezone !== undefined
+            ? { sourceTimezone: input.sourceTimezone }
+            : {}),
+          ...(input.coffeeGrams !== undefined
+            ? { coffeeMassMg: gramsToMilligrams(input.coffeeGrams) }
+            : {}),
+          ...(input.waterGrams !== undefined
+            ? { waterMassMg: gramsToMilligrams(input.waterGrams) }
+            : {}),
+          ...(input.waterTemperatureCelsius !== undefined
+            ? {
+                waterTemperatureMilliC:
+                  input.waterTemperatureCelsius === null
+                    ? null
+                    : celsiusToMilliCelsius(input.waterTemperatureCelsius),
+              }
+            : {}),
+          ...(input.method !== undefined ? { method: input.method } : {}),
+          ...(input.grinder !== undefined ? { grinder: input.grinder } : {}),
+          ...(input.grinderSetting !== undefined
+            ? { grinderSetting: input.grinderSetting }
+            : {}),
+          ...(input.kettle !== undefined ? { kettle: input.kettle } : {}),
+          ...(input.water !== undefined ? { water: input.water } : {}),
+          ...(input.technique !== undefined
+            ? {
+                recipe: {
+                  ...(typeof currentRecipe === "object" &&
+                  !Array.isArray(currentRecipe)
+                    ? currentRecipe
+                    : {}),
+                  technique: input.technique,
+                },
+              }
+            : {}),
+        })
+        return success(`Updated brew ${brew.id}`, brew)
+      })
+  )
+
+  server.registerTool(
     "tan_add_note",
     {
       title: "Add note",

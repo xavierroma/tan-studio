@@ -467,7 +467,7 @@ export function CoffeeCatalogScreen() {
                 Add the green coffee you plan to roast.
               </EmptyDescription>
             </EmptyHeader>
-            <Button render={<Link to="/coffees/new" />}>
+            <Button nativeButton={false} render={<Link to="/coffees/new" />}>
               <PlusIcon data-icon="inline-start" />
               Add coffee
             </Button>

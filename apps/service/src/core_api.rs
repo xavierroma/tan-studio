@@ -677,6 +677,22 @@ pub async fn brews_patch(
     let expected = expected_revision(&headers)?;
     let connection = state.database.connection();
     let current = get_brew(&connection, id)?;
+    let roast_id = input.roast_id.unwrap_or(current.roast_id);
+    get_roast(&connection, roast_id)?;
+    let brewed_at = input
+        .brewed_at
+        .as_deref()
+        .map(parse_instant)
+        .transpose()?
+        .unwrap_or(parse_instant(&current.brewed_at)?);
+    let source_timezone = input
+        .source_timezone
+        .unwrap_or(current.source_timezone)
+        .trim()
+        .to_owned();
+    if source_timezone.is_empty() {
+        return Err(ApiError::validation("Source timezone is required."));
+    }
     let recipe = input.recipe.unwrap_or(current.recipe);
     validate_object(&recipe, "recipe")?;
     let coffee_mass = input.coffee_mass_mg.unwrap_or(current.coffee_mass_mg);
@@ -684,12 +700,20 @@ pub async fn brews_patch(
     if coffee_mass <= 0 || water_mass <= 0 {
         return Err(ApiError::validation("Brew masses must be positive."));
     }
+    let water_temperature = input
+        .water_temperature_milli_c
+        .unwrap_or(current.water_temperature_milli_c);
+    if water_temperature.is_some_and(|value| !(0..=100_000).contains(&value)) {
+        return Err(ApiError::validation(
+            "Water temperature must be between 0 and 100 degrees Celsius.",
+        ));
+    }
     let changed = connection.execute(
-        "UPDATE brews SET method=?, grinder=?, grinder_setting=?, kettle=?, water=?, coffee_mass_mg=?, water_mass_mg=?,
+        "UPDATE brews SET roast_id=?, brewed_at_ms=?, source_timezone=?, method=?, grinder=?, grinder_setting=?, kettle=?, water=?, coffee_mass_mg=?, water_mass_mg=?,
          water_temperature_milli_c=?, recipe_json=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
-        params![input.method.unwrap_or(current.method), input.grinder.unwrap_or(current.grinder), input.grinder_setting.unwrap_or(current.grinder_setting),
+        params![roast_id, brewed_at, source_timezone, input.method.unwrap_or(current.method), input.grinder.unwrap_or(current.grinder), input.grinder_setting.unwrap_or(current.grinder_setting),
             input.kettle.unwrap_or(current.kettle), input.water.unwrap_or(current.water), coffee_mass, water_mass,
-            input.water_temperature_milli_c.unwrap_or(current.water_temperature_milli_c), json_text(&recipe)?, now_ms(), id, expected],
+            water_temperature, json_text(&recipe)?, now_ms(), id, expected],
     )?;
     if changed == 0 {
         return Err(ApiError::revision());

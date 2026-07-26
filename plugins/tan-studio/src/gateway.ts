@@ -5,6 +5,7 @@ export type Bridge = components["schemas"]["BridgeResource"]
 export type BridgePage = components["schemas"]["BridgePage"]
 export type Brew = components["schemas"]["BrewResource"]
 export type BrewCreate = components["schemas"]["BrewCreate"]
+export type BrewPatch = components["schemas"]["BrewPatch"]
 export type Attachment = components["schemas"]["AttachmentResource"]
 export type AttachmentCreate = components["schemas"]["AttachmentCreate"]
 export type AttachmentPage = components["schemas"]["AttachmentPage"]
@@ -76,6 +77,7 @@ export interface TanStudioGateway {
     input: CoffeePatch
   ): Promise<Coffee>
   createBrew(input: BrewCreate): Promise<Brew>
+  updateBrew(id: number, revision: number, input: BrewPatch): Promise<Brew>
   createNote(input: NoteCreate): Promise<Note>
   createLabel(input: LabelCreate): Promise<Label>
   listAttachments(

@@ -2995,7 +2995,49 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::CREATED, "{brew}");
         let brew_id = brew["id"].as_i64().unwrap();
+        let brew_revision = brew["revision"].as_i64().unwrap();
         assert_eq!(brew["notes"][0]["links"][0]["resourceType"], "brew");
+
+        let (status, updated_brew) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/brews/{brew_id}"),
+            Some(json!({
+                "roastId": roast_id,
+                "brewedAt": "2026-07-24T08:15:00-07:00",
+                "sourceTimezone": "America/Los_Angeles",
+                "method": "V60 pulse",
+                "grinderSetting": "5.3.1",
+                "coffeeMassMg": 15500,
+                "waterMassMg": 248000,
+                "waterTemperatureMilliC": 95000,
+                "recipe": {"technique": "45 second bloom, three pulses"}
+            })),
+            Some(brew_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{updated_brew}");
+        assert_eq!(updated_brew["roastId"], roast_id);
+        assert_eq!(updated_brew["brewedAt"], "2026-07-24T15:15:00.000Z");
+        assert_eq!(updated_brew["sourceTimezone"], "America/Los_Angeles");
+        assert_eq!(updated_brew["method"], "V60 pulse");
+        assert_eq!(updated_brew["grinderSetting"], "5.3.1");
+        assert_eq!(updated_brew["coffeeMassMg"], 15500);
+        assert_eq!(
+            updated_brew["recipe"]["technique"],
+            "45 second bloom, three pulses"
+        );
+
+        let (status, stale_brew) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/brews/{brew_id}"),
+            Some(json!({"method": "Stale edit"})),
+            Some(brew_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{stale_brew}");
+        assert_eq!(stale_brew["code"], "revision_precondition_failed");
 
         let (status, note) = api_request(
             &app,
@@ -3178,7 +3220,7 @@ mod tests {
 
         let (status, pantry) = api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
         assert_eq!(status, StatusCode::OK, "{pantry}");
-        assert_eq!(pantry["items"][0]["estimatedRemainingMassMg"], 69000);
+        assert_eq!(pantry["items"][0]["estimatedRemainingMassMg"], 69500);
         assert_eq!(pantry["items"][0]["rest"]["state"], "unknown");
         assert_eq!(pantry["items"][0]["rest"]["ageDays"], Value::Null);
         assert_eq!(pantry["items"][0]["rest"]["suggestedFrom"], Value::Null);

@@ -279,6 +279,26 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect(
     page.getByPlaceholder("Brew #, roast #, method, grinder, note…")
   ).toBeVisible()
+  const firstBrew = page.getByRole("link", { name: /^#\d+$/u }).first()
+  await expect(firstBrew).toBeVisible()
+  await firstBrew.click()
+  await expect(page).toHaveURL(/\/brews\/\d+$/u)
+  await expect(
+    page.getByRole("heading", { name: /^Brew #\d+$/u })
+  ).toBeVisible()
+  await expect(page.getByRole("link", { name: /^Roast #\d+/u })).toBeVisible()
+  await expect(page.getByLabel("Add files")).toBeVisible()
+  await page.getByRole("button", { name: "Edit" }).click()
+  await expect(
+    page.getByRole("heading", { name: /^Edit brew #\d+$/u })
+  ).toBeVisible()
+  await expect(page.getByLabel("Brewed at")).toHaveValue(
+    /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u
+  )
+  await expect(page.getByLabel("Coffee · g")).toHaveValue(/\d/u)
+  await page.keyboard.press("Escape")
+
+  await page.goto("/brews")
   await page.getByRole("link", { name: "Log brew" }).click()
   await expect(page).toHaveURL(/\/brews\/new(?:\?|$)/u)
   await expect(page.getByLabel("Roast")).toBeVisible()
@@ -298,6 +318,91 @@ test("coffee and brew tables keep their view state in the URL", async ({
   await expect(
     page.getByRole("heading", { name: "Synchronization history" })
   ).toBeVisible()
+  expect(problems).toEqual([])
+})
+
+test("brew detail saves edits through the revision-guarded API", async ({
+  page,
+}) => {
+  const problems = captureBrowserProblems(page)
+  let brew = {
+    id: 901,
+    roastId: 14,
+    brewedAt: "2026-07-24T15:15:00.000Z",
+    sourceTimezone: "America/Los_Angeles",
+    method: "V60",
+    grinder: "Test grinder",
+    grinderSetting: "5.4.1",
+    kettle: "Test kettle",
+    water: "Filtered",
+    coffeeMassMg: 16_000,
+    waterMassMg: 250_000,
+    waterTemperatureMilliC: 96_000,
+    recipe: { bloomSeconds: 45, technique: "Three pulses" },
+    notes: [],
+    profileImageAttachmentId: null,
+    createdAt: "2026-07-24T15:15:00.000Z",
+    updatedAt: "2026-07-24T15:15:00.000Z",
+    revision: 3,
+  }
+  let receivedPatch: Record<string, unknown> | undefined
+  let receivedIfMatch: string | undefined
+
+  await page.route("**/api/v1/brews/901", async (route) => {
+    if (route.request().method() === "PATCH") {
+      receivedPatch = route.request().postDataJSON() as Record<string, unknown>
+      receivedIfMatch = route.request().headers()["if-match"]
+      brew = { ...brew, ...receivedPatch, revision: 4 }
+    }
+    await route.fulfill({ json: brew })
+  })
+  await page.route("**/api/v1/roasts", async (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: 14,
+            coffee: { id: 3, name: "Test coffee" },
+            profile: { id: 8, name: "Test profile" },
+          },
+        ],
+      },
+    })
+  )
+  await page.route("**/api/v1/attachments?**", async (route) =>
+    route.fulfill({ json: { items: [] } })
+  )
+
+  await page.goto("/brews/901")
+  await expect(page.getByRole("heading", { name: "Brew #901" })).toBeVisible()
+  await page.getByRole("button", { name: "Edit" }).click()
+  await page.getByLabel("Method").fill("V60 pulse")
+  await page.getByLabel("Coffee · g").fill("15.5")
+  await page.getByLabel("Water · °C").fill("95.5")
+  await page.getByRole("button", { name: "Save brew" }).click()
+
+  await expect(page.getByText("Brew #901 updated")).toBeVisible()
+  expect(receivedIfMatch).toBe('"revision:3"')
+  expect(receivedPatch).toMatchObject({
+    method: "V60 pulse",
+    coffeeMassMg: 15_500,
+    waterTemperatureMilliC: 95_500,
+    recipe: { bloomSeconds: 45, technique: "Three pulses" },
+  })
+  await page.reload()
+  await expect(page.getByText("V60 pulse · Roast #14")).toBeVisible()
+  await page.getByRole("button", { name: "Edit" }).click()
+  await expect(page.getByLabel("Method")).toHaveValue("V60 pulse")
+  await expect(page.getByLabel("Coffee · g")).toHaveValue("15.5")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole("button", { name: "Save brew" })).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    )
+    .toBe(true)
   expect(problems).toEqual([])
 })
 

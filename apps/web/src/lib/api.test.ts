@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test, vi } from "vitest"
 
 import {
+  getBrew,
   getCoffee,
   getUiPreferences,
   listRoasts,
   setEntityProfileImage,
   updateRoast,
+  updateBrew,
   updateUiPreferences,
 } from "@/lib/api"
 
@@ -64,6 +66,34 @@ describe("generated API client integration", () => {
 
     const request = fetchMock.mock.calls[0]?.[0] as Request
     expect(new URL(request.url).pathname).toBe("/api/v1/coffees/12")
+  })
+
+  test("loads and revision-updates a brew through the generated contract", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response({ id: 8, roastId: 14, revision: 2 }))
+      .mockResolvedValueOnce(
+        response({ id: 8, roastId: 14, method: "V60 pulse", revision: 3 })
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getBrew(8)).resolves.toMatchObject({ id: 8, roastId: 14 })
+    await updateBrew(8, 2, {
+      method: "V60 pulse",
+      coffeeMassMg: 15_500,
+      brewedAt: "2026-07-24T15:15:00Z",
+    })
+
+    const getRequest = fetchMock.mock.calls[0]?.[0] as Request
+    expect(new URL(getRequest.url).pathname).toBe("/api/v1/brews/8")
+    const patchRequest = fetchMock.mock.calls[1]?.[0] as Request
+    expect(patchRequest.method).toBe("PATCH")
+    expect(patchRequest.headers.get("If-Match")).toBe('"revision:2"')
+    await expect(patchRequest.clone().json()).resolves.toEqual({
+      method: "V60 pulse",
+      coffeeMassMg: 15_500,
+      brewedAt: "2026-07-24T15:15:00Z",
+    })
   })
 
   test("uses the generated preference and profile-image contracts", async () => {

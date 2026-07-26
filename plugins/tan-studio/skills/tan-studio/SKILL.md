@@ -23,6 +23,7 @@ Use `tan_list_pantry` for “what should I brew?” questions. Respect each roas
 Treat the user's stated measurements and sensory observations as facts. Keep suggestions or inferred causes visibly distinct from observations.
 
 - Use `tan_record_brew` for a brewing session. Omit fields the user did not provide so the backend applies the user's defaults.
+- Use `tan_update_brew` with the latest revision from `tan_get_context` when correcting or enriching an existing brewing session.
 - Use `tan_add_note` for observations that should link to one or more profiles, coffees, roasts, or brews.
 - Link a tasting note to the brew and roast when both are known.
 - Preserve the user's wording in unstructured notes; do not manufacture flavor notes, scores, measurements, or inventory amounts.

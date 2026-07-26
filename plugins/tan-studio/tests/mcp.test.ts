@@ -5,6 +5,7 @@ import type {
   Attachment,
   AttachmentFileInput,
   BrewCreate,
+  BrewPatch,
   CoffeeCreate,
   NoteCreate,
   TanStudioGateway,
@@ -27,6 +28,7 @@ const expectedTools = [
   "tan_set_profile_image",
   "tan_status",
   "tan_sync_device",
+  "tan_update_brew",
   "tan_update_coffee",
 ]
 
@@ -122,6 +124,47 @@ describe("Tan Studio MCP contract", () => {
       waterMassMg: 250_000,
       waterTemperatureMilliC: 96_250,
       ratingBasisPoints: 8_750,
+    })
+  })
+
+  test("updates a brew through the revision-guarded API contract", async () => {
+    let received: { id: number; revision: number; input: BrewPatch } | undefined
+    const api = fakeApi({
+      context: async () => ({ recipe: { bloomSeconds: 45 } }) as never,
+      updateBrew: async (id: number, revision: number, input: BrewPatch) => {
+        received = { id, revision, input }
+        return { id, roastId: 15, revision: revision + 1 } as never
+      },
+    })
+    const { client } = await connect(api)
+
+    const result = await client.callTool({
+      name: "tan_update_brew",
+      arguments: {
+        brewId: 31,
+        revision: 4,
+        coffeeGrams: 15.5,
+        waterGrams: 248,
+        waterTemperatureCelsius: 95.5,
+        method: "V60 pulse",
+        technique: "45 second bloom, three pulses",
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(received).toEqual({
+      id: 31,
+      revision: 4,
+      input: {
+        coffeeMassMg: 15_500,
+        waterMassMg: 248_000,
+        waterTemperatureMilliC: 95_500,
+        method: "V60 pulse",
+        recipe: {
+          bloomSeconds: 45,
+          technique: "45 second bloom, three pulses",
+        },
+      },
     })
   })
 
@@ -303,6 +346,7 @@ function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
       id: 1,
       roastId: input.roastId,
     }),
+    updateBrew: async (id: number) => ({ id, roastId: 1 }),
     createNote: async () => ({ id: 1 }),
     createLabel: async () => ({ id: 1, roastId: 1 }),
     listAttachments: async () => ({ items: [] }),

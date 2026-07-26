@@ -15,6 +15,7 @@ export type Roast = components["schemas"]["RoastResource"]
 export type RoastCreate = components["schemas"]["RoastCreate"]
 export type Brew = components["schemas"]["BrewResource"]
 export type BrewCreate = components["schemas"]["BrewCreate"]
+export type BrewPatch = components["schemas"]["BrewPatch"]
 export type Note = components["schemas"]["NoteResource"]
 export type NoteCreate = components["schemas"]["NoteCreate"]
 export type Attachment = components["schemas"]["AttachmentResource"]
@@ -215,6 +216,30 @@ export async function createBrew(input: BrewCreate) {
   requireCompanion()
   return unwrapResponse(
     await companionClient.POST("/api/v1/brews", { body: input })
+  )
+}
+
+export async function getBrew(id: number, signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET("/api/v1/brews/{id}", {
+      params: { path: { id } },
+      ...(signal ? { signal } : {}),
+    })
+  )
+}
+
+export async function updateBrew(
+  id: number,
+  revision: number,
+  body: BrewPatch
+) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.PATCH("/api/v1/brews/{id}", {
+      params: { path: { id }, header: matchRevision(revision) },
+      body,
+    })
   )
 }
 
@@ -457,6 +482,7 @@ export const queryKeys = {
   series: (id: number, version?: number) => ["series", id, version] as const,
   pantry: () => ["pantry"] as const,
   brews: (roastId?: number) => ["brews", roastId ?? "all"] as const,
+  brew: (id: number) => ["brew", id] as const,
   notes: (resourceType?: string, resourceId?: number) =>
     ["notes", resourceType ?? "all", resourceId ?? "all"] as const,
   attachments: (resourceType?: string, resourceId?: number) =>

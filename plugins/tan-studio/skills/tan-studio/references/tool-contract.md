@@ -22,6 +22,7 @@ MCP resources mirror common reads at `tan://pantry`, `tan://device`, `tan://prof
 | `tan_create_coffee` | Creates one flat green-coffee record from known provider or user facts.                                   |
 | `tan_update_coffee` | Optimistically updates supplied fields on an existing coffee record.                                      |
 | `tan_record_brew`   | Creates one brew linked to an existing roast. Omitted values use backend defaults.                        |
+| `tan_update_brew`   | Revision-guarded update of supplied brew details through the same OpenAPI operation as the web UI.        |
 | `tan_add_note`      | Creates one note and atomically links it to 1–10 resources. Source is `agent`; metadata identifies Codex. |
 | `tan_attach_file`   | Streams one local file into the content-addressed store and links it to 1–20 core resources.              |
 | `tan_create_label`  | Creates one roast-linked label request/artifact; it does not imply physical printing.                     |

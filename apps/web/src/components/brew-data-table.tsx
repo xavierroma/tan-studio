@@ -85,7 +85,13 @@ export function BrewDataTable({
         />
       ),
       cell: ({ row }) => (
-        <span className="font-medium">#{row.original.id}</span>
+        <Link
+          to="/brews/$brewId"
+          params={{ brewId: String(row.original.id) }}
+          className="font-medium underline-offset-4 hover:underline"
+        >
+          #{row.original.id}
+        </Link>
       ),
       enableHiding: false,
       meta: { label: "Brew", mobile: "primary" },

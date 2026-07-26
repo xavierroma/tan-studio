@@ -290,6 +290,15 @@ const brewCreateRoute = createRoute({
   ),
 })
 
+const brewDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/brews/$brewId",
+  component: lazyRouteComponent(
+    () => import("@/screens/brew-detail-screen"),
+    "BrewDetailScreen"
+  ),
+})
+
 const labelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/labels",
@@ -337,6 +346,7 @@ const routeTree = rootRoute.addChildren([
   coffeeDetailRoute,
   brewsRoute,
   brewCreateRoute,
+  brewDetailRoute,
   labelsRoute,
   settingsRoute,
   devicesRoute,

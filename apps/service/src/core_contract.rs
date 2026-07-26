@@ -498,6 +498,9 @@ pub struct BrewCreate {
 #[derive(Debug, Clone, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrewPatch {
+    pub roast_id: Option<i64>,
+    pub brewed_at: Option<String>,
+    pub source_timezone: Option<String>,
     pub method: Option<String>,
     pub grinder: Option<String>,
     pub grinder_setting: Option<String>,

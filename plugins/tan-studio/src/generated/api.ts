@@ -677,6 +677,7 @@ export interface components {
             items: components["schemas"]["BrewResource"][];
         };
         BrewPatch: {
+            brewedAt?: string | null;
             /** Format: int64 */
             coffeeMassMg?: number | null;
             grinder?: string | null;
@@ -684,6 +685,9 @@ export interface components {
             kettle?: string | null;
             method?: string | null;
             recipe?: unknown;
+            /** Format: int64 */
+            roastId?: number | null;
+            sourceTimezone?: string | null;
             water?: string | null;
             /** Format: int64 */
             waterMassMg?: number | null;

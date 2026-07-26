@@ -13,6 +13,7 @@ import {
   type BridgePage,
   type Brew,
   type BrewCreate,
+  type BrewPatch,
   type CoffeePage,
   type Coffee,
   type CoffeeCreate,
@@ -196,6 +197,22 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
 
   async createBrew(input: BrewCreate): Promise<Brew> {
     return unwrap(await this.client.POST("/api/v1/brews", { body: input }))
+  }
+
+  async updateBrew(
+    id: number,
+    revision: number,
+    input: BrewPatch
+  ): Promise<Brew> {
+    return unwrap(
+      await this.client.PATCH("/api/v1/brews/{id}", {
+        params: {
+          path: { id },
+          header: { "If-Match": `"revision:${revision}"` },
+        },
+        body: input,
+      })
+    )
   }
 
   async createCoffee(input: CoffeeCreate): Promise<Coffee> {
