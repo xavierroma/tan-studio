@@ -29,6 +29,7 @@ import {
   type ProfilePage,
   type RoastDetail,
   type RoastPage,
+  type RoastPatch,
   type SearchFilters,
   type TanStudioGateway,
 } from "./gateway"
@@ -39,6 +40,7 @@ interface QueryFilters {
   coffeeId?: number
   roastId?: number
   status?: string
+  archived?: boolean
 }
 
 export type FetchLike = (
@@ -195,6 +197,22 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     return { roast, series }
   }
 
+  async updateRoast(
+    id: number,
+    revision: number,
+    input: RoastPatch
+  ): Promise<RoastDetail["roast"]> {
+    return unwrap(
+      await this.client.PATCH("/api/v1/roasts/{id}", {
+        params: {
+          path: { id },
+          header: { "If-Match": `"revision:${revision}"` },
+        },
+        body: input,
+      })
+    )
+  }
+
   async createBrew(input: BrewCreate): Promise<Brew> {
     return unwrap(await this.client.POST("/api/v1/brews", { body: input }))
   }
@@ -331,6 +349,7 @@ function compactFilters(filters: SearchFilters): QueryFilters {
     ...(filters.status !== undefined && filters.status !== ""
       ? { status: filters.status }
       : {}),
+    ...(filters.archived ? { archived: true } : {}),
   }
 }
 

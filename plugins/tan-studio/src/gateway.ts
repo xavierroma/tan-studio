@@ -24,6 +24,7 @@ export type ProblemDetails = components["schemas"]["ProblemDetails"]
 export type ProfilePage = components["schemas"]["ProfilePage"]
 export type Roast = components["schemas"]["RoastResource"]
 export type RoastPage = components["schemas"]["RoastPage"]
+export type RoastPatch = components["schemas"]["RoastPatch"]
 export type Series = components["schemas"]["SeriesResponse"]
 
 export interface SearchFilters {
@@ -32,6 +33,7 @@ export interface SearchFilters {
   coffeeId?: number | undefined
   roastId?: number | undefined
   status?: string | undefined
+  archived?: boolean | undefined
 }
 
 export interface RoastDetail {
@@ -70,6 +72,7 @@ export interface TanStudioGateway {
     id: number
   ): Promise<Context | Brew>
   roast(id: number, maxPoints?: number): Promise<RoastDetail>
+  updateRoast(id: number, revision: number, input: RoastPatch): Promise<Roast>
   createCoffee(input: CoffeeCreate): Promise<Coffee>
   updateCoffee(
     id: number,

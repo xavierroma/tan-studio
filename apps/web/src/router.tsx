@@ -48,6 +48,7 @@ const rootRoute = createRootRoute({
             status: undefined,
             profileId: undefined,
             coffeeId: undefined,
+            archived: undefined,
             sort: undefined,
             hidden: undefined,
             density: undefined,
@@ -74,6 +75,7 @@ const indexRoute = createRoute({
         status: undefined,
         profileId: undefined,
         coffeeId: undefined,
+        archived: undefined,
         sort: undefined,
         hidden: undefined,
         density: undefined,
@@ -105,6 +107,8 @@ const roastLibraryRoute = createRoute({
     status: typeof search.status === "string" ? search.status : undefined,
     profileId: integer(search.profileId),
     coffeeId: integer(search.coffeeId),
+    archived:
+      search.archived === true || search.archived === "true" ? true : undefined,
     sort:
       typeof search.sort === "string" &&
       /^(id|roastedAt|coffee|profile|level|load|status)\.(asc|desc)$/u.test(
@@ -158,6 +162,15 @@ const roastDetailRoute = createRoute({
   component: lazyRouteComponent(
     () => import("@/screens/roast-detail-screen"),
     "RoastDetailScreen"
+  ),
+})
+
+const roastEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/roasts/$roastId/edit",
+  component: lazyRouteComponent(
+    () => import("@/screens/roast-editor-screen"),
+    "RoastEditorScreen"
   ),
 })
 
@@ -339,6 +352,7 @@ const routeTree = rootRoute.addChildren([
   roastRoute,
   roastLibraryRoute,
   roastDetailRoute,
+  roastEditRoute,
   pantryRoute,
   profilesRoute,
   coffeesRoute,

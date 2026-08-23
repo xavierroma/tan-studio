@@ -1111,15 +1111,30 @@ export interface components {
             /** Format: int64 */
             temperatureMilliC?: number | null;
         };
+        RoastMilestonePatch: {
+            /** Format: int64 */
+            elapsedMs: number;
+            /** Format: int64 */
+            temperatureMilliC?: number | null;
+        };
         RoastPage: {
             items: components["schemas"]["RoastSummary"][];
         };
         RoastPatch: {
             adjustments?: unknown;
+            archived?: boolean | null;
             /** Format: int64 */
             coffeeId?: number | null;
             /** Format: int64 */
+            cooldownEndMs?: number | null;
+            /** Format: int64 */
             developmentBasisPoints?: number | null;
+            /** Format: int64 */
+            durationMs?: number | null;
+            endReason?: string | null;
+            /** Format: int64 */
+            endTemperatureMilliC?: number | null;
+            firstCrack?: null | components["schemas"]["RoastMilestonePatch"];
             /** Format: int64 */
             greenInputMassMg?: number | null;
             /** Format: int64 */
@@ -1136,15 +1151,20 @@ export interface components {
         };
         RoastResource: {
             adjustments: unknown;
+            archivedAt?: string | null;
             /** Format: int64 */
             brewCount: number;
             coffee?: null | components["schemas"]["ResourceReference"];
+            /** Format: int64 */
+            cooldownEndMs?: number | null;
             createdAt: string;
             /** Format: int64 */
             developmentBasisPoints?: number | null;
             /** Format: int64 */
             durationMs?: number | null;
             endReason: string;
+            /** Format: int64 */
+            endTemperatureMilliC?: number | null;
             events: components["schemas"]["RoastEvent"][];
             /** Format: int64 */
             greenInputMassMg?: number | null;
@@ -1178,6 +1198,7 @@ export interface components {
             updatedAt: string;
         };
         RoastSummary: {
+            archivedAt?: string | null;
             /** Format: int64 */
             brewCount: number;
             coffee?: null | components["schemas"]["ResourceReference"];
@@ -1357,6 +1378,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -1586,6 +1608,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -1754,6 +1777,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -2050,6 +2074,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -2121,6 +2146,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -2337,6 +2363,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -2534,6 +2561,7 @@ export interface operations {
                 resourceType?: string | null;
                 resourceId?: number | null;
                 status?: string | null;
+                archived?: boolean | null;
             };
             header?: never;
             path?: never;

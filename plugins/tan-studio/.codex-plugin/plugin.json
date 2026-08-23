@@ -1,6 +1,6 @@
 {
   "name": "tan-studio",
-  "version": "0.1.0+codex.20260722102500",
+  "version": "0.1.0+codex.20260726183000",
   "description": "Manage coffee roasts, brews, tasting notes, Wi-Fi bridges, and the Kaffeelogic device through Tan Studio's typed local API.",
   "author": {
     "name": "Xavier Roma"
@@ -15,6 +15,8 @@
     "capabilities": [
       "Roast and pantry search",
       "Coffee, profile, and roast context",
+      "Revision-protected roast outcome correction",
+      "Recoverable global roast archiving",
       "Brew and tasting-note capture",
       "Roast label creation",
       "Wi-Fi bridge diagnostics",

@@ -145,18 +145,24 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
     {
       title: "Search roasts",
       description:
-        "Search roast history by text, profile, coffee, roast ID, or status. Results are lightweight and omit telemetry samples.",
+        "Search active or archived roast history by text, profile, coffee, roast ID, or status. Results are lightweight and omit telemetry samples.",
       inputSchema: {
         query: optionalSearch.describe("Coffee, profile, result, or note text"),
         profileId: optionalFilterId,
         coffeeId: optionalFilterId,
         roastId: optionalFilterId,
         status: z.string().trim().min(1).max(50).optional(),
+        archived: z
+          .boolean()
+          .optional()
+          .describe(
+            "True searches archived roasts; active roasts are the default"
+          ),
         limit: resultLimit,
       },
       annotations: readOnlyAnnotations,
     },
-    async ({ query, profileId, coffeeId, roastId, status, limit }) =>
+    async ({ query, profileId, coffeeId, roastId, status, archived, limit }) =>
       protect(async () => {
         const page = await api.searchRoasts({
           q: query,
@@ -164,6 +170,7 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
           coffeeId,
           roastId,
           status,
+          archived,
         })
         return success("Matching roasts", boundedPage(page, limit))
       })
@@ -294,6 +301,121 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
           await api.roast(roastId, includeTelemetry ? maxPoints : undefined)
         )
       )
+  )
+
+  server.registerTool(
+    "tan_update_roast",
+    {
+      title: "Update roast",
+      description:
+        "Revision-update supplied roast results or settings, including roasted yield, timing, temperature, cooling, a user first-crack marker, and global archive state. Green input mass is never changed by this tool.",
+      inputSchema: {
+        roastId: shortId,
+        revision: z.number().int().positive(),
+        roastedYieldGrams: z.number().positive().max(10_000).optional(),
+        firstCrackSeconds: z.number().nonnegative().max(86_400).optional(),
+        firstCrackTemperatureCelsius: z.number().min(-100).max(500).optional(),
+        clearFirstCrack: z.boolean().optional(),
+        status: z.enum(["planned", "completed", "interrupted"]).optional(),
+        result: z.enum(["success", "aborted", "fault", "unknown"]).optional(),
+        level: z.number().min(0).max(10).optional(),
+        developmentPercent: z.number().min(0).max(100).optional(),
+        durationSeconds: z.number().nonnegative().max(86_400).optional(),
+        coolingSeconds: z.number().nonnegative().max(86_400).optional(),
+        endTemperatureCelsius: z.number().min(-100).max(500).optional(),
+        endReason: z.string().trim().max(200).optional(),
+        archived: z
+          .boolean()
+          .optional()
+          .describe(
+            "True hides the roast from normal lists and pantry; false restores it"
+          ),
+      },
+      annotations: writeAnnotations,
+    },
+    async ({
+      roastId,
+      revision,
+      roastedYieldGrams,
+      firstCrackSeconds,
+      firstCrackTemperatureCelsius,
+      clearFirstCrack,
+      status,
+      result,
+      level,
+      developmentPercent,
+      durationSeconds,
+      coolingSeconds,
+      endTemperatureCelsius,
+      endReason,
+      archived,
+    }) =>
+      protect(async () => {
+        if (
+          firstCrackTemperatureCelsius !== undefined &&
+          firstCrackSeconds === undefined
+        ) {
+          throw new Error(
+            "firstCrackSeconds is required with firstCrackTemperatureCelsius"
+          )
+        }
+        if (coolingSeconds !== undefined && durationSeconds === undefined) {
+          throw new Error("durationSeconds is required with coolingSeconds")
+        }
+        const input = withoutUndefined({
+          ...(roastedYieldGrams === undefined
+            ? {}
+            : { roastedYieldMassMg: gramsToMilligrams(roastedYieldGrams) }),
+          ...(clearFirstCrack
+            ? { firstCrack: null }
+            : firstCrackSeconds === undefined
+              ? {}
+              : {
+                  firstCrack: {
+                    elapsedMs: Math.round(firstCrackSeconds * 1_000),
+                    temperatureMilliC:
+                      firstCrackTemperatureCelsius === undefined
+                        ? null
+                        : celsiusToMilliCelsius(firstCrackTemperatureCelsius),
+                  },
+                }),
+          status,
+          result,
+          ...(level === undefined
+            ? {}
+            : { levelThousandths: Math.round(level * 1_000) }),
+          ...(developmentPercent === undefined
+            ? {}
+            : {
+                developmentBasisPoints:
+                  percentToBasisPoints(developmentPercent),
+              }),
+          ...(durationSeconds === undefined
+            ? {}
+            : { durationMs: Math.round(durationSeconds * 1_000) }),
+          ...(coolingSeconds === undefined
+            ? {}
+            : {
+                cooldownEndMs: Math.round(
+                  (durationSeconds! + coolingSeconds) * 1_000
+                ),
+              }),
+          ...(endTemperatureCelsius === undefined
+            ? {}
+            : {
+                endTemperatureMilliC: celsiusToMilliCelsius(
+                  endTemperatureCelsius
+                ),
+              }),
+          endReason,
+          archived,
+        })
+        if (Object.keys(input).length === 0) {
+          throw new Error("At least one roast field is required")
+        }
+        const roast = await api.updateRoast(roastId, revision, input)
+        return success(`Updated roast ${roast.id}`, roast)
+      })
   )
 
   server.registerTool(

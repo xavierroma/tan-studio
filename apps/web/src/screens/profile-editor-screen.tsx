@@ -643,6 +643,7 @@ export function ProfileEditorScreen() {
                 search={{
                   profileId: item.id,
                   coffeeId: undefined,
+                  archived: undefined,
                   q: undefined,
                   status: undefined,
                   sort: undefined,

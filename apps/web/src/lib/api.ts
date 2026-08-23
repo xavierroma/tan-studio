@@ -116,6 +116,7 @@ export async function listRoasts(
     status?: string | undefined
     profileId?: number | undefined
     coffeeId?: number | undefined
+    archived?: boolean | undefined
   } = {},
   signal?: AbortSignal
 ) {
@@ -128,6 +129,7 @@ export async function listRoasts(
           ...(options.status ? { status: options.status } : {}),
           ...(options.profileId ? { profileId: options.profileId } : {}),
           ...(options.coffeeId ? { coffeeId: options.coffeeId } : {}),
+          ...(options.archived ? { archived: true } : {}),
         },
       },
       ...(signal ? { signal } : {}),

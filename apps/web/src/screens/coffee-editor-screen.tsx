@@ -23,6 +23,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { AttachmentPanel } from "@/components/attachment-panel"
+import { CoffeeSpecCharts } from "@/components/coffee-spec-charts"
 import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
 import {
@@ -506,6 +507,9 @@ export function CoffeeEditorScreen() {
             </div>
           </section>
         ) : null}
+        {item ? (
+          <CoffeeSpecCharts coffeeName={item.name} metadata={item.metadata} />
+        ) : null}
         <form
           id="coffee-editor-form"
           key={item ? `${item.id}-${item.revision}` : "new"}
@@ -594,6 +598,7 @@ export function CoffeeEditorScreen() {
                     search={{
                       coffeeId: item.id,
                       profileId: undefined,
+                      archived: undefined,
                       q: undefined,
                       status: undefined,
                       sort: undefined,

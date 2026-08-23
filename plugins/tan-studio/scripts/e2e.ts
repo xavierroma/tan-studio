@@ -107,6 +107,7 @@ try {
     "tan_sync_device",
     "tan_update_brew",
     "tan_update_coffee",
+    "tan_update_roast",
   ])
 
   const resources = await primaryClient.listResources()

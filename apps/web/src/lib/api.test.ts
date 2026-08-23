@@ -28,7 +28,12 @@ describe("generated API client integration", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await expect(
-      listRoasts({ q: "washed", status: "completed", profileId: 4 })
+      listRoasts({
+        q: "washed",
+        status: "completed",
+        profileId: 4,
+        archived: true,
+      })
     ).resolves.toEqual([])
 
     const request = fetchMock.mock.calls[0]?.[0] as Request
@@ -37,6 +42,7 @@ describe("generated API client integration", () => {
     expect(url.searchParams.get("q")).toBe("washed")
     expect(url.searchParams.get("status")).toBe("completed")
     expect(url.searchParams.get("profileId")).toBe("4")
+    expect(url.searchParams.get("archived")).toBe("true")
   })
 
   test("sends optimistic concurrency from the resource revision", async () => {

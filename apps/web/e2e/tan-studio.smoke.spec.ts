@@ -29,6 +29,7 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
   await expect(page).toHaveTitle(/Tan Studio/u)
   await expect(page.getByRole("heading", { name: "Roasts" })).toBeVisible()
   await expect(page.getByRole("table")).toBeVisible()
+  await expect(page.getByLabel("Filter archived roasts")).toBeVisible()
 
   const search = page.getByPlaceholder("Roast #, profile, coffee, provider…")
   await search.fill("Washed")
@@ -59,12 +60,30 @@ test("roast library keeps filters and sorting in the URL", async ({ page }) => {
     page.getByRole("button", { name: "Compact rows" })
   ).toHaveAttribute("aria-pressed", "true")
 
+  const archiveFilter = page.getByLabel("Filter archived roasts")
+  await archiveFilter.click()
+  await page.getByRole("option", { name: "Archived roasts" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("archived"))
+    .toBe("true")
+  await expect(
+    page.getByText("Archived", { exact: true }).first()
+  ).toBeVisible()
+  await archiveFilter.click()
+  await page.getByRole("option", { name: "Active roasts" }).click()
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("archived"))
+    .toBe(false)
+
   await page.getByRole("link", { name: "Pantry" }).click()
   await expect(page).toHaveURL(/\/pantry(?:\?|$)/u)
   await expect(
     page.getByPlaceholder("Roast #, coffee, profile, tasting note…")
   ).toBeVisible()
   await expect(page.getByLabel("Filter by rest state")).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /Archive roast \d+/u }).first()
+  ).toBeVisible()
 
   await page.getByRole("link", { name: "Coffees" }).click()
   await expect(page).toHaveURL(/\/coffees(?:\?|$)/u)
@@ -100,6 +119,27 @@ test("profile and roast pickers show human labels", async ({ page }) => {
   const roastProfile = page.getByRole("combobox", { name: "Profile" })
   await roastProfile.click()
   await expect(page.getByRole("option").first()).toHaveText(/#\d+ · .+/u)
+  expect(problems).toEqual([])
+})
+
+test("coffee detail recreates provider cupping charts from metadata", async ({
+  page,
+}) => {
+  const problems = captureBrowserProblems(page)
+  await page.goto("/coffees/1")
+
+  const section = page.getByRole("region", {
+    name: "Provider cupping profile",
+  })
+  await expect(section).toBeVisible()
+  await expect(
+    section.getByRole("img", { name: /provider cupping scores/u })
+  ).toBeVisible()
+  await expect(
+    section.getByRole("img", { name: /provider flavor intensities/u })
+  ).toBeVisible()
+  await expect(section.getByText("Score: 87.0")).toBeVisible()
+  await section.screenshot({ path: "/tmp/tan-studio-coffee-spec-charts.png" })
   expect(problems).toEqual([])
 })
 
@@ -456,6 +496,20 @@ test("mobile roast preparation and data views fit without horizontal overflow", 
       )
     )
     .toBe(true)
+
+  await page.goto("/roasts/14/edit")
+  await expect(
+    page.getByRole("heading", { name: "Edit roast", exact: true })
+  ).toBeVisible()
+  await expect(page.getByLabel("Roasted yield · g")).toBeVisible()
+  await expect(page.getByLabel("First crack · m:ss")).toBeVisible()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    )
+    .toBe(true)
   expect(problems).toEqual([])
 })
 
@@ -465,6 +519,9 @@ test("an imported real roast keeps both chart panels visible while inspecting it
   const problems = captureBrowserProblems(page)
   await page.goto("/roasts/14")
   await expect(page.getByRole("heading", { name: "Roast #14" })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Archive", exact: true })
+  ).toBeVisible()
 
   const chart = page.locator("canvas").first()
   await expect(chart).toBeVisible()
@@ -482,5 +539,26 @@ test("an imported real roast keeps both chart panels visible while inspecting it
   await chart.screenshot({ path: "/tmp/tan-studio-roast-14-chart-hover.png" })
 
   await expect(page.getByText(/first crack/u).first()).toBeVisible()
+
+  await page.getByRole("link", { name: "Edit" }).click()
+  await expect(page).toHaveURL(/\/roasts\/14\/edit$/u)
+  await expect(
+    page.getByRole("heading", { name: "Edit roast", exact: true })
+  ).toBeVisible()
+  const measurementTops = await Promise.all(
+    ["Level", "Green load · g", "Roasted yield · g"].map(async (label) =>
+      page
+        .getByLabel(label)
+        .evaluate((element) => element.getBoundingClientRect().top)
+    )
+  )
+  expect(
+    Math.max(...measurementTops) - Math.min(...measurementTops)
+  ).toBeLessThan(1)
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Roast", exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/roasts\/14$/u)
   expect(problems).toEqual([])
 })

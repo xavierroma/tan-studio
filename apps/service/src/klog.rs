@@ -540,7 +540,7 @@ impl KlogImporter {
             Some(existing) => Some(existing),
             None => transaction.query_row(
                 "SELECT r.id, s.stream_version FROM roasts r LEFT JOIN roast_sample_streams s ON s.roast_id=r.id
-                 WHERE r.status='planned' AND r.source_file_id IS NULL AND r.created_at_ms >= ?
+                 WHERE r.status='planned' AND r.archived_at_ms IS NULL AND r.source_file_id IS NULL AND r.created_at_ms >= ?
                  ORDER BY r.created_at_ms DESC LIMIT 1",
                 [Utc::now().timestamp_millis() - 86_400_000],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),

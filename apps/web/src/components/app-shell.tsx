@@ -147,6 +147,7 @@ export function AppShell() {
               status: undefined,
               profileId: undefined,
               coffeeId: undefined,
+              archived: undefined,
               sort: undefined,
               hidden: undefined,
               density: undefined,

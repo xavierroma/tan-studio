@@ -1,6 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table"
 import { Link } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   Select,
   SelectContent,
@@ -9,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
+import { ArchiveIcon } from "lucide-react"
 
 import {
   DataTable,
@@ -42,105 +44,132 @@ function restVariant(state: string) {
   return "warning" as const
 }
 
-const columns: ColumnDef<PantryItem>[] = [
-  {
-    id: "image",
-    header: "Image",
-    cell: ({ row }) => (
-      <EntityImage
-        attachmentId={row.original.roast.profileImageAttachmentId}
-        entityType="roast"
-        alt=""
-      />
-    ),
-    enableHiding: false,
-    enableSorting: false,
-    meta: { label: "Image", mobile: "image" },
-  },
-  {
-    id: "id",
-    accessorFn: (item) => item.roast.id,
-    header: ({ column }) => (
-      <DataTableSortHeader
-        label="Roast"
-        sorted={column.getIsSorted()}
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      />
-    ),
-    cell: ({ row }) => (
-      <Link
-        to="/roasts/$roastId"
-        params={{ roastId: String(row.original.roast.id) }}
-        className="font-semibold underline-offset-4 hover:underline"
-      >
-        #{row.original.roast.id}
-      </Link>
-    ),
-    enableHiding: false,
-    meta: { label: "Roast", mobile: "primary" },
-  },
-  {
-    id: "coffee",
-    accessorFn: (item) => item.roast.coffee?.name ?? "",
-    header: ({ column }) => (
-      <DataTableSortHeader
-        label="Coffee"
-        sorted={column.getIsSorted()}
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      />
-    ),
-    cell: ({ row }) => row.original.roast.coffee?.name ?? "Unassigned coffee",
-    meta: { label: "Coffee", mobile: "detail" },
-  },
-  {
-    id: "rest",
-    accessorFn: (item) => item.rest.ageDays ?? -1,
-    header: ({ column }) => (
-      <DataTableSortHeader
-        label="Rest"
-        sorted={column.getIsSorted()}
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      />
-    ),
-    cell: ({ row }) => (
-      <div className="flex items-center gap-2">
-        <Badge variant={restVariant(row.original.rest.state)}>
-          {restLabel(row.original.rest.state)}
-        </Badge>
-        {row.original.rest.ageDays == null ? null : (
-          <span className="text-muted-foreground text-xs">
-            day {row.original.rest.ageDays}
-          </span>
-        )}
-      </div>
-    ),
-    meta: { label: "Rest", mobile: "detail" },
-  },
-  {
-    id: "remaining",
-    accessorFn: (item) => item.estimatedRemainingMassMg ?? -1,
-    header: ({ column }) => (
-      <DataTableSortHeader
-        label="Estimated left"
-        sorted={column.getIsSorted()}
-        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-      />
-    ),
-    cell: ({ row }) => grams(row.original.estimatedRemainingMassMg),
-    meta: { label: "Estimated left", mobile: "detail" },
-  },
-  {
-    id: "latestNote",
-    accessorFn: (item) => item.latestTasting ?? "",
-    header: "Latest note",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground line-clamp-2 max-w-lg text-sm">
-        {row.original.latestTasting ?? "No tasting yet"}
-      </span>
-    ),
-    meta: { label: "Latest note", mobile: "detail" },
-  },
-]
+function pantryColumns(
+  onArchive: (roastId: number, revision: number) => void,
+  archivingRoastId?: number
+): ColumnDef<PantryItem>[] {
+  return [
+    {
+      id: "image",
+      header: "Image",
+      cell: ({ row }) => (
+        <EntityImage
+          attachmentId={row.original.roast.profileImageAttachmentId}
+          entityType="roast"
+          alt=""
+        />
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { label: "Image", mobile: "image" },
+    },
+    {
+      id: "id",
+      accessorFn: (item) => item.roast.id,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Roast"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => (
+        <Link
+          to="/roasts/$roastId"
+          params={{ roastId: String(row.original.roast.id) }}
+          className="font-semibold underline-offset-4 hover:underline"
+        >
+          #{row.original.roast.id}
+        </Link>
+      ),
+      enableHiding: false,
+      meta: { label: "Roast", mobile: "primary" },
+    },
+    {
+      id: "coffee",
+      accessorFn: (item) => item.roast.coffee?.name ?? "",
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Coffee"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => row.original.roast.coffee?.name ?? "Unassigned coffee",
+      meta: { label: "Coffee", mobile: "detail" },
+    },
+    {
+      id: "rest",
+      accessorFn: (item) => item.rest.ageDays ?? -1,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Rest"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <Badge variant={restVariant(row.original.rest.state)}>
+            {restLabel(row.original.rest.state)}
+          </Badge>
+          {row.original.rest.ageDays == null ? null : (
+            <span className="text-muted-foreground text-xs">
+              day {row.original.rest.ageDays}
+            </span>
+          )}
+        </div>
+      ),
+      meta: { label: "Rest", mobile: "detail" },
+    },
+    {
+      id: "remaining",
+      accessorFn: (item) => item.estimatedRemainingMassMg ?? -1,
+      header: ({ column }) => (
+        <DataTableSortHeader
+          label="Estimated left"
+          sorted={column.getIsSorted()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }) => grams(row.original.estimatedRemainingMassMg),
+      meta: { label: "Estimated left", mobile: "detail" },
+    },
+    {
+      id: "latestNote",
+      accessorFn: (item) => item.latestTasting ?? "",
+      header: "Latest note",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground line-clamp-2 max-w-lg text-sm">
+          {row.original.latestTasting ?? "No tasting yet"}
+        </span>
+      ),
+      meta: { label: "Latest note", mobile: "detail" },
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={archivingRoastId === row.original.roast.id}
+          aria-label={`Archive roast ${row.original.roast.id}`}
+          title="Archive"
+          onClick={() =>
+            onArchive(row.original.roast.id, row.original.roast.revision)
+          }
+        >
+          <ArchiveIcon />
+        </Button>
+      ),
+      enableHiding: false,
+      enableSorting: false,
+      meta: { label: "Actions", mobile: "detail" },
+    },
+  ]
+}
 
 const restItems = [
   { value: "all", label: "Every rest state" },
@@ -154,10 +183,14 @@ export function PantryDataTable({
   data,
   search,
   updateSearch,
+  onArchive,
+  archivingRoastId,
 }: {
   data: PantryItem[]
   search: PantryTableSearch
   updateSearch: (patch: Partial<PantryTableSearch>) => void
+  onArchive: (roastId: number, revision: number) => void
+  archivingRoastId?: number
 }) {
   const needle = search.q?.trim().toLocaleLowerCase()
   const filtered = data.filter((item) => {
@@ -176,7 +209,7 @@ export function PantryDataTable({
   return (
     <DataTable
       preferenceKey="pantry"
-      columns={columns}
+      columns={pantryColumns(onArchive, archivingRoastId)}
       data={filtered}
       state={search}
       updateState={updateSearch}

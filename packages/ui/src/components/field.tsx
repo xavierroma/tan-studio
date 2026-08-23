@@ -43,7 +43,7 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="field-group"
       className={cn(
-        "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4",
+        "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4 sm:[&>div.grid>[data-slot=field]>[data-slot=field-label]]:min-h-10 sm:[&>div.grid>[data-slot=field]>[data-slot=field-label]]:items-end",
         className
       )}
       {...props}

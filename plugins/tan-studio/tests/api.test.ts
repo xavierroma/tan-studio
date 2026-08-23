@@ -69,6 +69,38 @@ describe("generated OpenAPI transport", () => {
     })
   })
 
+  test("requests the archived roast collection explicitly", async () => {
+    let captured: Request | undefined
+    const api = new OpenApiTanStudioGateway(config, async (request) => {
+      captured = new Request(request)
+      return Response.json({ items: [] })
+    })
+
+    await api.searchRoasts({ archived: true })
+
+    expect(new URL(captured!.url).searchParams.get("archived")).toBe("true")
+  })
+
+  test("revision-updates only the supplied roast yield", async () => {
+    let captured: Request | undefined
+    const api = new OpenApiTanStudioGateway(config, async (request) => {
+      captured = new Request(request)
+      return Response.json({
+        id: 16,
+        revision: 8,
+        greenInputMassMg: 120_000,
+        roastedYieldMassMg: 104_000,
+      })
+    })
+
+    await api.updateRoast(16, 7, { roastedYieldMassMg: 104_000 })
+
+    expect(captured?.method).toBe("PATCH")
+    expect(captured?.url).toBe("http://tan-studio.test/api/v1/roasts/16")
+    expect(captured?.headers.get("if-match")).toBe('"revision:7"')
+    expect(await captured?.json()).toEqual({ roastedYieldMassMg: 104_000 })
+  })
+
   test("allows a full device reconciliation to outlive the normal request timeout", async () => {
     let synchronizationSignal: AbortSignal | null | undefined
     const api = new OpenApiTanStudioGateway(

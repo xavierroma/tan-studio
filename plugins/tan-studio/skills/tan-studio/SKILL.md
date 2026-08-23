@@ -24,6 +24,7 @@ Treat the user's stated measurements and sensory observations as facts. Keep sug
 
 - Use `tan_record_brew` for a brewing session. Omit fields the user did not provide so the backend applies the user's defaults.
 - Use `tan_update_brew` with the latest revision from `tan_get_context` when correcting or enriching an existing brewing session.
+- Use `tan_update_roast` with the latest revision from `tan_get_roast` or `tan_search_roasts` when recording or correcting roasted yield, duration, cooling time, end temperature, first crack, result, archive state, or other supported roast settings. Archiving hides a roast from normal lists and pantry while preserving it in the archived-roasts view; this tool does not change green input mass.
 - Use `tan_add_note` for observations that should link to one or more profiles, coffees, roasts, or brews.
 - Link a tasting note to the brew and roast when both are known.
 - Preserve the user's wording in unstructured notes; do not manufacture flavor notes, scores, measurements, or inventory amounts.

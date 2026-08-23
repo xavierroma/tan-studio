@@ -97,6 +97,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -503,6 +514,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -789,6 +811,17 @@
             "schema": {
               "type": [
                 "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
                 "null"
               ]
             }
@@ -1265,6 +1298,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -1424,6 +1468,17 @@
             "schema": {
               "type": [
                 "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
                 "null"
               ]
             }
@@ -1793,6 +1848,17 @@
                 "null"
               ]
             }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2142,6 +2208,17 @@
             "schema": {
               "type": [
                 "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
                 "null"
               ]
             }
@@ -4615,6 +4692,26 @@
           }
         }
       },
+      "RoastMilestonePatch": {
+        "type": "object",
+        "required": [
+          "elapsedMs"
+        ],
+        "properties": {
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "temperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
       "RoastPage": {
         "type": "object",
         "required": [
@@ -4633,7 +4730,20 @@
         "type": "object",
         "properties": {
           "adjustments": {},
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "coffeeId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cooldownEndMs": {
             "type": [
               "integer",
               "null"
@@ -4646,6 +4756,36 @@
               "null"
             ],
             "format": "int64"
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "endReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "firstCrack": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoastMilestonePatch"
+              }
+            ]
           },
           "greenInputMassMg": {
             "type": [
@@ -4727,6 +4867,12 @@
         ],
         "properties": {
           "adjustments": {},
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "brewCount": {
             "type": "integer",
             "format": "int64"
@@ -4740,6 +4886,13 @@
                 "$ref": "#/components/schemas/ResourceReference"
               }
             ]
+          },
+          "cooldownEndMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "createdAt": {
             "type": "string"
@@ -4760,6 +4913,13 @@
           },
           "endReason": {
             "type": "string"
+          },
+          "endTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "events": {
             "type": "array",
@@ -4881,6 +5041,12 @@
           "revision"
         ],
         "properties": {
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "brewCount": {
             "type": "integer",
             "format": "int64"

@@ -13,7 +13,6 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@tan-studio/ui/components/field"
-import { Input } from "@tan-studio/ui/components/input"
 import {
   Select,
   SelectContent,
@@ -23,24 +22,16 @@ import {
   SelectValue,
 } from "@tan-studio/ui/components/select"
 import { Separator } from "@tan-studio/ui/components/separator"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@tan-studio/ui/components/sheet"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { Textarea } from "@tan-studio/ui/components/textarea"
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   ArrowLeftIcon,
   CoffeeIcon,
   FileTextIcon,
   PencilIcon,
   PrinterIcon,
-  SaveIcon,
 } from "lucide-react"
 import type { FormEvent } from "react"
 import { useState } from "react"
@@ -56,8 +47,6 @@ import {
   getRoast,
   getRoastContext,
   getRoastSeries,
-  listCoffees,
-  listProfiles,
   queryKeys,
   updateRoast,
 } from "@/lib/api"
@@ -106,12 +95,8 @@ function elapsed(value?: number | null) {
   const seconds = Math.round(value / 1_000)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
-
-function localDateTime(value?: string | null) {
-  if (!value) return ""
-  const date = new Date(value)
-  const pad = (part: number) => String(part).padStart(2, "0")
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+function temperature(value?: number | null) {
+  return value == null ? "—" : `${(value / 1_000).toFixed(1)} °C`
 }
 
 function profileNumber(snapshot: unknown, key: string) {
@@ -134,7 +119,6 @@ export function RoastDetailScreen() {
   const params = useParams({ from: "/roasts/$roastId" })
   const roastId = Number(params.roastId)
   const queryClient = useQueryClient()
-  const [editOpen, setEditOpen] = useState(false)
   const [noteBody, setNoteBody] = useState("")
   const roast = useQuery({
     queryKey: queryKeys.roast(roastId),
@@ -152,15 +136,6 @@ export function RoastDetailScreen() {
     queryFn: ({ signal }) => getRoastSeries(roast.data!, signal),
     enabled: Boolean(roast.data?.sampleStream),
   })
-  const profiles = useQuery({
-    queryKey: queryKeys.profiles(),
-    queryFn: ({ signal }) => listProfiles(undefined, signal),
-  })
-  const coffees = useQuery({
-    queryKey: queryKeys.coffees(),
-    queryFn: ({ signal }) => listCoffees(undefined, signal),
-  })
-
   const noteMutation = useMutation({
     mutationFn: createNote,
     onSuccess: () => {
@@ -173,21 +148,24 @@ export function RoastDetailScreen() {
     },
     onError: (error) => toast.error(error.message),
   })
-  const editMutation = useMutation({
-    mutationFn: (input: Parameters<typeof updateRoast>[2]) =>
-      updateRoast(roastId, roast.data!.revision, input),
-    onSuccess: () => {
-      toast.success("Roast updated")
-      setEditOpen(false)
+  const archiveMutation = useMutation({
+    mutationFn: (archived: boolean) =>
+      updateRoast(roastId, roast.data!.revision, { archived }),
+    onSuccess: (updated) => {
+      toast.success(
+        updated.archivedAt
+          ? `Roast #${updated.id} archived`
+          : `Roast #${updated.id} restored`
+      )
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pantry() })
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
       void queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) })
       void queryClient.invalidateQueries({
         queryKey: queryKeys.roastContext(roastId),
       })
-      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
     },
     onError: (error) => toast.error(error.message),
   })
-
   if (roast.error) throw roast.error
   if (context.error) throw context.error
   if (roast.isPending || !roast.data)
@@ -199,18 +177,6 @@ export function RoastDetailScreen() {
 
   const item = roast.data
   const points = chartPoints(series.data ?? null)
-  const profileItems =
-    profiles.data?.map((profile) => ({
-      value: String(profile.id),
-      label: `#${profile.id} · ${profile.name}`,
-    })) ?? []
-  const coffeeItems = [
-    { value: "none", label: "Unassigned" },
-    ...(coffees.data?.map((coffee) => ({
-      value: String(coffee.id),
-      label: `#${coffee.id} · ${coffee.name}`,
-    })) ?? []),
-  ]
   const submitNote = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -224,41 +190,16 @@ export function RoastDetailScreen() {
       links: [{ resourceType: "roast", resourceId: roastId }],
     })
   }
-  const submitEdit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const optionalNumber = (name: string) => {
-      const value = String(form.get(name) ?? "").trim()
-      return value === "" ? null : Number(value)
-    }
-    const profileId = optionalNumber("profileId")
-    const coffeeId = optionalNumber("coffeeId")
-    const level = optionalNumber("level")
-    const load = optionalNumber("load")
-    const roastedAtInput = String(form.get("roastedAt") ?? "")
-    const currentRoastedAt = localDateTime(item.roastedAt)
-    const patch: Parameters<typeof updateRoast>[2] = {
-      profileId: profileId && Number.isFinite(profileId) ? profileId : null,
-      coffeeId: coffeeId && Number.isFinite(coffeeId) ? coffeeId : null,
-      levelThousandths:
-        level != null && Number.isFinite(level)
-          ? Math.round(level * 1_000)
-          : null,
-      greenInputMassMg:
-        load != null && Number.isFinite(load) ? Math.round(load * 1_000) : null,
-    }
-    if (roastedAtInput !== currentRoastedAt) {
-      patch.roastedAt = roastedAtInput
-        ? new Date(roastedAtInput).toISOString()
-        : null
-      patch.sourceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-    }
-    editMutation.mutate(patch)
-  }
-
-  const actualFirstCrack = item.events.find(
-    (event) => event.kind === "first_crack"
-  )
+  const actualFirstCrack =
+    item.events.find(
+      (event) => event.kind === "first_crack" && event.source === "user"
+    ) ?? item.events.find((event) => event.kind === "first_crack")
+  const displayEvents =
+    actualFirstCrack?.source === "user"
+      ? item.events.filter(
+          (event) => event.kind !== "first_crack" || event.source === "user"
+        )
+      : item.events
   const expectedFirstCrackC = profileNumber(item.profileSnapshot, "expect_fc")
   const expectedFirstCrackPoint =
     actualFirstCrack || expectedFirstCrackC == null
@@ -297,6 +238,7 @@ export function RoastDetailScreen() {
                 status: undefined,
                 profileId: undefined,
                 coffeeId: undefined,
+                archived: item.archivedAt ? true : undefined,
                 sort: undefined,
                 hidden: undefined,
                 density: undefined,
@@ -308,138 +250,26 @@ export function RoastDetailScreen() {
               <ArrowLeftIcon data-icon="inline-start" />
               Roasts
             </Link>
-            <Sheet open={editOpen} onOpenChange={setEditOpen}>
-              <SheetTrigger
-                render={
-                  <Button variant="outline">
-                    <PencilIcon data-icon="inline-start" />
-                    Edit
-                  </Button>
-                }
-              />
-              <SheetContent>
-                <SheetHeader>
-                  <SheetTitle>Edit roast #{item.id}</SheetTitle>
-                  <SheetDescription>
-                    Only the details you change are written. The imported log
-                    and telemetry remain untouched.
-                  </SheetDescription>
-                </SheetHeader>
-                <form
-                  id="edit-roast-form"
-                  onSubmit={submitEdit}
-                  className="px-4"
-                >
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel htmlFor="roastedAt">Roasted at</FieldLabel>
-                      <Input
-                        id="roastedAt"
-                        name="roastedAt"
-                        type="datetime-local"
-                        defaultValue={localDateTime(item.roastedAt)}
-                      />
-                      {!item.roastedAt ? (
-                        <FieldDescription>
-                          The Nano clock was unavailable; set the local time.
-                        </FieldDescription>
-                      ) : null}
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="profileId">Profile</FieldLabel>
-                      <Select
-                        items={profileItems}
-                        name="profileId"
-                        defaultValue={String(item.profile?.id ?? "")}
-                      >
-                        <SelectTrigger id="profileId" className="w-full">
-                          <SelectValue placeholder="Select profile" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {profileItems.map((profile) => (
-                              <SelectItem
-                                key={profile.value}
-                                value={profile.value}
-                              >
-                                {profile.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="coffeeId">Coffee</FieldLabel>
-                      <Select
-                        items={coffeeItems}
-                        name="coffeeId"
-                        defaultValue={String(item.coffee?.id ?? "none")}
-                      >
-                        <SelectTrigger id="coffeeId" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {coffeeItems.map((coffee) => (
-                              <SelectItem
-                                key={coffee.value}
-                                value={coffee.value}
-                              >
-                                {coffee.label}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Field>
-                        <FieldLabel htmlFor="level">Level</FieldLabel>
-                        <Input
-                          id="level"
-                          name="level"
-                          type="number"
-                          min="0"
-                          max="10"
-                          step="0.1"
-                          defaultValue={
-                            item.levelThousandths == null
-                              ? ""
-                              : item.levelThousandths / 1_000
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="load">Green load · g</FieldLabel>
-                        <Input
-                          id="load"
-                          name="load"
-                          type="number"
-                          min="0.1"
-                          step="0.1"
-                          defaultValue={
-                            item.greenInputMassMg == null
-                              ? ""
-                              : item.greenInputMassMg / 1_000
-                          }
-                        />
-                      </Field>
-                    </div>
-                  </FieldGroup>
-                </form>
-                <SheetFooter>
-                  <Button
-                    type="submit"
-                    form="edit-roast-form"
-                    disabled={editMutation.isPending}
-                  >
-                    <SaveIcon data-icon="inline-start" />
-                    Save roast
-                  </Button>
-                </SheetFooter>
-              </SheetContent>
-            </Sheet>
+            <Link
+              to="/roasts/$roastId/edit"
+              params={{ roastId: String(item.id) }}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <PencilIcon data-icon="inline-start" />
+              Edit
+            </Link>
+            <Button
+              variant={item.archivedAt ? "outline" : "destructive"}
+              disabled={archiveMutation.isPending}
+              onClick={() => archiveMutation.mutate(!item.archivedAt)}
+            >
+              {item.archivedAt ? (
+                <ArchiveRestoreIcon data-icon="inline-start" />
+              ) : (
+                <ArchiveIcon data-icon="inline-start" />
+              )}
+              {item.archivedAt ? "Restore" : "Archive"}
+            </Button>
           </>
         }
       />
@@ -464,7 +294,7 @@ export function RoastDetailScreen() {
             </div>
           </section>
           <section
-            className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-3 lg:grid-cols-6"
+            className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-4 lg:grid-cols-8"
             aria-label="Roast summary"
           >
             <Metric
@@ -478,8 +308,25 @@ export function RoastDetailScreen() {
             <Metric label="Green load" value={grams(item.greenInputMassMg)} />
             <Metric label="Yield" value={grams(item.roastedYieldMassMg)} />
             <Metric label="Duration" value={elapsed(item.durationMs)} />
+            <Metric
+              label="End temperature"
+              value={temperature(item.endTemperatureMilliC)}
+            />
+            <Metric
+              label="Cooling"
+              value={
+                item.cooldownEndMs == null || item.durationMs == null
+                  ? "—"
+                  : elapsed(item.cooldownEndMs - item.durationMs)
+              }
+            />
             <Metric label="Brews" value={String(item.brewCount)} />
-            <Metric label="Status" value={item.status} />
+            <Metric
+              label="Status"
+              value={
+                item.archivedAt ? `${item.status} · archived` : item.status
+              }
+            />
           </section>
 
           {item.status === "planned" ? (
@@ -517,7 +364,7 @@ export function RoastDetailScreen() {
             ) : points.length > 0 ? (
               <RoastChart
                 points={points}
-                events={item.events.map((event) => ({
+                events={displayEvents.map((event) => ({
                   id: event.id,
                   elapsedMs: event.elapsedMs,
                   label: event.kind.replaceAll("_", " "),
@@ -531,6 +378,9 @@ export function RoastDetailScreen() {
                 {...(item.durationMs == null
                   ? {}
                   : { durationMs: item.durationMs })}
+                {...(item.cooldownEndMs == null
+                  ? {}
+                  : { cooldownEndMs: item.cooldownEndMs })}
                 height={680}
                 showFanAxis
               />
@@ -544,7 +394,7 @@ export function RoastDetailScreen() {
           <section className="bg-card mt-6 rounded-xl border p-5">
             <h2 className="font-semibold">Milestones</h2>
             <div className="mt-4 flex flex-wrap gap-2">
-              {item.events.map((event) => (
+              {displayEvents.map((event) => (
                 <Badge key={event.id} variant="outline">
                   {event.kind.replaceAll("_", " ")} · {elapsed(event.elapsedMs)}
                 </Badge>

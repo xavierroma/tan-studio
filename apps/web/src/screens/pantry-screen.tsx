@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import {
   Empty,
@@ -9,17 +9,40 @@ import {
 } from "@tan-studio/ui/components/empty"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { ArchiveIcon } from "lucide-react"
+import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
 import { PantryDataTable } from "@/components/pantry-data-table"
-import { getPantry, queryKeys } from "@/lib/api"
+import { getPantry, queryKeys, updateRoast } from "@/lib/api"
 
 export function PantryScreen() {
   const search = useSearch({ from: "/pantry" })
   const navigate = useNavigate({ from: "/pantry" })
+  const queryClient = useQueryClient()
   const pantry = useQuery({
     queryKey: queryKeys.pantry(),
     queryFn: ({ signal }) => getPantry(signal),
+  })
+  const archive = useMutation({
+    mutationFn: ({
+      roastId,
+      revision,
+    }: {
+      roastId: number
+      revision: number
+    }) => updateRoast(roastId, revision, { archived: true }),
+    onSuccess: (roast) => {
+      toast.success(`Roast #${roast.id} archived`)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.pantry() })
+      void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.roast(roast.id),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.roastContext(roast.id),
+      })
+    },
+    onError: (error) => toast.error(error.message),
   })
   if (pantry.error) throw pantry.error
   const items = pantry.data?.items ?? []
@@ -45,6 +68,12 @@ export function PantryScreen() {
         {items.length > 0 ? (
           <PantryDataTable
             data={items}
+            onArchive={(roastId, revision) =>
+              archive.mutate({ roastId, revision })
+            }
+            {...(!archive.isPending || archive.variables?.roastId === undefined
+              ? {}
+              : { archivingRoastId: archive.variables.roastId })}
             search={search}
             updateSearch={(patch) =>
               void navigate({

@@ -80,6 +80,7 @@ export function AppErrorScreen({
                 status: undefined,
                 profileId: undefined,
                 coffeeId: undefined,
+                archived: undefined,
                 sort: undefined,
                 hidden: undefined,
                 density: undefined,

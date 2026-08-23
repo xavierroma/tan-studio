@@ -8,6 +8,8 @@ import type {
   BrewPatch,
   CoffeeCreate,
   NoteCreate,
+  RoastPatch,
+  SearchFilters,
   TanStudioGateway,
 } from "../src/gateway"
 import { createTanStudioServer } from "../src/mcp"
@@ -30,6 +32,7 @@ const expectedTools = [
   "tan_sync_device",
   "tan_update_brew",
   "tan_update_coffee",
+  "tan_update_roast",
 ]
 
 const connections: Array<{
@@ -94,6 +97,26 @@ describe("Tan Studio MCP contract", () => {
         },
       },
     })
+  })
+
+  test("searches archived roasts only when explicitly requested", async () => {
+    let received: SearchFilters | undefined
+    const { client } = await connect(
+      fakeApi({
+        searchRoasts: async (filters) => {
+          received = filters
+          return { items: [] }
+        },
+      })
+    )
+
+    const result = await client.callTool({
+      name: "tan_search_roasts",
+      arguments: { query: "failed", archived: true },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(received).toEqual({ q: "failed", archived: true })
   })
 
   test("records human brew units as exact API integers", async () => {
@@ -164,6 +187,59 @@ describe("Tan Studio MCP contract", () => {
           bloomSeconds: 45,
           technique: "45 second bloom, three pulses",
         },
+      },
+    })
+  })
+
+  test("updates roast outcomes and pantry archive state", async () => {
+    let received:
+      { id: number; revision: number; input: RoastPatch } | undefined
+    const api = fakeApi({
+      updateRoast: async (id: number, revision: number, input: RoastPatch) => {
+        received = { id, revision, input }
+        return {
+          id,
+          revision: revision + 1,
+          greenInputMassMg: 120_000,
+          roastedYieldMassMg: input.roastedYieldMassMg,
+        } as never
+      },
+    })
+    const { client } = await connect(api)
+
+    const result = await client.callTool({
+      name: "tan_update_roast",
+      arguments: {
+        roastId: 16,
+        revision: 4,
+        roastedYieldGrams: 104,
+        firstCrackSeconds: 376.5,
+        firstCrackTemperatureCelsius: 202.4,
+        result: "success",
+        durationSeconds: 413,
+        coolingSeconds: 230,
+        endTemperatureCelsius: 211.9,
+        endReason: "0:level",
+        archived: true,
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(received).toEqual({
+      id: 16,
+      revision: 4,
+      input: {
+        roastedYieldMassMg: 104_000,
+        firstCrack: {
+          elapsedMs: 376_500,
+          temperatureMilliC: 202_400,
+        },
+        result: "success",
+        durationMs: 413_000,
+        cooldownEndMs: 643_000,
+        endTemperatureMilliC: 211_900,
+        endReason: "0:level",
+        archived: true,
       },
     })
   })
@@ -340,6 +416,7 @@ function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
     searchRoasts: async () => ({ items: [] }),
     context: async () => ({}),
     roast: async () => ({ roast: {} }),
+    updateRoast: async (id: number) => ({ id }),
     createCoffee: async (input: CoffeeCreate) => ({ id: 1, ...input }),
     updateCoffee: async (id: number) => ({ id }),
     createBrew: async (input: BrewCreate) => ({

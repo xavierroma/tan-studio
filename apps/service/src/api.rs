@@ -3197,6 +3197,15 @@ mod tests {
         assert_eq!(context["notes"].as_array().unwrap().len(), 2);
 
         let roast_revision = context["roast"]["revision"].as_i64().unwrap();
+        let (status, invalid_yield) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({"roastedYieldMassMg": 100001})),
+            Some(roast_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{invalid_yield}");
         let (status, completed) = api_request(
             &app,
             Method::PATCH,
@@ -3206,6 +3215,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
+        assert_eq!(completed["greenInputMassMg"], 100000);
+        assert_eq!(completed["roastedYieldMassMg"], 85000);
         assert_eq!(completed["roastedAt"], Value::Null);
         assert_eq!(completed["roastedAtSource"], "unknown");
         let (status, stale) = api_request(
@@ -3226,6 +3237,60 @@ mod tests {
         assert_eq!(pantry["items"][0]["rest"]["suggestedFrom"], Value::Null);
 
         let completed_revision = completed["revision"].as_i64().unwrap();
+        let (status, invalid_first_crack) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({
+                "firstCrack": {"elapsedMs": 60000, "temperatureMilliC": 500001}
+            })),
+            Some(completed_revision),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{invalid_first_crack}"
+        );
+        let (status, with_first_crack) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({
+                "firstCrack": {"elapsedMs": 60000, "temperatureMilliC": 202400}
+            })),
+            Some(completed_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{with_first_crack}");
+        assert_eq!(with_first_crack["greenInputMassMg"], 100000);
+        assert_eq!(with_first_crack["roastedYieldMassMg"], 85000);
+        assert_eq!(with_first_crack["events"][0]["kind"], "first_crack");
+        assert_eq!(with_first_crack["events"][0]["elapsedMs"], 60000);
+        assert_eq!(with_first_crack["events"][0]["source"], "user");
+
+        let milestone_revision = with_first_crack["revision"].as_i64().unwrap();
+        let (status, with_outcome) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({
+                "durationMs": 413000,
+                "cooldownEndMs": 643000,
+                "endTemperatureMilliC": 211900,
+                "endReason": "0:level"
+            })),
+            Some(milestone_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{with_outcome}");
+        assert_eq!(with_outcome["durationMs"], 413000);
+        assert_eq!(with_outcome["cooldownEndMs"], 643000);
+        assert_eq!(with_outcome["endTemperatureMilliC"], 211900);
+        assert_eq!(with_outcome["endReason"], "0:level");
+        assert_eq!(with_outcome["developmentBasisPoints"], 8547);
+
+        let outcome_revision = with_outcome["revision"].as_i64().unwrap();
         let (status, dated) = api_request(
             &app,
             Method::PATCH,
@@ -3234,7 +3299,7 @@ mod tests {
                 "roastedAt": "2026-07-19T16:30:00Z",
                 "sourceTimezone": "America/Los_Angeles"
             })),
-            Some(completed_revision),
+            Some(outcome_revision),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{dated}");
@@ -3246,6 +3311,60 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{dated_pantry}");
         assert_ne!(dated_pantry["items"][0]["rest"]["state"], "unknown");
         assert!(dated_pantry["items"][0]["rest"]["ageDays"].is_number());
+
+        let dated_revision = dated["revision"].as_i64().unwrap();
+        let (status, archived) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({"archived": true})),
+            Some(dated_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{archived}");
+        assert!(archived["archivedAt"].is_string());
+        let (status, active_roasts) =
+            api_request(&app, Method::GET, "/api/v1/roasts", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{active_roasts}");
+        assert!(active_roasts["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|roast| roast["id"] != roast_id));
+        let (status, archived_roasts) = api_request(
+            &app,
+            Method::GET,
+            "/api/v1/roasts?archived=true",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{archived_roasts}");
+        assert!(archived_roasts["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|roast| roast["id"] == roast_id));
+        let (status, archived_pantry) =
+            api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{archived_pantry}");
+        assert!(archived_pantry["items"].as_array().unwrap().is_empty());
+
+        let archived_revision = archived["revision"].as_i64().unwrap();
+        let (status, restored) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/roasts/{roast_id}"),
+            Some(json!({"archived": false})),
+            Some(archived_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{restored}");
+        assert_eq!(restored["archivedAt"], Value::Null);
+        let (status, restored_pantry) =
+            api_request(&app, Method::GET, "/api/v1/pantry", None, None).await;
+        assert_eq!(status, StatusCode::OK, "{restored_pantry}");
+        assert_eq!(restored_pantry["items"][0]["roast"]["id"], roast_id);
         assert!(database.quick_check().unwrap());
         device.stop();
     }

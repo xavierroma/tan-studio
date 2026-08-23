@@ -23,6 +23,7 @@ export type RoastTableSearch = DataTableViewState & {
   status: string | undefined
   profileId: number | undefined
   coffeeId: number | undefined
+  archived: boolean | undefined
 }
 
 type RoastDataTableProps = {
@@ -38,6 +39,11 @@ const statusItems = [
   { value: "completed", label: "Completed" },
   { value: "interrupted", label: "Interrupted" },
   { value: "planned", label: "Planned" },
+]
+
+const archiveItems = [
+  { value: "active", label: "Active roasts" },
+  { value: "archived", label: "Archived roasts" },
 ]
 
 function date(value?: string | null) {
@@ -190,9 +196,14 @@ const columns: ColumnDef<RoastSummary>[] = [
       />
     ),
     cell: ({ row }) => (
-      <Badge variant={statusVariant(row.original.status)}>
-        {row.original.status}
-      </Badge>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant={statusVariant(row.original.status)}>
+          {row.original.status}
+        </Badge>
+        {row.original.archivedAt ? (
+          <Badge variant="secondary">Archived</Badge>
+        ) : null}
+      </div>
     ),
     meta: { label: "Status", mobile: "detail" },
   },
@@ -239,6 +250,29 @@ export function RoastDataTable({
       }}
       filters={
         <>
+          <Select
+            items={archiveItems}
+            value={search.archived ? "archived" : "active"}
+            onValueChange={(value) =>
+              updateSearch({ archived: value === "archived" || undefined })
+            }
+          >
+            <SelectTrigger
+              aria-label="Filter archived roasts"
+              className="w-full lg:w-44"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {archiveItems.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <Select
             items={statusItems}
             value={search.status ?? "all"}

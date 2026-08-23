@@ -315,7 +315,10 @@ pub struct RoastResource {
     pub roasted_yield_mass_mg: Option<i64>,
     pub development_basis_points: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub cooldown_end_ms: Option<i64>,
+    pub end_temperature_milli_c: Option<i64>,
     pub end_reason: String,
+    pub archived_at: Option<String>,
     pub native_log_number: Option<i64>,
     pub profile_snapshot: Value,
     pub adjustments: Value,
@@ -347,6 +350,7 @@ pub struct RoastSummary {
     pub green_input_mass_mg: Option<i64>,
     pub roasted_yield_mass_mg: Option<i64>,
     pub duration_ms: Option<i64>,
+    pub archived_at: Option<String>,
     pub brew_count: i64,
     pub note_count: i64,
     pub label_count: i64,
@@ -369,6 +373,13 @@ pub struct RoastCreate {
 
 #[derive(Debug, Clone, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RoastMilestonePatch {
+    pub elapsed_ms: i64,
+    pub temperature_milli_c: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoastPatch {
     pub profile_id: Option<Option<i64>>,
     pub coffee_id: Option<Option<i64>>,
@@ -380,6 +391,12 @@ pub struct RoastPatch {
     pub green_input_mass_mg: Option<Option<i64>>,
     pub roasted_yield_mass_mg: Option<Option<i64>>,
     pub development_basis_points: Option<Option<i64>>,
+    pub duration_ms: Option<Option<i64>>,
+    pub cooldown_end_ms: Option<Option<i64>>,
+    pub end_temperature_milli_c: Option<Option<i64>>,
+    pub end_reason: Option<String>,
+    pub archived: Option<bool>,
+    pub first_crack: Option<Option<RoastMilestonePatch>>,
     pub adjustments: Option<Value>,
     pub roaster_parameters: Option<Value>,
 }
@@ -770,6 +787,7 @@ pub struct ListQuery {
     pub resource_type: Option<String>,
     pub resource_id: Option<i64>,
     pub status: Option<String>,
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]

@@ -139,7 +139,7 @@ pub async fn profiles_roasts(
     let connection = state.database.connection();
     get_profile(&connection, id)?;
     Ok(Json(RoastPage {
-        items: list_roast_summaries(&connection, Some(id), None, None, None)?,
+        items: list_roast_summaries(&connection, Some(id), None, None, None, false)?,
     }))
 }
 
@@ -275,7 +275,7 @@ pub async fn coffees_roasts(
     let connection = state.database.connection();
     get_coffee(&connection, id)?;
     Ok(Json(RoastPage {
-        items: list_roast_summaries(&connection, None, Some(id), None, None)?,
+        items: list_roast_summaries(&connection, None, Some(id), None, None, false)?,
     }))
 }
 
@@ -308,6 +308,7 @@ pub async fn roasts_list(
             query.coffee_id,
             query.status.as_deref(),
             query.q.as_deref(),
+            query.archived.unwrap_or(false),
         )?,
     }))
 }
@@ -335,7 +336,7 @@ pub async fn roasts_create(
     ensure_optional_exists(&connection, "coffees", input.coffee_id)?;
     if let Some(active_id) = connection
         .query_row(
-            "SELECT id FROM roasts WHERE status='planned' ORDER BY id DESC LIMIT 1",
+            "SELECT id FROM roasts WHERE status='planned' AND archived_at_ms IS NULL ORDER BY id DESC LIMIT 1",
             [],
             |row| row.get::<_, i64>(0),
         )
@@ -384,7 +385,7 @@ pub async fn roasts_patch(
     Json(input): Json<RoastPatch>,
 ) -> ApiResult<Json<RoastResource>> {
     let expected = expected_revision(&headers)?;
-    let connection = state.database.connection();
+    let mut connection = state.database.connection();
     let current = get_roast(&connection, id)?;
     let profile_id = input
         .profile_id
@@ -429,6 +430,94 @@ pub async fn roasts_patch(
     ensure_optional_exists(&connection, "coffees", coffee_id)?;
     let status = input.status.unwrap_or(current.status);
     let result = input.result.unwrap_or(current.result);
+    let duration_was_supplied = input.duration_ms.is_some();
+    let duration_ms = input.duration_ms.unwrap_or(current.duration_ms);
+    let cooldown_end_ms = input.cooldown_end_ms.unwrap_or(current.cooldown_end_ms);
+    let end_temperature_milli_c = input
+        .end_temperature_milli_c
+        .unwrap_or(current.end_temperature_milli_c);
+    let end_reason = input.end_reason.unwrap_or(current.end_reason);
+    let archive_was_supplied = input.archived.is_some();
+    let archived_at_ms = input.archived.and_then(|archived| archived.then(now_ms));
+    if duration_ms.is_some_and(|duration| !(0..=86_400_000).contains(&duration)) {
+        return Err(ApiError::validation(
+            "durationMs must be between 0 and 86400000.",
+        ));
+    }
+    if cooldown_end_ms.is_some_and(|cooldown_end| {
+        cooldown_end < 0 || duration_ms.is_some_and(|duration| cooldown_end < duration)
+    }) {
+        return Err(ApiError::validation(
+            "cooldownEndMs must be at or after the roast duration.",
+        ));
+    }
+    if end_temperature_milli_c
+        .is_some_and(|temperature| !(-100_000..=500_000).contains(&temperature))
+    {
+        return Err(ApiError::validation(
+            "endTemperatureMilliC is outside the supported range.",
+        ));
+    }
+    if end_reason.len() > 200 {
+        return Err(ApiError::validation(
+            "endReason must be at most 200 characters.",
+        ));
+    }
+    let first_crack = input.first_crack;
+    if let Some(Some(milestone)) = first_crack.as_ref() {
+        if milestone.elapsed_ms < 0
+            || duration_ms.is_some_and(|duration| milestone.elapsed_ms > duration)
+        {
+            return Err(ApiError::validation(
+                "firstCrack.elapsedMs must be within the roast duration.",
+            ));
+        }
+        if milestone
+            .temperature_milli_c
+            .is_some_and(|temperature| !(-100_000..=500_000).contains(&temperature))
+        {
+            return Err(ApiError::validation(
+                "firstCrack.temperatureMilliC is outside the supported range.",
+            ));
+        }
+    }
+    let development_from_first_crack = |elapsed_ms: i64| {
+        duration_ms
+            .filter(|duration| *duration > 0)
+            .map(|duration| {
+                (((duration - elapsed_ms) as i128 * 10_000) / duration as i128).clamp(0, 10_000)
+                    as i64
+            })
+    };
+    let current_first_crack = || {
+        current
+            .events
+            .iter()
+            .find(|event| event.kind == "first_crack" && event.source == "user")
+            .or_else(|| {
+                current
+                    .events
+                    .iter()
+                    .find(|event| event.kind == "first_crack")
+            })
+            .map(|event| event.elapsed_ms)
+    };
+    let effective_first_crack = match first_crack.as_ref() {
+        Some(Some(milestone)) => Some(milestone.elapsed_ms),
+        Some(None) => current
+            .events
+            .iter()
+            .find(|event| event.kind == "first_crack" && event.source != "user")
+            .map(|event| event.elapsed_ms),
+        None => current_first_crack(),
+    };
+    let development_basis_points = match input.development_basis_points {
+        Some(value) => value,
+        None if first_crack.is_some() || duration_was_supplied => {
+            effective_first_crack.and_then(development_from_first_crack)
+        }
+        None => current.development_basis_points,
+    };
     validate_roast_values(
         &status,
         &result,
@@ -439,9 +528,7 @@ pub async fn roasts_patch(
         input
             .roasted_yield_mass_mg
             .unwrap_or(current.roasted_yield_mass_mg),
-        input
-            .development_basis_points
-            .unwrap_or(current.development_basis_points),
+        development_basis_points,
     )?;
     let profile_snapshot = if input.profile_id.is_some() {
         profile_id
@@ -463,18 +550,40 @@ pub async fn roasts_patch(
         .unwrap_or(current.roaster_parameters);
     validate_object(&adjustments, "adjustments")?;
     validate_object(&parameters, "roasterParameters")?;
-    let changed = connection.execute(
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
         "UPDATE roasts SET profile_id=?, coffee_id=?, roasted_at_ms=?, roasted_at_source=?, user_roasted_at_ms=?, source_timezone=?, status=?, result=?, level_thousandths=?, green_input_mass_mg=?,
-         roasted_yield_mass_mg=?, development_basis_points=?, adjustments_json=?, roaster_parameters_json=?,
-         profile_snapshot_json=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+         roasted_yield_mass_mg=?, development_basis_points=?, duration_ms=?, cooldown_end_ms=?, end_temperature_milli_c=?, end_reason=?, adjustments_json=?, roaster_parameters_json=?,
+         profile_snapshot_json=?, archived_at_ms=CASE WHEN ? THEN ? ELSE archived_at_ms END, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![profile_id, coffee_id, roasted_at_ms, roasted_at_source, user_roasted_at_ms, source_timezone, status, result,
             input.level_thousandths.unwrap_or(current.level_thousandths), input.green_input_mass_mg.unwrap_or(current.green_input_mass_mg),
-            input.roasted_yield_mass_mg.unwrap_or(current.roasted_yield_mass_mg), input.development_basis_points.unwrap_or(current.development_basis_points),
-            json_text(&adjustments)?, json_text(&parameters)?, profile_snapshot, now_ms(), id, expected],
+            input.roasted_yield_mass_mg.unwrap_or(current.roasted_yield_mass_mg), development_basis_points,
+            duration_ms, cooldown_end_ms, end_temperature_milli_c, end_reason,
+            json_text(&adjustments)?, json_text(&parameters)?, profile_snapshot, archive_was_supplied, archived_at_ms, now_ms(), id, expected],
     )?;
     if changed == 0 {
         return Err(ApiError::revision());
     }
+    if let Some(first_crack) = first_crack {
+        transaction.execute(
+            "DELETE FROM roast_events WHERE roast_id=? AND event_kind='first_crack' AND source='user'",
+            [id],
+        )?;
+        if let Some(milestone) = first_crack {
+            transaction.execute(
+                "INSERT INTO roast_events (id, roast_id, event_kind, elapsed_ms, temperature_milli_c, source, created_at_ms)
+                 VALUES (?, ?, 'first_crack', ?, ?, 'user', ?)",
+                params![
+                    Uuid::now_v7().to_string(),
+                    id,
+                    milestone.elapsed_ms,
+                    milestone.temperature_milli_c,
+                    now_ms()
+                ],
+            )?;
+        }
+    }
+    transaction.commit()?;
     Ok(Json(get_roast(&connection, id)?))
 }
 
@@ -556,7 +665,7 @@ pub async fn roasts_context(
 pub async fn pantry_get(State(state): State<ApiState>) -> ApiResult<Json<PantryResource>> {
     let connection = state.database.connection();
     let settings = get_settings(&connection)?;
-    let roast_ids = list_roast_summaries(&connection, None, None, Some("completed"), None)?
+    let roast_ids = list_roast_summaries(&connection, None, None, Some("completed"), None, false)?
         .into_iter()
         .map(|roast| roast.id)
         .collect::<Vec<_>>();
@@ -1490,19 +1599,21 @@ fn list_roast_summaries(
     coffee_id: Option<i64>,
     status: Option<&str>,
     q: Option<&str>,
+    archived: bool,
 ) -> ApiResult<Vec<RoastSummary>> {
     let pattern = format!("%{}%", escape_like(q.unwrap_or_default().trim()));
     let mut statement = connection.prepare(
         "SELECT r.id FROM roasts r LEFT JOIN profiles p ON p.id=r.profile_id LEFT JOIN coffees c ON c.id=r.coffee_id
          WHERE (? IS NULL OR r.profile_id=?) AND (? IS NULL OR r.coffee_id=?) AND (? IS NULL OR r.status=?)
+           AND ((? AND r.archived_at_ms IS NOT NULL) OR (NOT ? AND r.archived_at_ms IS NULL))
            AND (?='%%' OR CAST(r.id AS TEXT) LIKE ? OR p.name LIKE ? ESCAPE '\\' OR c.name LIKE ? ESCAPE '\\' OR c.provider LIKE ? ESCAPE '\\')
          ORDER BY r.id DESC LIMIT 1000",
     )?;
     let ids = statement
         .query_map(
             params![
-                profile_id, profile_id, coffee_id, coffee_id, status, status, pattern, pattern,
-                pattern, pattern, pattern
+                profile_id, profile_id, coffee_id, coffee_id, status, status, archived, archived,
+                pattern, pattern, pattern, pattern, pattern
             ],
             |row| row.get::<_, i64>(0),
         )?
@@ -1520,7 +1631,7 @@ fn get_roast_summary(connection: &Connection, id: i64) -> ApiResult<RoastSummary
                     CASE WHEN r.user_roasted_at_ms IS NOT NULL THEN 'user' ELSE r.roasted_at_source END,
                     r.status, r.result,
                     r.level_thousandths, r.green_input_mass_mg,
-                    r.roasted_yield_mass_mg, r.duration_ms,
+                    r.roasted_yield_mass_mg, r.duration_ms, r.archived_at_ms,
                     (SELECT count(*) FROM brews b WHERE b.roast_id=r.id),
                     (SELECT count(DISTINCT l.note_id) FROM note_links l
                       WHERE l.roast_id=r.id OR l.brew_id IN
@@ -1561,11 +1672,12 @@ fn get_roast_summary(connection: &Connection, id: i64) -> ApiResult<RoastSummary
                     green_input_mass_mg: row.get(10)?,
                     roasted_yield_mass_mg: row.get(11)?,
                     duration_ms: row.get(12)?,
-                    brew_count: row.get(13)?,
-                    note_count: row.get(14)?,
-                    label_count: row.get(15)?,
+                    archived_at: optional_iso(row.get(13)?),
+                    brew_count: row.get(14)?,
+                    note_count: row.get(15)?,
+                    label_count: row.get(16)?,
                     profile_image_attachment_id: None,
-                    revision: row.get(16)?,
+                    revision: row.get(17)?,
                 })
             },
         )
@@ -1594,7 +1706,7 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
             profile: row.get::<_, Option<i64>>("profile_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("profile_name").unwrap_or_default().unwrap_or_default() }),
             coffee: row.get::<_, Option<i64>>("coffee_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("coffee_name").unwrap_or_default().unwrap_or_default() }),
             roasted_at: (roasted_at_source != "unknown").then(|| iso(roasted_at_ms)), roasted_at_source, source_timezone: row.get("source_timezone")?, status: row.get("status")?, result: row.get("result")?,
-            level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, end_reason: row.get("end_reason")?, native_log_number: row.get("native_log_number")?,
+            level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, cooldown_end_ms: row.get("cooldown_end_ms")?, end_temperature_milli_c: row.get("end_temperature_milli_c")?, end_reason: row.get("end_reason")?, archived_at: optional_iso(row.get("archived_at_ms")?), native_log_number: row.get("native_log_number")?,
             profile_snapshot: json_column(row.get("profile_snapshot_json")?), adjustments: json_column(row.get("adjustments_json")?), roaster_parameters: json_column(row.get("roaster_parameters_json")?), native_metadata: json_column(row.get("native_metadata_json")?), import_warnings: json_array(row.get("import_warnings_json")?),
             sample_stream: row.get::<_, Option<i64>>("stream_version")?.map(|stream_version| SampleStreamResource { stream_version, row_count: row.get("row_count").unwrap_or(0), first_elapsed_ms: row.get("first_elapsed_ms").unwrap_or(0), last_elapsed_ms: row.get("last_elapsed_ms").unwrap_or(0), reconciliation_state: row.get("reconciliation_state").unwrap_or_else(|_| "reconciled".into()) }),
             events: vec![], brew_count: row.get("brew_count")?, note_count: row.get("note_count")?, label_count: row.get("label_count")?,
@@ -2231,9 +2343,18 @@ fn validate_roast_values(
             "levelThousandths must be between 0 and 10000.",
         ));
     }
-    if green_input.is_some_and(|value| value <= 0) || roasted_yield.is_some_and(|value| value < 0) {
+    if green_input.is_some_and(|value| value <= 0) || roasted_yield.is_some_and(|value| value <= 0)
+    {
         return Err(ApiError::validation(
             "Roast masses are outside the supported range.",
+        ));
+    }
+    if roasted_yield
+        .zip(green_input)
+        .is_some_and(|(yield_mass, input_mass)| yield_mass > input_mass)
+    {
+        return Err(ApiError::validation(
+            "roastedYieldMassMg cannot exceed greenInputMassMg.",
         ));
     }
     if development.is_some_and(|value| !(0..=10_000).contains(&value)) {

@@ -20,6 +20,7 @@ type RoastSearch = {
   status: string | undefined
   profileId: number | undefined
   coffeeId: number | undefined
+  archived: boolean | undefined
   sort: string | undefined
   hidden: string | undefined
   density: "compact" | "expanded" | undefined
@@ -34,6 +35,7 @@ export function RoastLibraryScreen() {
       status: search.status,
       profileId: search.profileId,
       coffeeId: search.coffeeId,
+      archived: search.archived,
     }),
     queryFn: ({ signal }) =>
       listRoasts(
@@ -42,6 +44,7 @@ export function RoastLibraryScreen() {
           status: search.status,
           profileId: search.profileId,
           coffeeId: search.coffeeId,
+          archived: search.archived,
         },
         signal
       ),
@@ -111,6 +114,7 @@ export function RoastLibraryScreen() {
               status: search.status,
               profileId: search.profileId,
               coffeeId: search.coffeeId,
+              archived: search.archived,
               sort: search.sort,
               hidden: search.hidden,
               density: search.density,

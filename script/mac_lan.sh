@@ -129,6 +129,14 @@ fi
 
 TAN_REPOSITORY_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 TAN_VERSION="$(git -C "$TAN_REPOSITORY_ROOT" rev-parse --short=12 HEAD)"
+if ! git -C "$TAN_REPOSITORY_ROOT" diff --quiet HEAD --; then
+  TAN_WORKTREE_DIGEST="$(
+    git -C "$TAN_REPOSITORY_ROOT" diff --binary HEAD -- |
+      shasum -a 256 |
+      awk '{print substr($1, 1, 12)}'
+  )"
+  TAN_VERSION="$TAN_VERSION-worktree-$TAN_WORKTREE_DIGEST"
+fi
 TAN_RELEASE="$TAN_RELEASES/$TAN_VERSION"
 TAN_SERVICE_SOURCE="$TAN_REPOSITORY_ROOT/apps/service/target/release/tan-studio-service"
 TAN_WEB_SOURCE="$TAN_REPOSITORY_ROOT/apps/web/dist"
@@ -172,7 +180,7 @@ chmod 0600 "$TAN_TOKEN_FILE"
 chmod 0700 "$TAN_RUNNER"
 
 install -d -m 0700 "$(dirname "$TAN_PLIST")"
-TAN_PLIST_STAGING="$TAN_LAN_ROOT/$TAN_LABEL.plist"
+TAN_PLIST_STAGING="$(mktemp "$TAN_LAN_ROOT/$TAN_LABEL.plist.XXXXXX")"
 plutil -create xml1 "$TAN_PLIST_STAGING"
 plutil -insert Label -string "$TAN_LABEL" "$TAN_PLIST_STAGING"
 plutil -insert ProgramArguments -array "$TAN_PLIST_STAGING"
@@ -185,6 +193,7 @@ plutil -insert ThrottleInterval -integer 3 "$TAN_PLIST_STAGING"
 plutil -insert StandardOutPath -string "$TAN_LOG_DIRECTORY/service.log" "$TAN_PLIST_STAGING"
 plutil -insert StandardErrorPath -string "$TAN_LOG_DIRECTORY/service.error.log" "$TAN_PLIST_STAGING"
 install -m 0600 "$TAN_PLIST_STAGING" "$TAN_PLIST"
+rm -f "$TAN_PLIST_STAGING"
 
 tan_stop
 tan_start
