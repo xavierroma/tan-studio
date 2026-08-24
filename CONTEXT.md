@@ -21,12 +21,12 @@ The Raspberry Pi or Mac LAN daemon that served the notebook on the home network 
 _Avoid_: server, NAS, hub
 
 **Tan Bridge**:
-Our M5Stack AtomS3 Lite that plugs into the Nano USB-C port. It talks SASSI to the Nano over USB, and talks to the canonical backend over the internet. It does not own the notebook. It is not Kaffelogic's official Wireless Connect Module.
+Our M5Stack AtomS3 Lite that plugs into the Nano USB-C port. It talks SASSI to the Nano over USB, and reaches the canonical backend over the home LAN. It does not own the notebook. It is not Kaffelogic's official Wireless Connect Module.
 _Avoid_: wireless module, dongle, serial cable, second backend, Kaffelogic USB, official module
 
 **Bridge session**:
-The authenticated WebSocket conversation between Tan Bridge and the canonical backend. It is not the USB/SASSI conversation with the Nano.
-_Avoid_: USB session, SASSI, LAN token
+The authenticated conversation between Tan Bridge and the canonical backend: the Atom dials out over plaintext TCP, hands over one newline-delimited JSON handshake, then tunnels SASSI bytes in length-prefixed frames. It exists only on the LAN (ADR-0005), and it is not the USB/SASSI conversation with the Nano.
+_Avoid_: USB session, SASSI, LAN token, WebSocket session, WSS
 
 **Operator session**:
 The browser login of the operator on the public UI. Sign in with Google. It is not the bridge session and not the old LAN token.
@@ -37,7 +37,7 @@ The credential a non-browser client — the MCP plugin, a script — presents to
 _Avoid_: API key, launch token, LAN token, password
 
 **Studio origin**:
-`studio.tan.coffee` — the operator-facing UI, API, and Tan Bridge session of the canonical backend.
+`studio.tan.coffee` — the operator-facing UI and API of the canonical backend. It carries no bridge session: hosted mode runs no bridge listener (ADR-0005).
 _Avoid_: tan.coffee (that is the public site), xroma.dev, bridge.studio.tan.coffee
 
 **Public site**:
