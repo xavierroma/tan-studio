@@ -55,6 +55,75 @@ curl -fsS --header 'Host: studio.tan.coffee' https://studio.tan.coffee/healthz
 
 Sign in with Google is `https://studio.tan.coffee/auth/google`.
 
+## Continuous backup
+
+`/var/lib/tan-studio/tan-studio.sqlite` is replicated to
+`gs://tan-coffee-backups/tan-studio/notebook` by Litestream, running as the
+`litestream` systemd unit — a separate process from the notebook, enabled on
+boot, `Restart=always`, so a crashed or redeployed service never pauses the
+backup. Attachment blobs on local disk are not covered; the notebook database
+is.
+
+Litestream uses the native `gs://` replica and Google Application Default
+Credentials rather than the S3 interoperability endpoint: one Google-issued
+JSON key, no long-lived HMAC pair, and no second signing path to get wrong.
+The VM's own service account cannot be used — it holds the read-only
+`devstorage.read_only` scope, and widening a scope requires stopping the
+instance. So a dedicated service account,
+`tan-studio-backup@tan-coffee.iam.gserviceaccount.com`, holds
+`roles/storage.objectAdmin` on that one bucket and nothing else.
+
+The key lives at `/etc/tan-studio/litestream-gcs.json`, root-owned, mode 0600.
+It is never in the repo and never in the release tarball. systemd reads it as
+root and hands the unit a private copy via `LoadCredential=`, so the
+`tan-studio` user never has read access to the file itself.
+
+Install or upgrade replication (the credential is only needed the first time):
+
+```sh
+sudo TAN_STUDIO_GCS_CREDENTIAL_FILE=/path/to/key.json ./install_litestream.sh
+sudo systemctl status litestream
+```
+
+Deploys do not fight it. `install.sh` stops `tan-studio` before copying the
+database, so the file Litestream is watching is quiet during the copy, and
+`install.sh` never stops or disables the `litestream` unit.
+
+### Restore
+
+`restore_notebook.sh` restores into a scratch path and refuses to write over
+the live notebook. Promoting a restored copy is a deliberate, separate act.
+
+```sh
+sudo ./restore_notebook.sh                          # newest state
+sudo ./restore_notebook.sh /var/tmp/check.sqlite    # explicit destination
+sudo TAN_STUDIO_RESTORE_TIMESTAMP=2026-08-24T02:00:00Z ./restore_notebook.sh
+```
+
+It runs Litestream's own post-restore integrity check, then `PRAGMA
+integrity_check`, then confirms the schema ledger and prints per-table row
+counts. To promote a copy after checking it:
+
+```sh
+sudo systemctl stop tan-studio
+sudo install -o tan-studio -g tan-studio -m 0640 \
+  /var/tmp/<restore>/tan-studio.sqlite /var/lib/tan-studio/tan-studio.sqlite
+sudo rm -f /var/lib/tan-studio/tan-studio.sqlite-wal \
+  /var/lib/tan-studio/tan-studio.sqlite-shm
+sudo systemctl restart tan-studio litestream
+```
+
+### Cost
+
+The bucket is Standard class in `us-west1`, which is inside the Cloud Storage
+always-free allowance (5 GB-month, 5,000 class A and 50,000 class B operations
+per month, US regions). The notebook is about 0.5 MB; a daily snapshot with
+seven days of retention plus the intervening LTX increments keeps the prefix in
+the single-digit megabytes, roughly 1,000x under the free storage allowance.
+The `sync-interval`, snapshot interval and compaction intervals in
+`litestream.yml` are what bound the operation count, so lengthen them rather
+than shortening them.
+
 ## API tokens for MCP and HTTP clients
 
 The MCP plugin and `curl` cannot sign in with Google, so they present an API

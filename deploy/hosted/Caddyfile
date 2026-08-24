@@ -7,17 +7,6 @@ http://studio.tan.coffee {
 }
 
 studio.tan.coffee {
-	# Bridge WebSocket: disable buffering; 2m next-read idle is ≥ 90s.
-	handle /device/v1/session {
-		reverse_proxy 127.0.0.1:8080 {
-			flush_interval -1
-			transport http {
-				read_timeout 2m
-				write_timeout 2m
-			}
-		}
-	}
-
 	handle {
 		reverse_proxy 127.0.0.1:8080
 	}

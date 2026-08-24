@@ -1,0 +1,40 @@
+[Unit]
+Description=Litestream replication of the Tan Studio notebook
+Documentation=https://litestream.io/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tan-studio
+Group=tan-studio
+ExecStart=/usr/local/bin/litestream replicate -config /etc/litestream.yml
+# The notebook process is restarted on every deploy; replication must outlive
+# it so the shutdown write and the post-deploy writes both reach the bucket.
+Restart=always
+RestartSec=5s
+TimeoutStopSec=20s
+# The service account key stays root-owned 0600 on disk. systemd reads it as
+# root and exposes a copy at %d/gcs.json readable only by this unit.
+LoadCredential=gcs.json:/etc/tan-studio/litestream-gcs.json
+Environment=GOOGLE_APPLICATION_CREDENTIALS=%d/gcs.json
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/tan-studio
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

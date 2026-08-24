@@ -60,6 +60,10 @@ INSTALLER="$HOSTED_DIRECTORY/install.sh"
 DOCKERFILE="$HOSTED_DIRECTORY/Dockerfile"
 BUILD_SCRIPT="$SCRIPT_DIRECTORY/build_hosted_release.sh"
 DEPLOY_SCRIPT="$SCRIPT_DIRECTORY/deploy_hosted.sh"
+BACKUP_CONFIG="$HOSTED_DIRECTORY/litestream.yml"
+BACKUP_UNIT="$HOSTED_DIRECTORY/litestream.service"
+BACKUP_INSTALLER="$HOSTED_DIRECTORY/install_litestream.sh"
+RESTORE_SCRIPT="$HOSTED_DIRECTORY/restore_notebook.sh"
 
 require_file "$CADDYFILE"
 require_file "$UNIT"
@@ -67,8 +71,13 @@ require_file "$INSTALLER"
 require_file "$DOCKERFILE"
 require_file "$BUILD_SCRIPT"
 require_file "$DEPLOY_SCRIPT"
+require_file "$BACKUP_CONFIG"
+require_file "$BACKUP_UNIT"
+require_file "$BACKUP_INSTALLER"
+require_file "$RESTORE_SCRIPT"
 
-for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
+for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$BACKUP_INSTALLER" \
+  "$RESTORE_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
   if [[ -f "$script" ]]; then
     if bash -n "$script"; then
       pass "bash -n ${script#"$ROOT_DIRECTORY"/}"
@@ -80,7 +89,8 @@ done
 
 if command -v shellcheck >/dev/null 2>&1; then
   SHELLCHECK_FILES=()
-  for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
+  for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$BACKUP_INSTALLER" \
+    "$RESTORE_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
     if [[ -f "$script" ]]; then
       SHELLCHECK_FILES+=("$script")
     fi
@@ -97,9 +107,10 @@ fi
 require_match "$CADDYFILE" 'studio\.tan\.coffee' 'Caddyfile serves studio.tan.coffee'
 require_match "$CADDYFILE" 'http://studio\.tan\.coffee' 'Caddyfile defines the HTTP site'
 require_match "$CADDYFILE" 'redir https://studio\.tan\.coffee' 'Caddyfile redirects HTTP to HTTPS'
-require_match "$CADDYFILE" '/device/v1/session' 'Caddyfile has the bridge WebSocket path'
-require_match "$CADDYFILE" 'flush_interval -1' 'Caddyfile disables response buffering'
-require_match "$CADDYFILE" 'read_timeout 2m' 'Caddyfile idle timeout is at least 90s'
+# The bridge does not speak HTTP to this origin: it dials a plaintext TCP port
+# and the service rejects non-private peers (ADR 0005). A proxy route for it
+# would forward to a path the service does not serve.
+forbid_match "$CADDYFILE" '/device/v1/session' 'Caddyfile does not proxy a bridge session route'
 
 require_match "$UNIT" '^ExecStart=/opt/tan-studio/current/bin/tan-studio-service$' \
   'unit starts the current-release binary'
@@ -288,6 +299,106 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
   trap - EXIT
   cleanup_test_root
 fi
+
+require_match "$BACKUP_CONFIG" '^\s+- path: /var/lib/tan-studio/tan-studio\.sqlite$' \
+  'backup config replicates the hosted notebook'
+require_match "$BACKUP_CONFIG" 'url: gs://[a-z0-9-]+/' \
+  'backup config targets a Cloud Storage prefix'
+require_match "$BACKUP_CONFIG" 'sync-interval:' 'backup config bounds the sync interval'
+
+require_match "$BACKUP_UNIT" '^ExecStart=/usr/local/bin/litestream replicate' \
+  'backup unit runs Litestream as its own process'
+require_match "$BACKUP_UNIT" '^WantedBy=multi-user.target$' 'backup unit is enabled on boot'
+require_match "$BACKUP_UNIT" '^Restart=always$' 'backup unit outlives a notebook redeploy'
+require_match "$BACKUP_UNIT" '^After=network-online.target$' 'backup unit waits for network'
+require_match "$BACKUP_UNIT" '^LoadCredential=gcs.json:/etc/tan-studio/litestream-gcs.json$' \
+  'backup unit reads the credential through systemd'
+require_match "$BACKUP_UNIT" '^Environment=GOOGLE_APPLICATION_CREDENTIALS=%d/gcs.json$' \
+  'backup unit points Litestream at the loaded credential'
+require_match "$BACKUP_UNIT" '^ReadWritePaths=/var/lib/tan-studio$' \
+  'backup unit may write only the notebook directory'
+
+# The credential must never ride along in the repo, in any of these files.
+for candidate in "$BACKUP_CONFIG" "$BACKUP_UNIT" "$BACKUP_INSTALLER" "$RESTORE_SCRIPT"; do
+  forbid_match "$candidate" 'BEGIN [A-Z ]*PRIVATE KEY|"private_key"|gserviceaccount\.com' \
+    "no GCS credential material in ${candidate#"$ROOT_DIRECTORY"/}"
+done
+
+require_match "$RESTORE_SCRIPT" 'Refusing to restore over the live notebook' \
+  'restore script refuses to overwrite the live notebook'
+require_match "$RESTORE_SCRIPT" 'PRAGMA integrity_check' \
+  'restore script verifies the restored file'
+require_match "$RESTORE_SCRIPT" 'FROM schema_migrations' \
+  'restore script checks the restored notebook has a schema'
+
+forbid_match "$INSTALLER" 'systemctl (stop|disable) litestream' \
+  'deploying a release does not stop replication'
+
+BACKUP_TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/tan-hosted-backup.XXXXXX")"
+cleanup_backup_root() {
+  rm -rf "$BACKUP_TEST_ROOT"
+}
+trap cleanup_backup_root EXIT
+
+RESTORE_LOG="$BACKUP_TEST_ROOT/restore-live.log"
+if "$RESTORE_SCRIPT" /var/lib/tan-studio/tan-studio.sqlite >"$RESTORE_LOG" 2>&1; then
+  fail 'restore script rejects the live notebook as a destination'
+elif grep -q 'Refusing to restore over the live notebook' "$RESTORE_LOG"; then
+  pass 'restore script rejects the live notebook as a destination'
+else
+  fail "restore script rejected the live notebook for the wrong reason: $(tr '\n' ' ' < "$RESTORE_LOG")"
+fi
+
+BACKUP_INSTALL_ROOT="$BACKUP_TEST_ROOT/root"
+if TAN_STUDIO_INSTALL_ROOT="$BACKUP_INSTALL_ROOT" "$BACKUP_INSTALLER" \
+  >"$BACKUP_TEST_ROOT/no-credential.log" 2>&1; then
+  fail 'backup installer requires a credential on first install'
+else
+  pass 'backup installer requires a credential on first install'
+fi
+
+FAKE_CREDENTIAL="$BACKUP_TEST_ROOT/fake-key.json"
+printf '{"type":"service_account"}\n' > "$FAKE_CREDENTIAL"
+if ! TAN_STUDIO_INSTALL_ROOT="$BACKUP_INSTALL_ROOT" \
+  TAN_STUDIO_GCS_CREDENTIAL_FILE="$FAKE_CREDENTIAL" \
+  "$BACKUP_INSTALLER" >"$BACKUP_TEST_ROOT/install.log" 2>&1; then
+  fail "backup install failed: $(tr '\n' ' ' < "$BACKUP_TEST_ROOT/install.log")"
+else
+  pass 'backup install stages config, unit, and credential'
+fi
+
+INSTALLED_CREDENTIAL="$BACKUP_INSTALL_ROOT/etc/tan-studio/litestream-gcs.json"
+if [[ -f "$BACKUP_INSTALL_ROOT/etc/litestream.yml" ]]; then
+  pass 'installed Litestream config'
+else
+  fail 'installed Litestream config'
+fi
+if [[ -f "$BACKUP_INSTALL_ROOT/etc/systemd/system/litestream.service" ]]; then
+  pass 'installed Litestream unit'
+else
+  fail 'installed Litestream unit'
+fi
+if [[ -f "$INSTALLED_CREDENTIAL" ]]; then
+  CREDENTIAL_MODE="$(stat -f '%OLp' "$INSTALLED_CREDENTIAL" 2>/dev/null ||
+    stat -c '%a' "$INSTALLED_CREDENTIAL")"
+  if [[ "$CREDENTIAL_MODE" == "600" ]]; then
+    pass 'credential is installed mode 0600'
+  else
+    fail "credential is installed mode $CREDENTIAL_MODE"
+  fi
+else
+  fail 'credential is installed'
+fi
+
+if TAN_STUDIO_INSTALL_ROOT="$BACKUP_INSTALL_ROOT" "$BACKUP_INSTALLER" \
+  >"$BACKUP_TEST_ROOT/reinstall.log" 2>&1; then
+  pass 'backup reinstall reuses the installed credential'
+else
+  fail "backup reinstall reuses the installed credential: $(tr '\n' ' ' < "$BACKUP_TEST_ROOT/reinstall.log")"
+fi
+
+trap - EXIT
+cleanup_backup_root
 
 if [[ "$FAILS" -ne 0 ]]; then
   printf '%s hosted deploy check(s) failed\n' "$FAILS" >&2
