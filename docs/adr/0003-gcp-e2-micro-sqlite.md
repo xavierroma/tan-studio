@@ -7,3 +7,5 @@ Provision the VM, disk, firewall, bucket, DNS, and service account with OpenTofu
 One hostname on that VM: `studio.tan.coffee`. It serves the UI, `/api/v1`, and the Tan Bridge session at `wss://studio.tan.coffee/device/v1/session`. The bridge is not a separate deployment; it is a route on the same notebook service. This replaces the earlier `bridge.tanstudio.xroma.dev` constant. Apex `tan.coffee` is the public site and landing page; it is not the notebook.
 
 Supabase Free was rejected: it pauses, has no automatic backups, and caps uploads at 50 MB.
+
+**Superseded in part by [ADR-0005](./0005-lan-only-bridge-transport.md).** The `wss://studio.tan.coffee/device/v1/session` route named above was never built, and hosted mode runs no bridge listener. The rest of this decision — region, SQLite, GCS replication, OpenTofu, one hostname — stands.
