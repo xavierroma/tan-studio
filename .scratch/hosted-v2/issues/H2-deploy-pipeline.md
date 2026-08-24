@@ -4,7 +4,7 @@
 
 **Blocked by:** nothing (independent of H1; the two land together)
 
-**Status:** ready-for-agent
+**Status:** completed
 
 - [ ] `deploy/hosted/` carries the Caddyfile, systemd unit, Dockerfile, installer and its test suite.
 - [ ] `script/build_hosted_release.sh` builds a linux/amd64 tree via Docker; `script/deploy_hosted.sh` ships and installs it.
@@ -30,3 +30,9 @@ Branch `hosted/05-deploy-caddy-systemd`, tip `1e6412f`. Take the whole of `deplo
 VM `tan-notebook`, `xavi@136.67.36.35`, Debian 13 trixie, passwordless sudo, key `~/.ssh/google_compute_engine`. Caddy 2.11.2 from trixie-backports. Origin `https://studio.tan.coffee`. Secrets in repo-root `.env` and Secret Manager (`google-oauth-client-id`, `google-oauth-client-secret`) in project `tan-coffee`.
 
 **Do not deploy in this ticket.** Land the pipeline; deployment happens in H6 once H1 is merged.
+
+## Comments
+
+- 2026-08-24 — Merged to `hosted/v2`. Docker build proven end to end under emulation (release binary verified `ELF 64-bit x86-64`). Adaptation for current main: the crate gained a second binary (`tan-nano-simulator`), so the Dockerfile now passes `--bin tan-studio-service`. 63 deploy checks pass. Used successfully for the live deploy of `1ce742566163`.
+
+  Follow-up worth doing: `deploy/raspberry-pi/Dockerfile` still pins `rust:1.85-bookworm` and builds every binary, so `bun run build:pi` is likely broken on current main for the same two reasons the hosted one was.

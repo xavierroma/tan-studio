@@ -4,7 +4,7 @@
 
 **Blocked by:** H1 (hosted mode must exist first; this edits the same files)
 
-**Status:** ready-for-agent
+**Status:** completed
 
 ## Why this exists
 
@@ -35,3 +35,11 @@ curl -H "Authorization: Bearer <minted>" -H "X-Tan-Studio-Client: tan-studio-api
 ```
 
 both return real data, and the browser SPA still works.
+
+## Comments
+
+- 2026-08-24 — Merged to `hosted/v2`. Migration `0014_hosted_api_tokens.sql` stores only SHA-256 digests with a `revoked_at_ms` column; acceptance is constant-time with no early exit. `authenticated_for_api` now returns a `Credential` enum (operator session, API token, launch token). `allowed_client_ids` moved into `recognized_client` and is checked on every placement, so it is load-bearing in hosted mode again. `cursor_key` derives from the session secret with a random fallback, so hosted cursors are no longer HMAC'd with an empty key. `/auth/logout` is POST-only.
+
+  Verified live: unknown bearer 401, unrecognized client id 401, `GET /auth/logout` 405, `/api/v1/openapi.json` 401 unauthenticated.
+
+  **Not verified live: the positive token path.** Minting requires the operator's browser session, which needs a Google sign-in an agent must not perform. Covered in-process by tests; needs one operator action to confirm against the real origin.

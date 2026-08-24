@@ -4,7 +4,7 @@
 
 **Blocked by:** nothing
 
-**Status:** ready-for-agent
+**Status:** completed
 
 - [ ] `TAN_STUDIO_HOSTED=1` selects a `hosted()` config in `apps/service/src/config.rs`.
 - [ ] Google OIDC login: `/auth/google` -> Google, `/auth/google/callback` -> signed session cookie. Only `TAN_STUDIO_OPERATOR_EMAIL` may sign in; every other Google account is rejected.
@@ -34,3 +34,7 @@ That reference set `allow_originless_requests: false`, which is the bug. Do not 
 `TAN_STUDIO_HOSTED=1`, `TAN_STUDIO_BIND_HOST=127.0.0.1`, `TAN_STUDIO_PORT=8080`, `TAN_STUDIO_DATABASE_PATH`, `TAN_STUDIO_WEB_ROOT`, `TAN_STUDIO_VERSION`, `TAN_STUDIO_PUBLIC_ORIGIN=https://studio.tan.coffee`, `TAN_STUDIO_OIDC_ISSUER=https://accounts.google.com`, `TAN_STUDIO_OIDC_REDIRECT_URI=https://studio.tan.coffee/auth/google/callback`, `TAN_STUDIO_OIDC_CLIENT_ID`, `TAN_STUDIO_OIDC_CLIENT_SECRET`, `TAN_STUDIO_OPERATOR_EMAIL`, `TAN_STUDIO_SESSION_SECRET` (64 hex).
 
 Derive `allowed_origins` and `allowed_hosts` from `TAN_STUDIO_PUBLIC_ORIGIN`. Keep that behaviour.
+
+## Comments
+
+- 2026-08-24 — Merged to `hosted/v2`. `ServiceConfig::hosted()` sets `allow_originless_requests: true` with two tests that were confirmed to fail when it is flipped back. 15 hosted integration tests against an in-process OIDC issuer signing real RS256 id_tokens: operator allowed end to end, non-operator refused with no cookie set, foreign origin rejected even with a valid session, and `studio.tan.coffee.evil.example` rejected. Verified live after deploy: an originless same-origin GET now returns 401 (judged on session) instead of 403, and both foreign-origin shapes return 403 `origin_not_allowed`. The reported bug is gone.
