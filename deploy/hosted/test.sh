@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+HOSTED_DIRECTORY="$ROOT_DIRECTORY/deploy/hosted"
+SCRIPT_DIRECTORY="$ROOT_DIRECTORY/script"
+FAILS=0
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  FAILS=$((FAILS + 1))
+}
+
+pass() {
+  printf 'PASS: %s\n' "$*"
+}
+
+require_file() {
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    pass "exists ${path#"$ROOT_DIRECTORY"/}"
+  else
+    fail "missing ${path#"$ROOT_DIRECTORY"/}"
+  fi
+}
+
+require_match() {
+  local path="$1"
+  local pattern="$2"
+  local label="$3"
+  if [[ ! -f "$path" ]]; then
+    fail "cannot match $label; missing ${path#"$ROOT_DIRECTORY"/}"
+    return
+  fi
+  if grep -Eq "$pattern" "$path"; then
+    pass "$label"
+  else
+    fail "$label (pattern $pattern)"
+  fi
+}
+
+forbid_match() {
+  local path="$1"
+  local pattern="$2"
+  local label="$3"
+  if [[ ! -f "$path" ]]; then
+    fail "cannot check $label; missing ${path#"$ROOT_DIRECTORY"/}"
+    return
+  fi
+  if grep -Eq "$pattern" "$path"; then
+    fail "$label"
+  else
+    pass "$label"
+  fi
+}
+
+CADDYFILE="$HOSTED_DIRECTORY/Caddyfile"
+UNIT="$HOSTED_DIRECTORY/tan-studio.service"
+INSTALLER="$HOSTED_DIRECTORY/install.sh"
+DOCKERFILE="$HOSTED_DIRECTORY/Dockerfile"
+BUILD_SCRIPT="$SCRIPT_DIRECTORY/build_hosted_release.sh"
+DEPLOY_SCRIPT="$SCRIPT_DIRECTORY/deploy_hosted.sh"
+
+require_file "$CADDYFILE"
+require_file "$UNIT"
+require_file "$INSTALLER"
+require_file "$DOCKERFILE"
+require_file "$BUILD_SCRIPT"
+require_file "$DEPLOY_SCRIPT"
+
+for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
+  if [[ -f "$script" ]]; then
+    if bash -n "$script"; then
+      pass "bash -n ${script#"$ROOT_DIRECTORY"/}"
+    else
+      fail "bash -n ${script#"$ROOT_DIRECTORY"/}"
+    fi
+  fi
+done
+
+if command -v shellcheck >/dev/null 2>&1; then
+  SHELLCHECK_FILES=()
+  for script in "$INSTALLER" "$BUILD_SCRIPT" "$DEPLOY_SCRIPT" "$HOSTED_DIRECTORY/test.sh"; do
+    if [[ -f "$script" ]]; then
+      SHELLCHECK_FILES+=("$script")
+    fi
+  done
+  if [[ ${#SHELLCHECK_FILES[@]} -gt 0 ]]; then
+    if shellcheck --external-sources "${SHELLCHECK_FILES[@]}"; then
+      pass "shellcheck hosted scripts"
+    else
+      fail "shellcheck hosted scripts"
+    fi
+  fi
+fi
+
+require_match "$CADDYFILE" 'studio\.tan\.coffee' 'Caddyfile serves studio.tan.coffee'
+require_match "$CADDYFILE" 'http://studio\.tan\.coffee' 'Caddyfile defines the HTTP site'
+require_match "$CADDYFILE" 'redir https://studio\.tan\.coffee' 'Caddyfile redirects HTTP to HTTPS'
+require_match "$CADDYFILE" '/device/v1/session' 'Caddyfile has the bridge WebSocket path'
+require_match "$CADDYFILE" 'flush_interval -1' 'Caddyfile disables response buffering'
+require_match "$CADDYFILE" 'read_timeout 2m' 'Caddyfile idle timeout is at least 90s'
+
+require_match "$UNIT" '^ExecStart=/opt/tan-studio/current/bin/tan-studio-service$' \
+  'unit starts the current-release binary'
+require_match "$UNIT" '^EnvironmentFile=/etc/tan-studio/environment$' \
+  'unit loads secrets from EnvironmentFile'
+require_match "$UNIT" '^WantedBy=multi-user.target$' 'unit is enabled on boot'
+require_match "$UNIT" '^Restart=' 'unit restarts after failure'
+require_match "$UNIT" '^After=network-online.target$' 'unit waits for network'
+forbid_match "$UNIT" '/opt/tan-studio/releases/' 'unit has no versioned release path'
+forbid_match "$UNIT" 'CLIENT_SECRET|SESSION_SECRET|GOOGLE_OAUTH' \
+  'unit file does not embed OIDC or session secrets'
+
+require_match "$INSTALLER" 'GOOGLE_OAUTH_CLIENT_ID' 'installer accepts repo-root Google client id'
+require_match "$INSTALLER" 'GOOGLE_OAUTH_CLIENT_SECRET' 'installer accepts repo-root Google client secret'
+require_match "$INSTALLER" 'OPERATOR_GOOGLE_EMAIL' 'installer accepts operator email'
+require_match "$INSTALLER" 'TAN_STUDIO_OIDC_CLIENT_ID' 'installer writes hosted OIDC client id'
+require_match "$INSTALLER" 'TAN_STUDIO_OIDC_CLIENT_SECRET' 'installer writes hosted OIDC client secret'
+require_match "$INSTALLER" 'TAN_STUDIO_OPERATOR_EMAIL' 'installer writes hosted operator email'
+require_match "$INSTALLER" 'TAN_STUDIO_SESSION_SECRET' 'installer writes session secret'
+require_match "$INSTALLER" 'systemctl enable caddy' 'installer enables Caddy on boot'
+require_match "$INSTALLER" 'systemctl enable tan-studio' 'installer enables the service on boot'
+
+require_match "$INSTALLER" "'-wal'" 'installer backs up the SQLite write-ahead log'
+
+forbid_match "$DEPLOY_SCRIPT" 'rsync' \
+  'deploy script does not require rsync on the VM'
+require_match "$DEPLOY_SCRIPT" 'tar -C' 'deploy script ships the release with tar'
+STOP_LINE="$(grep -n 'systemctl stop tan-studio' "$INSTALLER" | head -n 1 | cut -d: -f1)"
+BACKUP_LINE="$(grep -n 'pre-deploy-' "$INSTALLER" | head -n 1 | cut -d: -f1)"
+if [[ -n "$STOP_LINE" && -n "$BACKUP_LINE" && "$STOP_LINE" -lt "$BACKUP_LINE" ]]; then
+  pass 'installer stops the service before copying the database'
+else
+  fail 'installer copies the database while the service may still be writing'
+fi
+
+forbid_match "$DOCKERFILE" '\.env' 'Dockerfile does not copy .env'
+require_match "$DOCKERFILE" 'linux/amd64|FROM rust:' 'Dockerfile builds the hosted linux binary'
+require_match "$DOCKERFILE" 'Caddyfile' 'Dockerfile ships the Caddyfile'
+require_match "$DOCKERFILE" 'tan-studio.service' 'Dockerfile ships the systemd unit'
+
+if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
+  TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/tan-hosted-install.XXXXXX")"
+  SOURCE_DIRECTORY="$TEST_ROOT/source"
+  cleanup_test_root() {
+    rm -rf "$TEST_ROOT"
+  }
+  trap cleanup_test_root EXIT
+
+  mkdir -p "$SOURCE_DIRECTORY/bin" "$SOURCE_DIRECTORY/web" "$SOURCE_DIRECTORY/system"
+  printf '#!/bin/sh\nexit 0\n' > "$SOURCE_DIRECTORY/bin/tan-studio-service"
+  chmod 0755 "$SOURCE_DIRECTORY/bin/tan-studio-service"
+  printf '<html>Tan Studio</html>\n' > "$SOURCE_DIRECTORY/web/index.html"
+  printf 'test-version-1\n' > "$SOURCE_DIRECTORY/VERSION"
+  if [[ -f "$CADDYFILE" ]]; then
+    cp "$CADDYFILE" "$SOURCE_DIRECTORY/system/Caddyfile"
+  else
+    printf 'studio.tan.coffee {\n}\n' > "$SOURCE_DIRECTORY/system/Caddyfile"
+  fi
+  if [[ -f "$UNIT" ]]; then
+    cp "$UNIT" "$SOURCE_DIRECTORY/system/tan-studio.service"
+  else
+    printf '[Service]\nExecStart=/opt/tan-studio/current/bin/tan-studio-service\n' \
+      > "$SOURCE_DIRECTORY/system/tan-studio.service"
+  fi
+
+  INSTALL_ROOT="$TEST_ROOT/root"
+  if TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" "$INSTALLER" "$SOURCE_DIRECTORY" "test-version-1" \
+    >/dev/null 2>"$TEST_ROOT/first-missing.log"; then
+    fail 'installer requires OIDC secrets on first install'
+  else
+    pass 'installer requires OIDC secrets on first install'
+  fi
+
+  if ! TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" \
+    GOOGLE_OAUTH_CLIENT_ID='hosted-client-id' \
+    GOOGLE_OAUTH_CLIENT_SECRET='hosted-client-secret' \
+    OPERATOR_GOOGLE_EMAIL='romaxavier12@gmail.com' \
+    "$INSTALLER" "$SOURCE_DIRECTORY" "test-version-1" >"$TEST_ROOT/first-install.log" 2>&1; then
+    fail "first install with mapped Google secrets failed: $(tr '\n' ' ' < "$TEST_ROOT/first-install.log")"
+  else
+    pass 'first install with mapped Google secrets'
+  fi
+
+  ENV_FILE="$INSTALL_ROOT/etc/tan-studio/environment"
+  if [[ -f "$ENV_FILE" ]]; then
+    env_has() {
+      grep -Eq "^$1=$2$" "$ENV_FILE"
+    }
+    require_env() {
+      if env_has "$1" "$2"; then
+        pass "$3"
+      else
+        fail "$3"
+      fi
+    }
+    require_env TAN_STUDIO_HOSTED 1 'env TAN_STUDIO_HOSTED=1'
+    require_env TAN_STUDIO_BIND_HOST '127.0.0.1' 'env binds loopback'
+    require_env TAN_STUDIO_PORT 8080 'env TAN_STUDIO_PORT=8080'
+    require_env TAN_STUDIO_PUBLIC_ORIGIN 'https://studio.tan.coffee' 'env public origin'
+    require_env TAN_STUDIO_OIDC_ISSUER 'https://accounts.google.com' 'env Google issuer'
+    require_env TAN_STUDIO_OIDC_REDIRECT_URI 'https://studio.tan.coffee/auth/google/callback' \
+      'env Google redirect'
+    require_env TAN_STUDIO_OIDC_CLIENT_ID 'hosted-client-id' 'maps GOOGLE_OAUTH_CLIENT_ID'
+    require_env TAN_STUDIO_OIDC_CLIENT_SECRET 'hosted-client-secret' 'maps GOOGLE_OAUTH_CLIENT_SECRET'
+    require_env TAN_STUDIO_OPERATOR_EMAIL 'romaxavier12@gmail.com' 'maps OPERATOR_GOOGLE_EMAIL'
+    require_env TAN_STUDIO_DATABASE_PATH '/var/lib/tan-studio/tan-studio.sqlite' 'env database path'
+    require_env TAN_STUDIO_WEB_ROOT '/opt/tan-studio/current/web' 'env web root uses current symlink'
+    SESSION_SECRET="$(sed -n 's/^TAN_STUDIO_SESSION_SECRET=//p' "$ENV_FILE" | head -n 1)"
+    if [[ "$SESSION_SECRET" =~ ^[a-f0-9]{64}$ ]]; then
+      pass 'generated 64-hex session secret'
+    else
+      fail 'generated 64-hex session secret'
+    fi
+    if grep -Eq 'GOOGLE_OAUTH_|OPERATOR_GOOGLE_EMAIL' "$ENV_FILE"; then
+      fail 'environment file keeps repo-root secret names'
+    else
+      pass 'environment file uses TAN_STUDIO_* names only'
+    fi
+  else
+    fail 'first install wrote /etc/tan-studio/environment'
+  fi
+
+  if [[ -L "$INSTALL_ROOT/opt/tan-studio/current" ]]; then
+    TARGET="$(readlink "$INSTALL_ROOT/opt/tan-studio/current")"
+    if [[ "$TARGET" == "$INSTALL_ROOT/opt/tan-studio/releases/test-version-1" ]] ||
+      [[ "$TARGET" == /opt/tan-studio/releases/test-version-1 ]]; then
+      pass 'current symlink points at the release'
+    else
+      # Accept a relative or absolute link into releases/test-version-1
+      if [[ "$TARGET" == *"/releases/test-version-1" ]]; then
+        pass 'current symlink points at the release'
+      else
+        fail "current symlink is $TARGET"
+      fi
+    fi
+  else
+    fail 'current symlink exists'
+  fi
+
+  if [[ -f "$INSTALL_ROOT/etc/caddy/Caddyfile" ]]; then
+    pass 'installed Caddyfile'
+  else
+    fail 'installed Caddyfile'
+  fi
+  if [[ -f "$INSTALL_ROOT/etc/systemd/system/tan-studio.service" ]]; then
+    pass 'installed systemd unit'
+  else
+    fail 'installed systemd unit'
+  fi
+
+  printf 'test-version-2\n' > "$SOURCE_DIRECTORY/VERSION"
+  if ! TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" \
+    "$INSTALLER" "$SOURCE_DIRECTORY" "test-version-2" >"$TEST_ROOT/second-install.log" 2>&1; then
+    fail "repeatable install without re-supplying secrets failed: $(tr '\n' ' ' < "$TEST_ROOT/second-install.log")"
+  else
+    pass 'repeatable install without re-supplying secrets'
+  fi
+
+  ENV_FILE="$INSTALL_ROOT/etc/tan-studio/environment"
+  if [[ -f "$ENV_FILE" ]]; then
+    if grep -Eq '^TAN_STUDIO_OIDC_CLIENT_SECRET=hosted-client-secret$' "$ENV_FILE" &&
+      grep -Eq "^TAN_STUDIO_SESSION_SECRET=${SESSION_SECRET}$" "$ENV_FILE" &&
+      grep -Eq '^TAN_STUDIO_VERSION=test-version-2$' "$ENV_FILE"; then
+      pass 'redeploy preserves secrets and updates version'
+    else
+      fail 'redeploy preserves secrets and updates version'
+    fi
+  fi
+
+  INSTALLED_UNIT="$INSTALL_ROOT/etc/systemd/system/tan-studio.service"
+  if [[ -f "$INSTALLED_UNIT" ]] && grep -Eq '^ExecStart=/opt/tan-studio/current/bin/tan-studio-service$' "$INSTALLED_UNIT"; then
+    pass 'redeploy does not require hand-editing the unit'
+  else
+    fail 'redeploy does not require hand-editing the unit'
+  fi
+
+  if [[ -L "$INSTALL_ROOT/opt/tan-studio/current" ]]; then
+    TARGET="$(readlink "$INSTALL_ROOT/opt/tan-studio/current")"
+    if [[ "$TARGET" == *"/releases/test-version-2" ]]; then
+      pass 'redeploy switches the current symlink'
+    else
+      fail "redeploy current symlink is $TARGET"
+    fi
+  fi
+
+  trap - EXIT
+  cleanup_test_root
+fi
+
+if [[ "$FAILS" -ne 0 ]]; then
+  printf '%s hosted deploy check(s) failed\n' "$FAILS" >&2
+  exit 1
+fi
+printf 'hosted deploy checks passed\n'
