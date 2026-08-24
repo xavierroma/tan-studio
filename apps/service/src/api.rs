@@ -24,7 +24,7 @@ use utoipa::{IntoParams, OpenApi};
 use uuid::Uuid;
 
 use crate::{
-    config::{LaunchMode, ServiceConfig, HOSTED_CLIENT_ID},
+    config::{LaunchMode, OperatorAuthConfig, ServiceConfig, HOSTED_CLIENT_ID},
     contract::*,
     core_contract::{SyncRunPage, SyncRunResource},
     db::Database,
@@ -488,7 +488,7 @@ async fn auth_logout(State(state): State<ApiState>) -> Response {
 }
 
 /// The `/auth/**` routes exist only where an operator session does.
-fn hosted_operator_auth(state: &ApiState) -> Option<&crate::config::OperatorAuthConfig> {
+fn hosted_operator_auth(state: &ApiState) -> Option<&OperatorAuthConfig> {
     (state.config.mode == LaunchMode::Hosted)
         .then(|| state.config.operator_auth.as_ref())
         .flatten()

@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tan_studio_service::device::NanoDeviceManager;
 use tan_studio_service::{
-    build_router, ApiState, Database, LaunchMode, OperatorAuthConfig, ServiceConfig,
+    build_router, config::HOSTED_CLIENT_ID, ApiState, Database, LaunchMode, OperatorAuthConfig,
+    ServiceConfig,
 };
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -248,7 +249,7 @@ fn hosted_config(database_path: &Path, web_root: &Path, issuer: &str) -> Service
         launch_token: String::new(),
         allowed_origins: vec![STUDIO_ORIGIN.into()],
         allowed_hosts: vec![STUDIO_HOST.into()],
-        allowed_client_ids: vec!["tan-studio-hosted-v1".into()],
+        allowed_client_ids: vec![HOSTED_CLIENT_ID.into()],
         // Mirrors `ServiceConfig::hosted()`; see `hosted_allows_originless_same_origin_requests`.
         allow_originless_requests: true,
         application_version: "test".into(),
@@ -530,7 +531,7 @@ async fn hosted_html_carries_no_token_and_no_session_secret() {
     );
     let html = String::from_utf8(body.to_vec()).unwrap();
     assert!(html.contains("token:null"));
-    assert!(html.contains("clientId:\"tan-studio-hosted-v1\""));
+    assert!(html.contains(&format!("clientId:\"{HOSTED_CLIENT_ID}\"")));
     assert!(html.contains("Tan Studio"));
     assert!(!html.contains("test-google-secret"));
     assert!(!html.contains("5a5a5a5a"));
@@ -636,7 +637,7 @@ async fn hosted_api_requires_operator_session_and_studio_origin() {
         None,
         &[
             ("authorization", "Bearer test-google-secret"),
-            ("x-tan-studio-client", "tan-studio-hosted-v1"),
+            ("x-tan-studio-client", HOSTED_CLIENT_ID),
         ],
     )
     .await;
