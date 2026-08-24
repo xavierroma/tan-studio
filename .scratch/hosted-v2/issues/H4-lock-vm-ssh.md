@@ -4,7 +4,7 @@
 
 **Blocked by:** H6 (do this only after a verified deployment, so a lockout cannot strand a broken release)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [ ] `default-allow-ssh` from `0.0.0.0/0` no longer applies to this VM.
 - [ ] SSH ingress is restricted — IAP range `35.235.240.0/20`, or the operator's own address, whichever keeps the deploy path working.
@@ -32,3 +32,27 @@ Danger: this ticket can lock the operator out of their own VM. Verify the new pa
 
 Prefer IAP plus a deploy script that tunnels: it survives an IP change and needs no standing public SSH. Whichever is chosen, prove `bun run deploy:hosted` still completes **before** removing the existing rule.
 
+## Comments
+
+- 2026-08-24 — **Blocked on permission, not on knowledge.** The plan is settled and the prerequisites are confirmed: the VM carries the `tan-studio` network tag, and the operator account is project owner. Creating the firewall rule was refused by this environment's safety policy, which gates network security changes. It needs a human.
+
+  `default-allow-ssh` still allows `tcp:22` from `0.0.0.0/0`, and it is untagged, so it covers every instance in the project.
+
+  Do it in this order — the additive rule and the proof come **before** the removal, so a failure cannot strand the box:
+
+  ```
+  gcloud compute firewall-rules create allow-studio-ssh --project=tan-coffee \
+    --network=default --direction=INGRESS --action=allow --rules=tcp:22 \
+    --source-ranges=35.235.240.0/20 --target-tags=tan-studio \
+    --description="SSH via IAP TCP forwarding only"
+
+  gcloud compute ssh tan-notebook --zone=us-west1-a --project=tan-coffee --tunnel-through-iap --command='echo ok'
+  ```
+
+  Only once that prints `ok`: `script/deploy_hosted.sh` must be switched to tunnel through IAP, because it currently SSHes straight to `136.67.36.35` and will break the moment public SSH closes. Prove `bun run deploy:hosted` still completes, and only then:
+
+  ```
+  gcloud compute firewall-rules delete default-allow-ssh --project=tan-coffee
+  ```
+
+  Leave HTTP/HTTPS (`allow-studio-http-https`) alone. Note also that `infra/` OpenTofu has still never been applied, so the stack does not describe live reality; a blind `tofu apply` would create unrelated resources and stop/start the VM, which is why this was not routed through it.
