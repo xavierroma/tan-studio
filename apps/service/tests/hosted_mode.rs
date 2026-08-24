@@ -17,13 +17,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tan_studio_service::device::NanoDeviceManager;
 use tan_studio_service::{
-    build_router, config::HOSTED_CLIENT_ID, ApiState, Database, LaunchMode, OperatorAuthConfig,
-    ServiceConfig,
+    build_router,
+    config::{API_CLIENT_ID, HOSTED_CLIENT_ID},
+    ApiState, Database, LaunchMode, OperatorAuthConfig, ServiceConfig,
 };
 use tempfile::TempDir;
 use tower::ServiceExt;
 
 const STUDIO_HOST: &str = "studio.tan.coffee";
+/// Every request the hosted SPA makes carries its client identity; so must the tests.
+const HOSTED_CLIENT: &[(&str, &str)] = &[("x-tan-studio-client", HOSTED_CLIENT_ID)];
 const STUDIO_ORIGIN: &str = "https://studio.tan.coffee";
 const OPERATOR_EMAIL: &str = "operator@tan.coffee";
 const OTHER_EMAIL: &str = "intruder@gmail.com";
@@ -249,7 +252,7 @@ fn hosted_config(database_path: &Path, web_root: &Path, issuer: &str) -> Service
         launch_token: String::new(),
         allowed_origins: vec![STUDIO_ORIGIN.into()],
         allowed_hosts: vec![STUDIO_HOST.into()],
-        allowed_client_ids: vec![HOSTED_CLIENT_ID.into()],
+        allowed_client_ids: vec![HOSTED_CLIENT_ID.into(), API_CLIENT_ID.into()],
         // Mirrors `ServiceConfig::hosted()`; see `hosted_allows_originless_same_origin_requests`.
         allow_originless_requests: true,
         application_version: "test".into(),
@@ -356,10 +359,41 @@ async fn send(
     cookie: Option<&str>,
     extra: &[(&str, &str)],
 ) -> (StatusCode, HeaderMap, axum::body::Bytes) {
+    dispatch(app, method, path, host, origin, cookie, extra, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_json(
+    app: &Router,
+    method: Method,
+    path: &str,
+    host: &str,
+    origin: Option<&str>,
+    cookie: Option<&str>,
+    extra: &[(&str, &str)],
+    body: Value,
+) -> (StatusCode, HeaderMap, axum::body::Bytes) {
+    dispatch(app, method, path, host, origin, cookie, extra, Some(body)).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn dispatch(
+    app: &Router,
+    method: Method,
+    path: &str,
+    host: &str,
+    origin: Option<&str>,
+    cookie: Option<&str>,
+    extra: &[(&str, &str)],
+    body: Option<Value>,
+) -> (StatusCode, HeaderMap, axum::body::Bytes) {
     let mut request = Request::builder()
         .method(method)
         .uri(path)
         .header(header::HOST, host);
+    if body.is_some() {
+        request = request.header(header::CONTENT_TYPE, "application/json");
+    }
     if let Some(origin) = origin {
         request = request.header(header::ORIGIN, origin);
     }
@@ -369,9 +403,12 @@ async fn send(
     for (name, value) in extra {
         request = request.header(*name, *value);
     }
+    let body = body
+        .map(|value| Body::from(value.to_string()))
+        .unwrap_or_else(Body::empty);
     let response = app
         .clone()
-        .oneshot(request.body(Body::empty()).unwrap())
+        .oneshot(request.body(body).unwrap())
         .await
         .unwrap();
     let status = response.status();
@@ -554,7 +591,7 @@ async fn hosted_serves_its_own_spa_when_the_browser_omits_origin() {
         STUDIO_HOST,
         None,
         None,
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(
@@ -576,7 +613,7 @@ async fn hosted_serves_its_own_spa_when_the_browser_omits_origin() {
         STUDIO_HOST,
         None,
         cookie_header(&jar).as_deref(),
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
@@ -604,7 +641,7 @@ async fn hosted_refuses_a_foreign_origin_even_with_an_operator_session() {
             STUDIO_HOST,
             Some(origin),
             cookie_header(&jar).as_deref(),
-            &[],
+            HOSTED_CLIENT,
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{origin}");
@@ -622,12 +659,14 @@ async fn hosted_api_requires_operator_session_and_studio_origin() {
         STUDIO_HOST,
         Some(STUDIO_ORIGIN),
         None,
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(json_body(&body)["code"], "unauthenticated");
 
+    // Hosted mode now accepts a bearer, but only a token it minted itself. A secret
+    // borrowed from somewhere else — here the OIDC client secret — is still nothing.
     let (status, _, body) = send(
         &hosted.app,
         Method::GET,
@@ -651,7 +690,7 @@ async fn hosted_api_requires_operator_session_and_studio_origin() {
         STUDIO_HOST,
         Some("https://evil.example"),
         None,
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
@@ -680,7 +719,7 @@ async fn google_login_sets_operator_cookie_and_allowlist_refuses_other_accounts(
         STUDIO_HOST,
         Some(STUDIO_ORIGIN),
         cookie_header(&jar).as_deref(),
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
@@ -724,7 +763,7 @@ async fn google_login_sets_operator_cookie_and_allowlist_refuses_other_accounts(
         STUDIO_HOST,
         Some(STUDIO_ORIGIN),
         cookie_header(&stranger).as_deref(),
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -763,7 +802,7 @@ async fn sign_out_clears_the_operator_session() {
         STUDIO_HOST,
         Some(STUDIO_ORIGIN),
         cookie_header(&jar).as_deref(),
-        &[],
+        HOSTED_CLIENT,
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -842,4 +881,328 @@ async fn lan_token_still_works_in_headless_mode() {
         "token:{}",
         serde_json::to_string(&"ab".repeat(32)).unwrap()
     )));
+}
+
+/// Signs in and mints one API token the way the operator does: from behind their
+/// own session. Returns the secret, which the notebook shows exactly once.
+async fn mint_api_token(app: &Router, issuer: &FakeIssuer, label: &str) -> (String, i64) {
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(app, issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+
+    let (status, _, body) = send_json(
+        app,
+        Method::POST,
+        "/api/v1/api-tokens",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({ "label": label }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{}", json_body(&body));
+    let minted = json_body(&body);
+    (
+        minted["secret"].as_str().expect("minted secret").to_owned(),
+        minted["token"]["id"].as_i64().expect("minted token id"),
+    )
+}
+
+/// The whole point of the ticket: the MCP plugin sends `Authorization: Bearer` plus
+/// its client identity and no cookie at all, from a machine that is not the VM.
+#[tokio::test]
+async fn a_minted_token_authenticates_an_mcp_shaped_request() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, _id) = mint_api_token(&hosted.app, &issuer, "codex plugin").await;
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        None,
+        None,
+        &[
+            ("authorization", &format!("Bearer {secret}")),
+            ("x-tan-studio-client", API_CLIENT_ID),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
+    assert!(json_body(&body)["items"].as_array().unwrap().is_empty());
+
+    // The contract itself must be readable by the client that has to obey it.
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/openapi.json",
+        STUDIO_HOST,
+        None,
+        None,
+        &[
+            ("authorization", &format!("Bearer {secret}")),
+            ("x-tan-studio-client", API_CLIENT_ID),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(json_body(&body)["paths"]["/api/v1/coffees"].is_object());
+}
+
+#[tokio::test]
+async fn the_minted_secret_is_shown_once_and_never_listed() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, id) = mint_api_token(&hosted.app, &issuer, "codex plugin").await;
+
+    let mut jar = HashMap::new();
+    let (_, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    apply_cookies(&mut jar, &headers);
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/api-tokens",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
+    let listing = String::from_utf8(body.to_vec()).unwrap();
+    assert!(
+        !listing.contains(&secret),
+        "a listing must never carry the secret back"
+    );
+    let listed = json_body(&body);
+    let listed = &listed["items"][0];
+    assert_eq!(listed["id"].as_i64(), Some(id));
+    assert_eq!(listed["label"], "codex plugin");
+    assert!(listed["revokedAt"].is_null());
+}
+
+#[tokio::test]
+async fn hosted_refuses_unknown_and_revoked_api_tokens() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, id) = mint_api_token(&hosted.app, &issuer, "codex plugin").await;
+
+    for unknown in ["f".repeat(64), "not-a-token".into(), String::new()] {
+        let (status, _, body) = send(
+            &hosted.app,
+            Method::GET,
+            "/api/v1/coffees",
+            STUDIO_HOST,
+            None,
+            None,
+            &[
+                ("authorization", &format!("Bearer {unknown}")),
+                ("x-tan-studio-client", API_CLIENT_ID),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{unknown}");
+        assert_eq!(json_body(&body)["code"], "unauthenticated");
+    }
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        None,
+        None,
+        &[("x-tan-studio-client", API_CLIENT_ID)],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(&body)["code"], "unauthenticated");
+
+    let mut jar = HashMap::new();
+    let (_, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    apply_cookies(&mut jar, &headers);
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        &format!("/api/v1/api-tokens/{id}/revoke"),
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
+    assert!(json_body(&body)["revokedAt"].is_string());
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        None,
+        None,
+        &[
+            ("authorization", &format!("Bearer {secret}")),
+            ("x-tan-studio-client", API_CLIENT_ID),
+        ],
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a revoked token must stop working at once"
+    );
+    assert_eq!(json_body(&body)["code"], "unauthenticated");
+}
+
+/// `allowed_client_ids` is defence in depth on both credentials, and on the cookie
+/// it is also the CSRF gate: a cross-site form post cannot set a custom header.
+#[tokio::test]
+async fn hosted_refuses_an_unrecognized_client_identity() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, _id) = mint_api_token(&hosted.app, &issuer, "codex plugin").await;
+    let mut jar = HashMap::new();
+    let (_, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    apply_cookies(&mut jar, &headers);
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        None,
+        None,
+        &[
+            ("authorization", &format!("Bearer {secret}")),
+            ("x-tan-studio-client", "tan-studio-lan-v1"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{}", json_body(&body));
+    assert_eq!(json_body(&body)["code"], "unauthenticated");
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        &[("x-tan-studio-client", "tan-studio-lan-v1")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{}", json_body(&body));
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/coffees",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        &[],
+        json!({ "name": "Cross-site coffee" }),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a cookie mutation without the client header is a cross-site form post"
+    );
+    assert_eq!(json_body(&body)["code"], "unauthenticated");
+}
+
+/// A leaked API token must not be able to mint itself a successor, or revoke the
+/// operator's other tokens.
+#[tokio::test]
+async fn an_api_token_can_neither_mint_nor_revoke_api_tokens() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, id) = mint_api_token(&hosted.app, &issuer, "codex plugin").await;
+    let bearer = format!("Bearer {secret}");
+    let api_client: &[(&str, &str)] = &[
+        ("authorization", &bearer),
+        ("x-tan-studio-client", API_CLIENT_ID),
+    ];
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/api-tokens",
+        STUDIO_HOST,
+        None,
+        None,
+        api_client,
+        json!({ "label": "a successor" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{}", json_body(&body));
+    assert_eq!(json_body(&body)["code"], "operator_session_required");
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        &format!("/api/v1/api-tokens/{id}/revoke"),
+        STUDIO_HOST,
+        None,
+        None,
+        api_client,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{}", json_body(&body));
+
+    let (status, _, _) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/api-tokens",
+        STUDIO_HOST,
+        None,
+        None,
+        api_client,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// A GET sign-out is a link any other site can fire with an `<img src>`.
+#[tokio::test]
+async fn sign_out_refuses_a_get() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+
+    let (status, headers, _) = send(
+        &hosted.app,
+        Method::GET,
+        "/auth/logout",
+        STUDIO_HOST,
+        None,
+        cookie_header(&jar).as_deref(),
+        &[],
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(session_set_cookie(&headers).is_none());
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/profiles",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
 }

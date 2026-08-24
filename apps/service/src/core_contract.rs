@@ -65,7 +65,10 @@ use crate::error::{FieldError, ProblemDetails};
         crate::core_api::settings_get,
         crate::core_api::settings_patch,
         crate::core_api::ui_preferences_get,
-        crate::core_api::ui_preferences_patch
+        crate::core_api::ui_preferences_patch,
+        crate::api::api_tokens_list,
+        crate::api::api_tokens_create,
+        crate::api::api_tokens_revoke
     ),
     components(schemas(
         FieldError, ProblemDetails, BridgeClaimResource, BridgeResource, BridgePage,
@@ -81,13 +84,14 @@ use crate::error::{FieldError, ProblemDetails};
         LabelResource, LabelCreate, LabelPage,
         SettingsResource, SettingsPatch,
         UiPreferencesResource, UiPreferencesPatch,
-        SyncRunResource, SyncRunPage
+        SyncRunResource, SyncRunPage,
+        ApiTokenResource, ApiTokenPage, ApiTokenCreate, MintedApiTokenResource
     )),
     tags(
         (name = "system"), (name = "device"), (name = "bridges"), (name = "profiles"),
         (name = "coffees"), (name = "roasts"), (name = "brews"),
         (name = "notes"), (name = "attachments"), (name = "labels"), (name = "settings"),
-        (name = "ui-preferences"), (name = "sync"),
+        (name = "ui-preferences"), (name = "sync"), (name = "api-tokens"),
         (name = "contract")
     )
 )]
@@ -775,6 +779,40 @@ pub struct SyncRunResource {
 #[serde(rename_all = "camelCase")]
 pub struct SyncRunPage {
     pub items: Vec<SyncRunResource>,
+}
+
+/// One hosted API token as the operator sees it afterwards. The secret is not here:
+/// it is shown once, at mint time, and only as a digest thereafter.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiTokenResource {
+    pub id: i64,
+    pub label: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiTokenPage {
+    pub items: Vec<ApiTokenResource>,
+}
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApiTokenCreate {
+    /// Which client will hold this token, so a token can be revoked by name.
+    pub label: String,
+}
+
+/// The mint response, and the only time the secret is knowable. Copy it now; the
+/// notebook keeps nothing but its digest.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MintedApiTokenResource {
+    pub token: ApiTokenResource,
+    pub secret: String,
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]

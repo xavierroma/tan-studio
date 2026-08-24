@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+    "/api/v1/api-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["api_tokens_list"];
+        put?: never;
+        post: operations["api_tokens_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/api-tokens/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["api_tokens_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/attachments": {
         parameters: {
             query?: never;
@@ -589,6 +621,25 @@ export interface components {
             printing: components["schemas"]["SimpleAdapter"];
             usb: components["schemas"]["DeviceSnapshot"];
         };
+        ApiTokenCreate: {
+            /** @description Which client will hold this token, so a token can be revoked by name. */
+            label: string;
+        };
+        ApiTokenPage: {
+            items: components["schemas"]["ApiTokenResource"][];
+        };
+        /**
+         * @description One hosted API token as the operator sees it afterwards. The secret is not here:
+         *     it is shown once, at mint time, and only as a digest thereafter.
+         */
+        ApiTokenResource: {
+            createdAt: string;
+            /** Format: int64 */
+            id: number;
+            label: string;
+            lastUsedAt?: string | null;
+            revokedAt?: string | null;
+        };
         AttachmentCreate: {
             capturedAt?: string | null;
             description?: string;
@@ -935,6 +986,14 @@ export interface components {
             updatedAt: string;
             /** Format: int64 */
             widthMicrometers?: number | null;
+        };
+        /**
+         * @description The mint response, and the only time the secret is knowable. Copy it now; the
+         *     notebook keeps nothing but its digest.
+         */
+        MintedApiTokenResource: {
+            secret: string;
+            token: components["schemas"]["ApiTokenResource"];
         };
         NoteCreate: {
             attributes?: unknown;
@@ -1368,6 +1427,114 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    api_tokens_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenPage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    api_tokens_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiTokenCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedApiTokenResource"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
+    api_tokens_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description API token id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenResource"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+        };
+    };
     listAttachments: {
         parameters: {
             query?: {

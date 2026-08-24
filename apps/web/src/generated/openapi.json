@@ -10,6 +10,146 @@
     "version": "1.1.0"
   },
   "paths": {
+    "/api/v1/api-tokens": {
+      "get": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiTokenCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedApiTokenResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-tokens/{id}/revoke": {
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "API token id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/attachments": {
       "get": {
         "tags": [
@@ -2689,6 +2829,66 @@
           }
         }
       },
+      "ApiTokenCreate": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Which client will hold this token, so a token can be revoked by name."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiTokenPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenResource"
+            }
+          }
+        }
+      },
+      "ApiTokenResource": {
+        "type": "object",
+        "description": "One hosted API token as the operator sees it afterwards. The secret is not here:\nit is shown once, at mint time, and only as a digest thereafter.",
+        "required": [
+          "id",
+          "label",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AttachmentCreate": {
         "type": "object",
         "required": [
@@ -4064,6 +4264,22 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "MintedApiTokenResource": {
+        "type": "object",
+        "description": "The mint response, and the only time the secret is knowable. Copy it now; the\nnotebook keeps nothing but its digest.",
+        "required": [
+          "token",
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "token": {
+            "$ref": "#/components/schemas/ApiTokenResource"
           }
         }
       },
@@ -5626,6 +5842,9 @@
     },
     {
       "name": "sync"
+    },
+    {
+      "name": "api-tokens"
     },
     {
       "name": "contract"

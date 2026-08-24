@@ -54,3 +54,33 @@ curl -fsS --header 'Host: studio.tan.coffee' https://studio.tan.coffee/healthz
 ```
 
 Sign in with Google is `https://studio.tan.coffee/auth/google`.
+
+## API tokens for MCP and HTTP clients
+
+The MCP plugin and `curl` cannot sign in with Google, so they present an API
+token instead. Mint one in the signed-in notebook under **Settings → Access**;
+the secret is shown once. Each token is stored only as a SHA-256 digest and can
+be revoked on its own from the same screen.
+
+```sh
+curl -fsS \
+  --header "Authorization: Bearer $TAN_STUDIO_API_TOKEN" \
+  --header 'X-Tan-Studio-Client: tan-studio-api-v1' \
+  https://studio.tan.coffee/api/v1/coffees
+```
+
+The plugin needs no change beyond pointing at the origin:
+
+```sh
+TAN_STUDIO_URL=https://studio.tan.coffee \
+TAN_STUDIO_API_TOKEN=<minted secret> \
+  bun run plugins/tan-studio/dist/server.js
+```
+
+or, for an installed plugin, put the origin in
+`~/.config/tan-studio/codex-plugin.json` and the secret in the mode-0600
+`~/.config/tan-studio/token`.
+
+The LAN token (`TAN_STUDIO_LAN_TOKEN`) is not a hosted credential: hosted mode
+has no launch token, and a single global bearer would be a second permanent
+anonymous operator.

@@ -45,7 +45,7 @@ describe("SessionControls", () => {
     expect(screen.getByText("Signed out")).toBeVisible()
   })
 
-  test("offers Sign out once the operator session is accepted", async () => {
+  test("signs out with a POST so no other site can force it", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(response(200))
@@ -53,8 +53,10 @@ describe("SessionControls", () => {
 
     await renderControls(HOSTED_BOOTSTRAP)
 
-    const signOut = await screen.findByRole("link", { name: "Sign out" })
-    expect(signOut).toHaveAttribute("href", "/auth/logout")
+    const signOut = await screen.findByRole("button", { name: "Sign out" })
+    const form = signOut.closest("form")
+    expect(form).toHaveAttribute("method", "post")
+    expect(form).toHaveAttribute("action", "/auth/logout")
     expect(screen.getByText("Signed in")).toBeVisible()
   })
 
