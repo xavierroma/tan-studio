@@ -67,12 +67,8 @@ export function requireCompanion(): void {
  * Whether the operator session cookie is currently accepted. The cookie is HttpOnly,
  * so the only honest answer comes from asking the canonical backend.
  */
-export async function fetchOperatorSignedIn(
-  signal?: AbortSignal
-): Promise<boolean> {
-  const { response } = await companionClient.GET("/api/v1/system/bootstrap", {
-    ...(signal ? { signal } : {}),
-  })
+export async function fetchOperatorSignedIn(): Promise<boolean> {
+  const { response } = await companionClient.GET("/api/v1/system/bootstrap")
   return response.ok
 }
 
