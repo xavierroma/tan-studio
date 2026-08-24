@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use axum::{
@@ -23,7 +24,7 @@ use utoipa::{IntoParams, OpenApi};
 use uuid::Uuid;
 
 use crate::{
-    config::{LaunchMode, ServiceConfig},
+    config::{LaunchMode, ServiceConfig, HOSTED_CLIENT_ID},
     contract::*,
     core_contract::{SyncRunPage, SyncRunResource},
     db::Database,
@@ -31,6 +32,7 @@ use crate::{
     error::{ApiError, ApiResult, ProblemDetails},
     kpro::{self, Document as KproDocument},
     lan_bridge,
+    operator_session::{self, OidcCallbackQuery},
     static_ui::{self, StaticUi},
 };
 
@@ -42,6 +44,7 @@ pub struct ApiState {
     pub(crate) session_id: String,
     pub(crate) cursor_key: Arc<[u8]>,
     pub(crate) attachment_root: Arc<PathBuf>,
+    pub(crate) http: reqwest::Client,
 }
 
 impl ApiState {
@@ -73,6 +76,19 @@ impl ApiState {
                 "Tan Studio could not initialize its local attachment store.",
             )
         })?;
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| {
+                tracing::error!(%error, "http_client_initialization_failed");
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "http_client_unavailable",
+                    "HTTP client unavailable",
+                    "Tan Studio could not initialize its outbound HTTP client.",
+                )
+            })?;
         Ok(Self {
             config: Arc::new(config),
             database,
@@ -80,6 +96,7 @@ impl ApiState {
             session_id,
             cursor_key,
             attachment_root: Arc::new(attachment_root),
+            http,
         })
     }
 }
@@ -199,13 +216,28 @@ pub fn build_router(state: ApiState) -> Router {
 
     let mut router = Router::new()
         .route("/healthz", get(health))
+        .route("/auth/google", get(auth_google_start))
+        .route("/auth/google/callback", get(auth_google_callback))
+        .route("/auth/logout", get(auth_logout).post(auth_logout))
         .nest("/api/v1", api)
         .with_state(state.clone());
-    if let (LaunchMode::Headless, Some(root)) = (state.config.mode, &state.config.web_root) {
+    if let (LaunchMode::Headless | LaunchMode::Hosted, Some(root)) =
+        (state.config.mode, &state.config.web_root)
+    {
+        let (token, client_id): (Option<Arc<str>>, Arc<str>) = match state.config.mode {
+            // Hosted mode authenticates with the operator session cookie, so the HTML
+            // carries no secret at all.
+            LaunchMode::Hosted => (None, HOSTED_CLIENT_ID.into()),
+            _ => (
+                Some(state.config.launch_token.clone().into()),
+                "tan-studio-lan-v1".into(),
+            ),
+        };
         router = router.fallback_service(Router::new().fallback(static_ui::serve).with_state(
             StaticUi {
                 root: root.clone(),
-                token: state.config.launch_token.clone().into(),
+                token,
+                client_id,
             },
         ));
     }
@@ -228,7 +260,7 @@ async fn host_security(
             .split(':')
             .next()
             .is_some_and(|name| name == "127.0.0.1" || name == "localhost"),
-        LaunchMode::Headless => state
+        LaunchMode::Headless | LaunchMode::Hosted => state
             .config
             .allowed_hosts
             .iter()
@@ -305,35 +337,12 @@ async fn api_security(
         );
         return response;
     }
-    let client = request
-        .headers()
-        .get("x-tan-studio-client")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let authorization = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let authenticated = authorization.is_some_and(|token| {
-        token.len() == state.config.launch_token.len()
-            && constant_time_eq::constant_time_eq(
-                token.as_bytes(),
-                state.config.launch_token.as_bytes(),
-            )
-    });
-    if !state
-        .config
-        .allowed_client_ids
-        .iter()
-        .any(|allowed| allowed == client)
-        || !authenticated
-    {
+    if !authenticated_for_api(&state, &request) {
         return ApiError::new(
             StatusCode::UNAUTHORIZED,
             "unauthenticated",
             "Authentication required",
-            "A valid Tan Studio client identity and launch token are required.",
+            "A valid operator session or launch token is required.",
         )
         .with_request(path, correlation)
         .into_response();
@@ -383,6 +392,49 @@ async fn api_security(
     response
 }
 
+/// Which credentials each placement accepts. Hosted mode takes the operator session;
+/// desktop and the LAN appliance take the client identity plus its launch token.
+/// Adding another hosted credential means adding another `||` arm here, nothing else.
+fn authenticated_for_api(state: &ApiState, request: &Request<Body>) -> bool {
+    match state.config.mode {
+        LaunchMode::Hosted => carries_operator_session(state, request),
+        LaunchMode::Desktop | LaunchMode::Headless => carries_launch_token(state, request),
+    }
+}
+
+fn carries_operator_session(state: &ApiState, request: &Request<Body>) -> bool {
+    state.config.operator_auth.as_ref().is_some_and(|auth| {
+        operator_session::operator_from_request(auth, request.headers()).is_some()
+    })
+}
+
+fn carries_launch_token(state: &ApiState, request: &Request<Body>) -> bool {
+    let client = request
+        .headers()
+        .get("x-tan-studio-client")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let presented = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let token_matches = presented.is_some_and(|token| {
+        !state.config.launch_token.is_empty()
+            && token.len() == state.config.launch_token.len()
+            && constant_time_eq::constant_time_eq(
+                token.as_bytes(),
+                state.config.launch_token.as_bytes(),
+            )
+    });
+    state
+        .config
+        .allowed_client_ids
+        .iter()
+        .any(|allowed| allowed == client)
+        && token_matches
+}
+
 fn is_attachment_content_path(path: &str) -> bool {
     ["/api/v1/attachments/", "/attachments/"]
         .into_iter()
@@ -408,6 +460,38 @@ fn correlation_id(headers: &HeaderMap) -> String {
         .filter(|value| Uuid::parse_str(value).is_ok())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| Uuid::now_v7().to_string())
+}
+
+async fn auth_google_start(State(state): State<ApiState>) -> Response {
+    let Some(auth) = hosted_operator_auth(&state) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    operator_session::start_google_login(auth, &state.http).await
+}
+
+async fn auth_google_callback(
+    State(state): State<ApiState>,
+    Query(query): Query<OidcCallbackQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(auth) = hosted_operator_auth(&state) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    operator_session::finish_google_login(auth, &state.http, &headers, query).await
+}
+
+async fn auth_logout(State(state): State<ApiState>) -> Response {
+    if hosted_operator_auth(&state).is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    operator_session::logout_response()
+}
+
+/// The `/auth/**` routes exist only where an operator session does.
+fn hosted_operator_auth(state: &ApiState) -> Option<&crate::config::OperatorAuthConfig> {
+    (state.config.mode == LaunchMode::Hosted)
+        .then(|| state.config.operator_auth.as_ref())
+        .flatten()
 }
 
 async fn health(State(state): State<ApiState>) -> Json<Value> {
@@ -2911,6 +2995,7 @@ mod tests {
             allow_originless_requests: false,
             application_version: "test".into(),
             development: true,
+            operator_auth: None,
         };
         let app = build_router(ApiState::new(config, database.clone(), device.clone()).unwrap());
 

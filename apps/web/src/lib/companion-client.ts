@@ -6,7 +6,8 @@ declare global {
   interface Window {
     __TAN_STUDIO_BOOTSTRAP__?: {
       apiOrigin: string
-      token: string
+      /** `null` in hosted mode, where the operator session is an HttpOnly cookie. */
+      token?: string | null
       clientId: string
     }
   }
@@ -20,25 +21,34 @@ export const companionOrigin =
   import.meta.env.VITE_COMPANION_ORIGIN ??
   (import.meta.env.DEV ? "http://127.0.0.1:4317" : undefined)
 
-const companionToken =
-  browserBootstrap?.token ??
-  import.meta.env.VITE_COMPANION_TOKEN ??
-  (import.meta.env.DEV ? "tan-studio-development-only" : undefined)
+/**
+ * Hosted mode serves the SPA with no token in the HTML: the operator authenticates
+ * with Sign in with Google and the browser carries the session cookie instead.
+ */
+export const usesOperatorSession =
+  Boolean(browserBootstrap) && !browserBootstrap?.token
+
+const companionToken = browserBootstrap
+  ? (browserBootstrap.token ?? undefined)
+  : (import.meta.env.VITE_COMPANION_TOKEN ??
+    (import.meta.env.DEV ? "tan-studio-development-only" : undefined))
+
+const clientHeaders: Record<string, string> = {
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  "X-Tan-Studio-Client":
+    browserBootstrap?.clientId ??
+    (usesOperatorSession ? "tan-studio-hosted-v1" : "tan-studio-browser-dev"),
+}
+if (companionToken) {
+  clientHeaders.Authorization = `Bearer ${companionToken}`
+}
 
 export const companionClient = createClient<paths>({
   baseUrl: companionOrigin,
+  credentials: "same-origin",
   fetch: (request) => globalThis.fetch(request),
-  ...(companionToken
-    ? {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${companionToken}`,
-          "Content-Type": "application/json",
-          "X-Tan-Studio-Client":
-            browserBootstrap?.clientId ?? "tan-studio-browser-dev",
-        },
-      }
-    : {}),
+  headers: clientHeaders,
 })
 
 type ApiResponse<T> = {
@@ -48,9 +58,22 @@ type ApiResponse<T> = {
 }
 
 export function requireCompanion(): void {
-  if (!companionOrigin || !companionToken) {
+  if (!companionOrigin || (!companionToken && !usesOperatorSession)) {
     throw new Error("Companion bootstrap is unavailable")
   }
+}
+
+/**
+ * Whether the operator session cookie is currently accepted. The cookie is HttpOnly,
+ * so the only honest answer comes from asking the canonical backend.
+ */
+export async function fetchOperatorSignedIn(
+  signal?: AbortSignal
+): Promise<boolean> {
+  const { response } = await companionClient.GET("/api/v1/system/bootstrap", {
+    ...(signal ? { signal } : {}),
+  })
+  return response.ok
 }
 
 export function unwrapResponse<T>(result: ApiResponse<T>): T {

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query"
 import { Link, Outlet } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
 import {
@@ -16,6 +17,11 @@ import {
   SettingsIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+
+import {
+  fetchOperatorSignedIn,
+  usesOperatorSession,
+} from "@/lib/companion-client"
 
 const navigation = [
   {
@@ -135,6 +141,61 @@ function NavLink({
   )
 }
 
+/**
+ * Hosted mode shows the operator session; every other placement is the local notebook.
+ */
+function SessionControls() {
+  const signedIn = useQuery({
+    queryKey: ["operator-session"],
+    queryFn: ({ signal }) => fetchOperatorSignedIn(signal),
+    enabled: usesOperatorSession,
+  })
+
+  if (!usesOperatorSession) {
+    return (
+      <>
+        <Badge variant="info">Local</Badge>
+        <span
+          className="bg-secondary flex size-8 items-center justify-center rounded-full border text-xs font-semibold"
+          aria-label="User profile"
+        >
+          XR
+        </span>
+      </>
+    )
+  }
+
+  if (signedIn.isPending) {
+    return <Badge variant="secondary">Checking</Badge>
+  }
+
+  if (signedIn.data === true) {
+    return (
+      <>
+        <Badge variant="success">Signed in</Badge>
+        <a
+          href="/auth/logout"
+          className="text-muted-foreground hover:text-foreground text-[0.625rem] leading-tight font-medium"
+        >
+          Sign out
+        </a>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Badge variant="warning">Signed out</Badge>
+      <a
+        href="/auth/google"
+        className="text-muted-foreground hover:text-foreground text-center text-[0.625rem] leading-tight font-medium"
+      >
+        Sign in with Google
+      </a>
+    </>
+  )
+}
+
 export function AppShell() {
   return (
     <TooltipProvider>
@@ -180,14 +241,8 @@ export function AppShell() {
             ))}
           </nav>
 
-          <div className="mt-auto mb-5 flex flex-col items-center gap-3">
-            <Badge variant="info">Local</Badge>
-            <span
-              className="bg-secondary flex size-8 items-center justify-center rounded-full border text-xs font-semibold"
-              aria-label="User profile"
-            >
-              XR
-            </span>
+          <div className="mt-auto mb-5 flex flex-col items-center gap-3 px-1">
+            <SessionControls />
           </div>
         </aside>
 

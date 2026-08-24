@@ -121,6 +121,27 @@ bun run lan:stop
 bun run lan:start
 ```
 
+## Hosted notebook (`studio.tan.coffee`)
+
+The same canonical backend launches in hosted mode. It answers only on the studio origin, serves the built UI with no token in the HTML, and authenticates the one allowlisted operator with Sign in with Google (authorization-code OIDC and an HttpOnly, Secure, SameSite=Lax cookie). Desktop bearer tokens and the LAN token path are untouched.
+
+```sh
+TAN_STUDIO_HOSTED=1
+TAN_STUDIO_BIND_HOST=127.0.0.1
+TAN_STUDIO_PORT=8080
+TAN_STUDIO_DATABASE_PATH=/absolute/path/tan-studio.sqlite
+TAN_STUDIO_WEB_ROOT=/absolute/path/web
+TAN_STUDIO_PUBLIC_ORIGIN=https://studio.tan.coffee
+TAN_STUDIO_OPERATOR_EMAIL=operator@example.com
+TAN_STUDIO_OIDC_ISSUER=https://accounts.google.com
+TAN_STUDIO_OIDC_CLIENT_ID=...
+TAN_STUDIO_OIDC_CLIENT_SECRET=...
+TAN_STUDIO_OIDC_REDIRECT_URI=https://studio.tan.coffee/auth/google/callback
+TAN_STUDIO_SESSION_SECRET=<64 hex characters>
+```
+
+`TAN_STUDIO_PUBLIC_ORIGIN` derives both the allowed Origin and the allowed Host. Hosted mode allows requests that carry no `Origin` header at all, because browsers omit it on same-origin GETs and the SPA is served from the studio origin itself; a request that presents a foreign `Origin` is still refused. OIDC client secrets and the session key come from the environment, not git. Apex `tan.coffee` is not this service.
+
 ## References
 
 - [Existing Studio feature discovery](docs/01-current-product-discovery.md)

@@ -9,12 +9,13 @@ pub mod error;
 pub mod klog;
 pub mod kpro;
 pub mod lan_bridge;
+pub mod operator_session;
 pub mod sassi;
 pub mod static_ui;
 pub mod tan_bridge;
 pub mod virtual_nano;
 
 pub use api::{build_router, ApiState};
-pub use config::{LaunchMode, ServiceConfig};
+pub use config::{LaunchMode, OperatorAuthConfig, ServiceConfig};
 pub use core_contract::ApiDoc;
 pub use db::Database;

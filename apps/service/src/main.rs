@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stdout.write_all(b"\n")?;
             stdout.flush()?;
         }
-        LaunchMode::Headless => tracing::info!(
+        LaunchMode::Headless | LaunchMode::Hosted => tracing::info!(
             event = "server_started",
             host = %local.ip(),
             port = local.port(),
