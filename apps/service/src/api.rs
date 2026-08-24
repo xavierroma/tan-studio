@@ -12,21 +12,25 @@ use axum::{
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, Mac};
 use rusqlite::{params, OptionalExtension, Row};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use utoipa::{IntoParams, OpenApi};
 use uuid::Uuid;
 
 use crate::{
+    api_token,
     config::{LaunchMode, OperatorAuthConfig, ServiceConfig, HOSTED_CLIENT_ID},
     contract::*,
-    core_contract::{SyncRunPage, SyncRunResource},
+    core_contract::{
+        ApiTokenCreate, ApiTokenPage, ApiTokenResource, MintedApiTokenResource, SyncRunPage,
+        SyncRunResource,
+    },
     db::Database,
     device::NanoDeviceManager,
     error::{ApiError, ApiResult, ProblemDetails},
@@ -54,7 +58,7 @@ impl ApiState {
         device: Arc<NanoDeviceManager>,
     ) -> Result<Self, ApiError> {
         let session_id = Uuid::now_v7().to_string();
-        let cursor_key: Arc<[u8]> = config.launch_token.as_bytes().to_vec().into();
+        let cursor_key = cursor_key(&config);
         let attachment_root = config
             .database_path
             .parent()
@@ -101,6 +105,28 @@ impl ApiState {
     }
 }
 
+/// Pagination cursors are signed so a client cannot invent one. The key must be
+/// secret and non-empty in every placement: hosted mode has no launch token, so it
+/// derives from the operator session secret, and a placement with neither falls back
+/// to a fresh random key for the lifetime of the process.
+fn cursor_key(config: &ServiceConfig) -> Arc<[u8]> {
+    let material = config
+        .operator_auth
+        .as_ref()
+        .map(|auth| auth.session_secret.clone())
+        .filter(|secret| !secret.is_empty())
+        .unwrap_or_else(|| config.launch_token.as_bytes().to_vec());
+    let material = if material.is_empty() {
+        rand::random::<[u8; 32]>().to_vec()
+    } else {
+        material
+    };
+    let mut digest = Sha256::new();
+    digest.update(b"tan-studio/cursor-key/v1\0");
+    digest.update(&material);
+    digest.finalize().to_vec().into()
+}
+
 pub fn build_router(state: ApiState) -> Router {
     let api = Router::new()
         .route("/system/bootstrap", get(system_bootstrap))
@@ -111,6 +137,8 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device/sync-runs", get(device_sync_runs))
         .route("/bridges", get(bridges_list))
         .route("/bridges/claims", post(bridge_claim_create))
+        .route("/api-tokens", get(api_tokens_list).post(api_tokens_create))
+        .route("/api-tokens/{id}/revoke", post(api_tokens_revoke))
         .route(
             "/profiles",
             get(crate::core_api::profiles_list).post(crate::core_api::profiles_create),
@@ -218,7 +246,10 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/healthz", get(health))
         .route("/auth/google", get(auth_google_start))
         .route("/auth/google/callback", get(auth_google_callback))
-        .route("/auth/logout", get(auth_logout).post(auth_logout))
+        // Sign-out is POST only: a GET sign-out is a link an `<img src>` on any
+        // other site could fire, and `SameSite=Lax` withholds the cookie from a
+        // cross-site POST.
+        .route("/auth/logout", post(auth_logout))
         .nest("/api/v1", api)
         .with_state(state.clone());
     if let (LaunchMode::Headless | LaunchMode::Hosted, Some(root)) =
@@ -281,7 +312,7 @@ async fn host_security(
 
 async fn api_security(
     State(state): State<ApiState>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let correlation = correlation_id(request.headers());
@@ -337,16 +368,17 @@ async fn api_security(
         );
         return response;
     }
-    if !authenticated_for_api(&state, &request) {
+    let Some(credential) = authenticated_for_api(&state, &request) else {
         return ApiError::new(
             StatusCode::UNAUTHORIZED,
             "unauthenticated",
             "Authentication required",
-            "A valid operator session or launch token is required.",
+            "A valid operator session, API token or launch token is required.",
         )
         .with_request(path, correlation)
         .into_response();
-    }
+    };
+    request.extensions_mut().insert(credential);
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -392,14 +424,48 @@ async fn api_security(
     response
 }
 
-/// Which credentials each placement accepts. Hosted mode takes the operator session;
-/// desktop and the LAN appliance take the client identity plus its launch token.
-/// Adding another hosted credential means adding another `||` arm here, nothing else.
-fn authenticated_for_api(state: &ApiState, request: &Request<Body>) -> bool {
-    match state.config.mode {
-        LaunchMode::Hosted => carries_operator_session(state, request),
-        LaunchMode::Desktop | LaunchMode::Headless => carries_launch_token(state, request),
+/// How a request proved it may use the notebook. Handlers that only the operator
+/// may reach read this rather than re-deriving it from headers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credential {
+    /// The browser session of the one operator, established by Sign in with Google.
+    OperatorSession,
+    /// A hosted API token, by its row id.
+    ApiToken(i64),
+    /// The launch token of a desktop or LAN placement.
+    LaunchToken,
+}
+
+/// Which credentials each placement accepts. Hosted mode takes the operator session
+/// or an API token; desktop and the LAN appliance take the launch token. Every
+/// placement first requires a client identity this service knows: a cross-site form
+/// post cannot set a custom header, so that check is both attribution and CSRF
+/// defence for the cookie.
+fn authenticated_for_api(state: &ApiState, request: &Request<Body>) -> Option<Credential> {
+    if !recognized_client(state, request) {
+        return None;
     }
+    match state.config.mode {
+        LaunchMode::Hosted => carries_operator_session(state, request)
+            .then_some(Credential::OperatorSession)
+            .or_else(|| carries_api_token(state, request).map(Credential::ApiToken)),
+        LaunchMode::Desktop | LaunchMode::Headless => {
+            carries_launch_token(state, request).then_some(Credential::LaunchToken)
+        }
+    }
+}
+
+fn recognized_client(state: &ApiState, request: &Request<Body>) -> bool {
+    let client = request
+        .headers()
+        .get("x-tan-studio-client")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    state
+        .config
+        .allowed_client_ids
+        .iter()
+        .any(|allowed| allowed == client)
 }
 
 fn carries_operator_session(state: &ApiState, request: &Request<Body>) -> bool {
@@ -408,31 +474,29 @@ fn carries_operator_session(state: &ApiState, request: &Request<Body>) -> bool {
     })
 }
 
+/// A hosted API token, matched against the stored digests in constant time.
+/// An unknown or revoked secret is simply no credential at all.
+fn carries_api_token(state: &ApiState, request: &Request<Body>) -> Option<i64> {
+    api_token::accept(&state.database, presented_bearer(request)?)
+}
+
 fn carries_launch_token(state: &ApiState, request: &Request<Body>) -> bool {
-    let client = request
-        .headers()
-        .get("x-tan-studio-client")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let presented = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let token_matches = presented.is_some_and(|token| {
+    presented_bearer(request).is_some_and(|token| {
         !state.config.launch_token.is_empty()
             && token.len() == state.config.launch_token.len()
             && constant_time_eq::constant_time_eq(
                 token.as_bytes(),
                 state.config.launch_token.as_bytes(),
             )
-    });
-    state
-        .config
-        .allowed_client_ids
-        .iter()
-        .any(|allowed| allowed == client)
-        && token_matches
+    })
+}
+
+fn presented_bearer(request: &Request<Body>) -> Option<&str> {
+    request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
 }
 
 fn is_attachment_content_path(path: &str) -> bool {
@@ -640,6 +704,87 @@ pub async fn bridges_list(State(state): State<ApiState>) -> ApiResult<Json<Bridg
             })
             .collect(),
     }))
+}
+
+#[utoipa::path(get, path = "/api/v1/api-tokens", tag = "api-tokens", responses((status = 200, body = ApiTokenPage), (status = 403, body = ProblemDetails)))]
+pub async fn api_tokens_list(
+    State(state): State<ApiState>,
+    Extension(credential): Extension<Credential>,
+) -> ApiResult<Json<ApiTokenPage>> {
+    operator_session_only(credential)?;
+    Ok(Json(ApiTokenPage {
+        items: api_token::list(&state.database)?
+            .into_iter()
+            .map(api_token_resource)
+            .collect(),
+    }))
+}
+
+#[utoipa::path(post, path = "/api/v1/api-tokens", tag = "api-tokens", request_body = ApiTokenCreate, responses((status = 201, body = MintedApiTokenResource), (status = 403, body = ProblemDetails), (status = 422, body = ProblemDetails)))]
+pub async fn api_tokens_create(
+    State(state): State<ApiState>,
+    Extension(credential): Extension<Credential>,
+    Json(input): Json<ApiTokenCreate>,
+) -> ApiResult<(StatusCode, Json<MintedApiTokenResource>)> {
+    operator_session_only(credential)?;
+    if !api_token::valid_label(&input.label) {
+        return Err(ApiError::validation(
+            "An API token label is one line of up to 64 characters.",
+        ));
+    }
+    let minted = api_token::mint(&state.database, &input.label)?;
+    tracing::info!(event = "api_token_minted", token_id = minted.record.id);
+    Ok((
+        StatusCode::CREATED,
+        Json(MintedApiTokenResource {
+            token: api_token_resource(minted.record),
+            secret: minted.secret,
+        }),
+    ))
+}
+
+#[utoipa::path(post, path = "/api/v1/api-tokens/{id}/revoke", tag = "api-tokens", params(("id" = i64, Path, description = "API token id")), request_body = Object, responses((status = 200, body = ApiTokenResource), (status = 403, body = ProblemDetails), (status = 404, body = ProblemDetails)))]
+pub async fn api_tokens_revoke(
+    State(state): State<ApiState>,
+    Extension(credential): Extension<Credential>,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<ApiTokenResource>> {
+    operator_session_only(credential)?;
+    let revoked = api_token::revoke(&state.database, id)?.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "resource_not_found",
+            "API token not found",
+            "No API token has that id.",
+        )
+    })?;
+    tracing::info!(event = "api_tokens_revoked", token_id = revoked.id);
+    Ok(Json(api_token_resource(revoked)))
+}
+
+/// Minting and revoking belong to the operator's own signed-in session. An API token
+/// that leaks cannot mint itself a successor or revoke the tokens it does not like.
+fn operator_session_only(credential: Credential) -> ApiResult<()> {
+    if credential == Credential::OperatorSession {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        StatusCode::FORBIDDEN,
+        "operator_session_required",
+        "Operator session required",
+        "API tokens are minted and revoked from the operator's own signed-in session.",
+    ))
+}
+
+fn api_token_resource(record: api_token::ApiTokenRecord) -> ApiTokenResource {
+    ApiTokenResource {
+        id: record.id,
+        label: record.label,
+        created_at: timestamp_from_ms(record.created_at_ms)
+            .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+        last_used_at: record.last_used_at_ms.and_then(timestamp_from_ms),
+        revoked_at: record.revoked_at_ms.and_then(timestamp_from_ms),
+    }
 }
 
 #[utoipa::path(post, path = "/api/v1/bridges/claims", tag = "bridges", responses((status = 201, body = BridgeClaimResource), (status = 500, body = ProblemDetails)))]
@@ -2899,6 +3044,68 @@ mod tests {
             value: Some(json!(1)),
         };
         assert!(compile_filter(&filter, &mut params, 0).is_err());
+    }
+
+    fn hosted_state(
+        directory: &std::path::Path,
+        database: Database,
+        device: &Arc<NanoDeviceManager>,
+    ) -> ApiState {
+        let database_path = directory.join("studio.sqlite");
+        let config = ServiceConfig {
+            mode: LaunchMode::Hosted,
+            bind_host: "0.0.0.0".into(),
+            port: 8080,
+            bridge_port: None,
+            database_path,
+            web_root: Some(directory.join("web")),
+            // Hosted mode has no launch token at all; this is exactly the case that
+            // used to leave pagination cursors signed with an empty key.
+            launch_token: String::new(),
+            allowed_origins: vec!["https://studio.tan.coffee".into()],
+            allowed_hosts: vec!["studio.tan.coffee".into()],
+            allowed_client_ids: vec![HOSTED_CLIENT_ID.into()],
+            allow_originless_requests: true,
+            application_version: "test".into(),
+            development: false,
+            operator_auth: Some(OperatorAuthConfig {
+                operator_email: "operator@tan.coffee".into(),
+                oidc_issuer: "https://accounts.google.com".into(),
+                oidc_client_id: "hosted-client-id".into(),
+                oidc_client_secret: "hosted-client-secret".into(),
+                oidc_redirect_uri: "https://studio.tan.coffee/auth/google/callback".into(),
+                session_secret: vec![0x5a; 32],
+            }),
+        };
+        ApiState::new(config, database, device.clone()).unwrap()
+    }
+
+    /// The session id is public (bootstrap returns it), so an unsigned cursor is a
+    /// cursor anybody can write. Hosted mode has no launch token, so the key must
+    /// come from somewhere else.
+    #[test]
+    fn hosted_cursors_are_not_signed_with_an_empty_key() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let state = hosted_state(directory.path(), database, &device);
+
+        let issued = issue_cursor(&state, "coffees", 50).unwrap();
+        assert_eq!(read_cursor(&state, Some(&issued), "coffees").unwrap(), 50);
+
+        let payload = format!("{}:coffees:50", state.session_id);
+        let mut forged = Hmac::<Sha256>::new_from_slice(b"").unwrap();
+        forged.update(payload.as_bytes());
+        let forged = URL_SAFE_NO_PAD.encode(format!(
+            "{payload}:{}",
+            hex::encode(forged.finalize().into_bytes())
+        ));
+
+        assert!(
+            read_cursor(&state, Some(&forged), "coffees").is_err(),
+            "a cursor signed with an empty key must not be accepted"
+        );
+        device.stop();
     }
 
     async fn api_request(

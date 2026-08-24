@@ -13,6 +13,10 @@ const MAX_LAUNCH_RECORD_BYTES: u64 = 16 * 1024;
 /// The client identity the hosted SPA sends and hosted mode accepts.
 pub const HOSTED_CLIENT_ID: &str = "tan-studio-hosted-v1";
 
+/// The client identity every non-browser client sends: the MCP plugin and any
+/// HTTP client holding an API token.
+pub const API_CLIENT_ID: &str = "tan-studio-api-v1";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
     Desktop,
@@ -198,7 +202,7 @@ impl ServiceConfig {
             launch_token,
             allowed_origins: comma_list("TAN_STUDIO_ALLOWED_ORIGINS")?,
             allowed_hosts: comma_list("TAN_STUDIO_ALLOWED_HOSTS")?,
-            allowed_client_ids: vec!["tan-studio-lan-v1".into(), "tan-studio-api-v1".into()],
+            allowed_client_ids: vec!["tan-studio-lan-v1".into(), API_CLIENT_ID.into()],
             allow_originless_requests: true,
             application_version: env::var("TAN_STUDIO_VERSION")
                 .ok()
@@ -260,7 +264,10 @@ impl ServiceConfig {
             launch_token: String::new(),
             allowed_origins: vec![public_origin],
             allowed_hosts: vec![allowed_host],
-            allowed_client_ids: vec![HOSTED_CLIENT_ID.into()],
+            // The SPA presents the operator session; the MCP plugin and other HTTP
+            // clients present an API token. Any other client identity is refused
+            // before its credential is even looked at.
+            allowed_client_ids: vec![HOSTED_CLIENT_ID.into(), API_CLIENT_ID.into()],
             // Browsers omit Origin on same-origin GETs and hosted mode serves its own SPA
             // same-origin, so originless requests must be allowed. A foreign Origin is still
             // rejected by `api_security`, and the operator session cookie is SameSite=Lax.
@@ -434,7 +441,10 @@ mod tests {
         assert_eq!(config.mode, LaunchMode::Hosted);
         assert_eq!(config.allowed_origins, vec!["https://studio.tan.coffee"]);
         assert_eq!(config.allowed_hosts, vec!["studio.tan.coffee"]);
-        assert_eq!(config.allowed_client_ids, vec![HOSTED_CLIENT_ID]);
+        assert_eq!(
+            config.allowed_client_ids,
+            vec![HOSTED_CLIENT_ID, API_CLIENT_ID]
+        );
         assert_eq!(config.bridge_port, None);
         assert!(config.launch_token.is_empty());
         assert!(!config.development);

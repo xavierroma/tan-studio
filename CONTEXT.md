@@ -32,6 +32,10 @@ _Avoid_: USB session, SASSI, LAN token
 The browser login of the operator on the public UI. Sign in with Google. It is not the bridge session and not the old LAN token.
 _Avoid_: LAN token, API key, user account
 
+**API token**:
+The credential a non-browser client — the MCP plugin, a script — presents to the hosted notebook, since it cannot sign in with Google. One per client, minted from behind the operator session, shown once, kept only as a digest, revocable on its own. It is not the operator session and not the LAN token.
+_Avoid_: API key, launch token, LAN token, password
+
 **Studio origin**:
 `studio.tan.coffee` — the operator-facing UI, API, and Tan Bridge session of the canonical backend.
 _Avoid_: tan.coffee (that is the public site), xroma.dev, bridge.studio.tan.coffee

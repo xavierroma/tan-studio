@@ -61,12 +61,15 @@ export function SessionControls() {
     return (
       <>
         <Badge variant="success">Signed in</Badge>
-        <a
-          href="/auth/logout"
-          className="text-muted-foreground hover:text-foreground text-[0.625rem] leading-tight font-medium"
-        >
-          Sign out
-        </a>
+        {/* A form, not a link: sign-out is a POST so no other site can fire it. */}
+        <form method="post" action="/auth/logout">
+          <button
+            type="submit"
+            className="text-muted-foreground hover:text-foreground text-[0.625rem] leading-tight font-medium"
+          >
+            Sign out
+          </button>
+        </form>
       </>
     )
   }

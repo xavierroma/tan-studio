@@ -1,4 +1,5 @@
 pub mod api;
+pub mod api_token;
 pub mod config;
 pub mod contract;
 pub mod core_api;

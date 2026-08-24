@@ -328,7 +328,12 @@ const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
   validateSearch: (search: Record<string, unknown>) => ({
-    section: search.section === "devices" ? ("devices" as const) : undefined,
+    section:
+      search.section === "devices"
+        ? ("devices" as const)
+        : search.section === "access"
+          ? ("access" as const)
+          : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/settings-screen"),

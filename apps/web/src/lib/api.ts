@@ -31,6 +31,7 @@ export type Device = components["schemas"]["DeviceSnapshot"]
 export type SyncRun = components["schemas"]["SyncRunResource"]
 export type Bridge = components["schemas"]["BridgeResource"]
 export type Series = components["schemas"]["SeriesResponse"]
+export type ApiToken = components["schemas"]["ApiTokenResource"]
 
 function matchRevision(revision: number) {
   return { "If-Match": `"revision:${revision}"` }
@@ -473,6 +474,31 @@ export async function listBridges(signal?: AbortSignal) {
   ).items
 }
 
+export async function listApiTokens(signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET("/api/v1/api-tokens", signal ? { signal } : {})
+  ).items
+}
+
+/** The response carries the secret; it is the only time the notebook will show it. */
+export async function mintApiToken(label: string) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/api-tokens", { body: { label } })
+  )
+}
+
+export async function revokeApiToken(id: number) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/api-tokens/{id}/revoke", {
+      params: { path: { id } },
+      body: {},
+    })
+  )
+}
+
 export const queryKeys = {
   profiles: (q?: string) => ["profiles", q ?? ""] as const,
   profile: (id: number) => ["profile", id] as const,
@@ -495,4 +521,5 @@ export const queryKeys = {
   device: () => ["device"] as const,
   deviceSyncRuns: () => ["device-sync-runs"] as const,
   bridges: () => ["bridges"] as const,
+  apiTokens: () => ["api-tokens"] as const,
 }

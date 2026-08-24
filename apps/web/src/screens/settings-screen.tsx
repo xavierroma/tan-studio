@@ -5,8 +5,9 @@ import {
   TabsList,
   TabsTrigger,
 } from "@tan-studio/ui/components/tabs"
-import { CableIcon, CupSodaIcon } from "lucide-react"
+import { CableIcon, CupSodaIcon, KeyRoundIcon } from "lucide-react"
 
+import { ApiTokenSettings } from "@/components/api-token-settings"
 import { BrewDefaultsSettings } from "@/components/brew-defaults-settings"
 import { PageHeader } from "@/components/page-header"
 import { DeviceSettings } from "@/screens/device-screen"
@@ -14,7 +15,10 @@ import { DeviceSettings } from "@/screens/device-screen"
 export function SettingsScreen() {
   const search = useSearch({ from: "/settings" })
   const navigate = useNavigate({ from: "/settings" })
-  const section = search.section === "devices" ? "devices" : "brewing"
+  const section =
+    search.section === "devices" || search.section === "access"
+      ? search.section
+      : "brewing"
 
   return (
     <div className="min-h-screen">
@@ -25,7 +29,10 @@ export function SettingsScreen() {
           onValueChange={(value) =>
             void navigate({
               search: {
-                section: value === "devices" ? "devices" : undefined,
+                section:
+                  value === "devices" || value === "access"
+                    ? (value as "devices" | "access")
+                    : undefined,
               },
             })
           }
@@ -39,12 +46,19 @@ export function SettingsScreen() {
               <CableIcon />
               Devices
             </TabsTrigger>
+            <TabsTrigger value="access">
+              <KeyRoundIcon />
+              Access
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="brewing" className="pt-6">
             <BrewDefaultsSettings />
           </TabsContent>
           <TabsContent value="devices" className="pt-6">
             <DeviceSettings />
+          </TabsContent>
+          <TabsContent value="access" className="pt-6">
+            <ApiTokenSettings />
           </TabsContent>
         </Tabs>
       </div>
