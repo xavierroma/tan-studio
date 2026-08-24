@@ -10,7 +10,9 @@ use axum::{
 #[derive(Clone)]
 pub struct StaticUi {
     pub root: PathBuf,
-    pub token: Arc<str>,
+    /// `None` in hosted mode: the operator session is a cookie, never a token in the HTML.
+    pub token: Option<Arc<str>>,
+    pub client_id: Arc<str>,
 }
 
 pub async fn serve(State(ui): State<StaticUi>, request: Request<Body>) -> Response {
@@ -42,9 +44,14 @@ pub async fn serve(State(ui): State<StaticUi>, request: Request<Body>) -> Respon
     let Some(position) = html.find("</head>") else {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    let token = serde_json::to_string(ui.token.as_ref()).unwrap_or_else(|_| "null".into());
+    let token = ui
+        .token
+        .as_deref()
+        .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".into()))
+        .unwrap_or_else(|| "null".into());
+    let client_id = serde_json::to_string(ui.client_id.as_ref()).unwrap_or_else(|_| "null".into());
     let bootstrap = format!(
-        r#"<script>Object.defineProperty(window,"__TAN_STUDIO_BOOTSTRAP__",{{value:Object.freeze({{apiOrigin:window.location.origin,token:{token},clientId:"tan-studio-lan-v1"}}),enumerable:false,configurable:false,writable:false}});</script>"#
+        r#"<script>Object.defineProperty(window,"__TAN_STUDIO_BOOTSTRAP__",{{value:Object.freeze({{apiOrigin:window.location.origin,token:{token},clientId:{client_id}}}),enumerable:false,configurable:false,writable:false}});</script>"#
     );
     html.insert_str(position, &bootstrap);
     let mut response = if request.method() == http::Method::HEAD {

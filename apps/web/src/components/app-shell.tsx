@@ -1,5 +1,4 @@
 import { Link, Outlet } from "@tanstack/react-router"
-import { Badge } from "@tan-studio/ui/components/badge"
 import {
   Tooltip,
   TooltipContent,
@@ -16,6 +15,8 @@ import {
   SettingsIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+
+import { SessionControls } from "@/components/session-controls"
 
 const navigation = [
   {
@@ -180,14 +181,8 @@ export function AppShell() {
             ))}
           </nav>
 
-          <div className="mt-auto mb-5 flex flex-col items-center gap-3">
-            <Badge variant="info">Local</Badge>
-            <span
-              className="bg-secondary flex size-8 items-center justify-center rounded-full border text-xs font-semibold"
-              aria-label="User profile"
-            >
-              XR
-            </span>
+          <div className="mt-auto mb-5 flex flex-col items-center gap-3 px-1">
+            <SessionControls />
           </div>
         </aside>
 
