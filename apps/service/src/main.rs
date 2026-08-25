@@ -108,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let state = ApiState::new(config.clone(), database, device.clone())?;
+    state.spawn_attachment_replication();
     let router = build_router(state);
     let listener = TcpListener::bind((config.bind_host.as_str(), config.port)).await?;
     let local = listener.local_addr()?;

@@ -122,6 +122,18 @@ require_match "$UNIT" '^After=network-online.target$' 'unit waits for network'
 forbid_match "$UNIT" '/opt/tan-studio/releases/' 'unit has no versioned release path'
 forbid_match "$UNIT" 'CLIENT_SECRET|SESSION_SECRET|GOOGLE_OAUTH' \
   'unit file does not embed OIDC or session secrets'
+# Attachment bytes reach Cloud Storage with the same credential handover
+# Litestream uses: the key stays root-owned 0600 on disk and systemd passes a
+# unit-private copy through $CREDENTIALS_DIRECTORY.
+require_match "$UNIT" '^LoadCredential=gcs.json:/etc/tan-studio/litestream-gcs.json$' \
+  'unit reads the Cloud Storage credential through systemd'
+forbid_match "$UNIT" 'BEGIN [A-Z ]*PRIVATE KEY|"private_key"|gserviceaccount\.com' \
+  'unit file embeds no GCS credential material'
+# A second copy of the key under looser ownership would defeat the handover:
+# systemd's whole contribution is that the tan-studio user cannot read the file.
+# The installer may check that the key exists and nothing else.
+forbid_match "$INSTALLER" '(cp|install|cat|tee|chown|chmod)[^=]*litestream-gcs\.json' \
+  'installer never copies or reopens the GCS credential'
 
 require_match "$INSTALLER" 'GOOGLE_OAUTH_CLIENT_ID' 'installer accepts repo-root Google client id'
 require_match "$INSTALLER" 'GOOGLE_OAUTH_CLIENT_SECRET' 'installer accepts repo-root Google client secret'
@@ -132,6 +144,11 @@ require_match "$INSTALLER" 'TAN_STUDIO_OPERATOR_EMAIL' 'installer writes hosted 
 require_match "$INSTALLER" 'TAN_STUDIO_SESSION_SECRET' 'installer writes session secret'
 require_match "$INSTALLER" 'systemctl enable caddy' 'installer enables Caddy on boot'
 require_match "$INSTALLER" 'systemctl enable tan-studio' 'installer enables the service on boot'
+
+require_match "$INSTALLER" 'TAN_STUDIO_ATTACHMENT_BUCKET' 'installer writes the attachment bucket'
+require_match "$INSTALLER" 'TAN_STUDIO_ATTACHMENT_PREFIX' 'installer writes the attachment prefix'
+require_match "$INSTALLER" 'run install_litestream.sh first' \
+  'installer refuses to stage a unit whose credential source is missing'
 
 require_match "$INSTALLER" 'VACUUM INTO' \
   'installer takes a consistent single-file snapshot'
@@ -225,6 +242,16 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
     require_env TAN_STUDIO_OPERATOR_EMAIL 'operator@example.com' 'maps OPERATOR_GOOGLE_EMAIL'
     require_env TAN_STUDIO_DATABASE_PATH '/var/lib/tan-studio/tan-studio.sqlite' 'env database path'
     require_env TAN_STUDIO_WEB_ROOT '/opt/tan-studio/current/web' 'env web root uses current symlink'
+    require_env TAN_STUDIO_ATTACHMENT_BUCKET 'tan-coffee-backups' 'env attachment bucket'
+    require_env TAN_STUDIO_ATTACHMENT_PREFIX 'tan-studio/attachments' 'env attachment prefix'
+    # Litestream replicates the notebook under tan-studio/notebook in this same
+    # bucket. Attachments must land beside it, never on top of it.
+    forbid_match "$ENV_FILE" '^TAN_STUDIO_ATTACHMENT_PREFIX=tan-studio/notebook$' \
+      'attachment prefix does not collide with the notebook prefix'
+    # The credential reaches the service through systemd LoadCredential= alone.
+    # Anything key-shaped in this file means the handover was bypassed.
+    forbid_match "$ENV_FILE" 'BEGIN [A-Z ]*PRIVATE KEY|private_key|gserviceaccount\.com|GOOGLE_APPLICATION_CREDENTIALS' \
+      'environment file contains no GCS key material'
     SESSION_SECRET="$(sed -n 's/^TAN_STUDIO_SESSION_SECRET=//p' "$ENV_FILE" | head -n 1)"
     if [[ "$SESSION_SECRET" =~ ^[a-f0-9]{64}$ ]]; then
       pass 'generated 64-hex session secret'

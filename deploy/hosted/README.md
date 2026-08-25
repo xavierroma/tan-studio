@@ -61,8 +61,8 @@ Sign in with Google is `https://studio.tan.coffee/auth/google`.
 `gs://tan-coffee-backups/tan-studio/notebook` by Litestream, running as the
 `litestream` systemd unit — a separate process from the notebook, enabled on
 boot, `Restart=always`, so a crashed or redeployed service never pauses the
-backup. Attachment blobs on local disk are not covered; the notebook database
-is.
+backup. Attachment bytes are covered separately, by the notebook process itself
+— see **Attachment bytes** below.
 
 Litestream uses the native `gs://` replica and Google Application Default
 Credentials rather than the S3 interoperability endpoint: one Google-issued
@@ -123,6 +123,45 @@ the single-digit megabytes, roughly 1,000x under the free storage allowance.
 The `sync-interval`, snapshot interval and compaction intervals in
 `litestream.yml` are what bound the operation count, so lengthen them rather
 than shortening them.
+
+## Attachment bytes
+
+Litestream replicates the notebook database; the bytes it points at are
+replicated by the notebook process, into the same bucket under
+`gs://tan-coffee-backups/tan-studio/attachments` — a sibling of the notebook
+prefix, never the same one. ADR 0007 records why.
+
+Objects are named by the SHA-256 of their bytes, so an upload only gets its
+final name once the whole body has verified, and an interrupted one leaves
+nothing readable. `/var/lib/tan-studio/attachments` is still used, but only as
+an upload spool and a read cache: losing that disk loses no attachment.
+
+Configuration is two lines in `/etc/tan-studio/environment`, written by
+`install.sh`:
+
+```
+TAN_STUDIO_ATTACHMENT_BUCKET=tan-coffee-backups
+TAN_STUDIO_ATTACHMENT_PREFIX=tan-studio/attachments
+```
+
+No credential goes in that file. The service uses the same key as Litestream,
+handed over by systemd through `LoadCredential=gcs.json:/etc/tan-studio/litestream-gcs.json`
+in `tan-studio.service`, and read at runtime from `$CREDENTIALS_DIRECTORY`.
+Because systemd will not start a unit whose credential source is missing,
+`install.sh` refuses to install until `install_litestream.sh` has put the key in
+place.
+
+On every start the service uploads any object the disk has and the bucket does
+not, so attachments predating this are migrated rather than orphaned:
+
+```sh
+journalctl -u tan-studio | grep attachment_replication_finished
+```
+
+If the bucket or the credential is absent, the service still starts, keeps
+attachments on the local disk only, and logs
+`attachment_replication_disabled` at `warn`. Check for that line before assuming
+attachments are safe.
 
 ## API tokens for MCP and HTTP clients
 

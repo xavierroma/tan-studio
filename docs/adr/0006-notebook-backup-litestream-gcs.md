@@ -35,7 +35,9 @@ govern how tidy the remote file set is, not how much data is at risk. The
 `sync-interval` is what bounds data loss, and it stays at 60s.
 
 Attachment blobs on local disk are still unreplicated. That is a separate
-problem from the notebook and is not solved here.
+problem from the notebook and is not solved here. ADR 0007 solves it, in the
+same bucket under the sibling prefix `tan-studio/attachments`, reusing this
+service account and this `LoadCredential=` handover.
 
 The bucket and service account were created by hand. When the OpenTofu of
 ADR 0003 exists, it should adopt them rather than create a second pair.
