@@ -8,7 +8,10 @@ ENV_FILE="${TAN_STUDIO_ENV_FILE:-$ROOT_DIRECTORY/.env}"
 GCP_PROJECT="${TAN_STUDIO_GCP_PROJECT:-tan-coffee}"
 COMMIT="$(git -C "$ROOT_DIRECTORY" rev-parse --short=12 HEAD)"
 
-if [[ -z "$(git -C "$ROOT_DIRECTORY" status --porcelain --untracked-files=normal)" ]]; then
+# Untracked files are excluded from the build context by .dockerignore, so the
+# release is a function of the tracked tree alone and only tracked edits make a
+# version dirty.
+if [[ -z "$(git -C "$ROOT_DIRECTORY" status --porcelain --untracked-files=no)" ]]; then
   VERSION="$COMMIT"
 else
   VERSION="$COMMIT-dirty-$(date -u +%Y%m%d%H%M%S)"

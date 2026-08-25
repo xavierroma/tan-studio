@@ -13,3 +13,17 @@
 coverage
 dist
 tmp
+
+# Working directories that are not build inputs. Excluding these keeps the
+# build context a function of the tracked tree, which is what lets the release
+# version be computed from tracked state alone.
+.claude
+.grok
+.scratch
+.agents
+coffee-farms
+firmware
+mockups
+**/.*.bun-build
+.DS_Store
+*.log

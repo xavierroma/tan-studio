@@ -6,7 +6,7 @@ VERSION="${1:-}"
 
 if [[ -z "$VERSION" ]]; then
   COMMIT="$(git -C "$ROOT_DIRECTORY" rev-parse --short=12 HEAD)"
-  if [[ -z "$(git -C "$ROOT_DIRECTORY" status --porcelain --untracked-files=normal)" ]]; then
+  if [[ -z "$(git -C "$ROOT_DIRECTORY" status --porcelain --untracked-files=no)" ]]; then
     VERSION="$COMMIT"
   else
     VERSION="$COMMIT-dirty-$(date -u +%Y%m%d%H%M%S)"

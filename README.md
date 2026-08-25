@@ -4,7 +4,7 @@
 
 # Tan Studio
 
-Tan Studio is a calm, local-first Kaffelogic Nano 7 notebook. A React/Vite interface talks to one strongly typed Rust service, whether it runs as a Tauri macOS sidecar or an always-on Raspberry Pi appliance.
+Tan Studio is a calm, local-first Kaffelogic Nano 7 notebook. A React/Vite interface talks to one strongly typed Rust service, whether it runs as a Tauri macOS sidecar, a headless service on the Mac LAN, or the hosted notebook at `studio.tan.coffee`.
 
 ## Product model
 
@@ -94,20 +94,9 @@ bun run build
 
 The Tauri build creates `Tan Studio.app` and verifies that both the shell and its Rust sidecar launch.
 
-## Raspberry Pi appliance
-
-The Pi serves the same built UI and API at `http://tan-studio.local`, with the Nano attached to the Pi over USB.
-
-```sh
-bun run build:pi
-bun run deploy:pi
-```
-
-Docker is used on the build Mac for a reproducible ARM64 artifact; the Pi runs native binaries under systemd. See [the Pi deployment guide](deploy/raspberry-pi/README.md).
-
 ## Website on the Mac LAN
 
-Until the Raspberry Pi is available, the same headless Rust service can run persistently on the Mac and serve both the UI and API:
+The same headless Rust service can run persistently on the Mac and serve both the UI and API on the local network:
 
 ```sh
 bun run lan:install
@@ -139,6 +128,20 @@ TAN_STUDIO_OIDC_CLIENT_SECRET=...
 TAN_STUDIO_OIDC_REDIRECT_URI=https://studio.tan.coffee/auth/google/callback
 TAN_STUDIO_SESSION_SECRET=<64 hex characters>
 ```
+
+### Deploy
+
+One command, from a clean checkout, with Docker running:
+
+```sh
+bun run deploy:hosted
+```
+
+It builds a linux/amd64 release in Docker, ships it to the VM over ssh, installs it under systemd behind Caddy, and health-checks the result. Releases are immutable under `/opt/tan-studio/releases/<version>` behind a `current` symlink, so a redeploy never edits a unit file by hand, and a failed health check rolls the symlink back. Secrets are read from the repo-root `.env` or Secret Manager and written to a root-owned `0600` file on the VM; they never enter the release image.
+
+`bun run test:hosted` exercises the installer against a throwaway prefix without touching the VM, and runs as part of `bun run check`.
+
+Non-browser clients — the MCP server, or plain HTTP — authenticate with an API token minted from Settings → Access in the signed-in notebook. See [the hosted deployment guide](deploy/hosted/README.md).
 
 `TAN_STUDIO_PUBLIC_ORIGIN` derives both the allowed Origin and the allowed Host. Hosted mode allows requests that carry no `Origin` header at all, because browsers omit it on same-origin GETs and the SPA is served from the studio origin itself; a request that presents a foreign `Origin` is still refused. OIDC client secrets and the session key come from the environment, not git. Apex `tan.coffee` is not this service.
 
