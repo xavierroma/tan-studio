@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use tan_studio_service::device::NanoDeviceManager;
 use tan_studio_service::{
     build_router,
-    config::{API_CLIENT_ID, HOSTED_CLIENT_ID},
+    config::{AttachmentStore, API_CLIENT_ID, HOSTED_CLIENT_ID},
     ApiState, Database, LaunchMode, OperatorAuthConfig, ServiceConfig,
 };
 use tempfile::TempDir;
@@ -265,6 +265,7 @@ fn hosted_config(database_path: &Path, web_root: &Path, issuer: &str) -> Service
             oidc_redirect_uri: "https://studio.tan.coffee/auth/google/callback".into(),
             session_secret: SESSION_SECRET.to_vec(),
         }),
+        attachment_store: AttachmentStore::LocalDisk,
     }
 }
 
@@ -311,6 +312,7 @@ fn desktop_app() -> Hosted {
         application_version: "test".into(),
         development: true,
         operator_auth: None,
+        attachment_store: AttachmentStore::LocalDisk,
     };
     Hosted {
         app: build_router(ApiState::new(config, database, device.clone()).unwrap()),
@@ -342,6 +344,7 @@ fn headless_app() -> Hosted {
         application_version: "test".into(),
         development: false,
         operator_auth: None,
+        attachment_store: AttachmentStore::LocalDisk,
     };
     Hosted {
         app: build_router(ApiState::new(config, database, device.clone()).unwrap()),

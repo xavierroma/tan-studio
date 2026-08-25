@@ -10,6 +10,7 @@ pub mod error;
 pub mod klog;
 pub mod kpro;
 pub mod lan_bridge;
+pub mod object_store;
 pub mod operator_session;
 pub mod sassi;
 pub mod static_ui;

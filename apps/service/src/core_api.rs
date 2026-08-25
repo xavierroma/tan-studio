@@ -6,11 +6,8 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, TimeDelta, Utc};
-use futures_util::StreamExt;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 use utoipa::OpenApi;
 use uuid::Uuid;
@@ -19,6 +16,7 @@ use crate::{
     api::ApiState,
     core_contract::*,
     error::{ApiError, ApiResult, ProblemDetails},
+    object_store::ObjectStoreError,
 };
 
 #[utoipa::path(get, path = "/api/v1/openapi.json", tag = "contract", operation_id = "getOpenApi", responses((status = 200, body = Value)))]
@@ -1190,8 +1188,6 @@ pub async fn entity_profile_image_put(
     Ok(StatusCode::NO_CONTENT)
 }
 
-const MAX_ATTACHMENT_BYTES: u64 = 512 * 1024 * 1024;
-
 #[utoipa::path(put, path = "/api/v1/attachments/{id}/content", tag = "attachments", operation_id = "putAttachmentContent", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body(content = String, content_type = "application/octet-stream"), responses((status = 200, body = AttachmentResource), (status = 413, body = ProblemDetails), (status = 412, body = ProblemDetails)))]
 pub async fn attachments_put_content(
     State(state): State<ApiState>,
@@ -1200,14 +1196,10 @@ pub async fn attachments_put_content(
     body: Body,
 ) -> ApiResult<Json<AttachmentResource>> {
     let expected = expected_revision(&headers)?;
-    if headers
+    let declared_length = headers
         .get(header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|value| value == 0 || value > MAX_ATTACHMENT_BYTES)
-    {
-        return Err(attachment_size_error());
-    }
+        .and_then(|value| value.parse::<u64>().ok());
     let previous_hash = {
         let connection = state.database.connection();
         let current = get_attachment(&connection, id)?;
@@ -1217,70 +1209,17 @@ pub async fn attachments_put_content(
         current.sha256
     };
 
-    let temporary_path = state
-        .attachment_root
-        .join(".tmp")
-        .join(Uuid::now_v7().to_string());
-    let mut file = tokio::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temporary_path)
+    let stored = state
+        .object_store
+        .put(declared_length, body.into_data_stream())
         .await
-        .map_err(|error| attachment_io_error(error, "create"))?;
-    let mut stream = body.into_data_stream();
-    let mut hasher = Sha256::new();
-    let mut byte_length = 0_u64;
-    let write_result: ApiResult<()> = async {
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|error| attachment_io_error(error, "receive"))?;
-            byte_length = byte_length.saturating_add(chunk.len() as u64);
-            if byte_length > MAX_ATTACHMENT_BYTES {
-                return Err(attachment_size_error());
-            }
-            hasher.update(&chunk);
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| attachment_io_error(error, "write"))?;
-        }
-        if byte_length == 0 {
-            return Err(attachment_size_error());
-        }
-        file.sync_all()
-            .await
-            .map_err(|error| attachment_io_error(error, "flush"))?;
-        Ok(())
-    }
-    .await;
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = tokio::fs::remove_file(&temporary_path).await;
-        return Err(error);
-    }
-
-    let hash = hex::encode(hasher.finalize());
-    let object_directory = state.attachment_root.join("objects").join(&hash[..2]);
-    tokio::fs::create_dir_all(&object_directory)
-        .await
-        .map_err(|error| attachment_io_error(error, "create"))?;
-    let object_path = object_directory.join(&hash);
-    if tokio::fs::try_exists(&object_path)
-        .await
-        .map_err(|error| attachment_io_error(error, "inspect"))?
-    {
-        tokio::fs::remove_file(&temporary_path)
-            .await
-            .map_err(|error| attachment_io_error(error, "deduplicate"))?;
-    } else {
-        tokio::fs::rename(&temporary_path, &object_path)
-            .await
-            .map_err(|error| attachment_io_error(error, "commit"))?;
-    }
+        .map_err(object_store_error)?;
 
     let updated = {
         let connection = state.database.connection();
         let changed = connection.execute(
             "UPDATE attachments SET byte_length=?, sha256=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
-            params![byte_length as i64, hash, now_ms(), id, expected],
+            params![stored.byte_length as i64, stored.sha256, now_ms(), id, expected],
         )?;
         if changed == 0 {
             return Err(ApiError::revision());
@@ -1288,7 +1227,7 @@ pub async fn attachments_put_content(
         get_attachment(&connection, id)?
     };
 
-    if let Some(previous_hash) = previous_hash.filter(|value| value != &hash) {
+    if let Some(previous_hash) = previous_hash.filter(|value| value != &stored.sha256) {
         let still_referenced = {
             let connection = state.database.connection();
             connection.query_row(
@@ -1298,12 +1237,7 @@ pub async fn attachments_put_content(
             )?
         };
         if !still_referenced {
-            let old_path = state
-                .attachment_root
-                .join("objects")
-                .join(&previous_hash[..2])
-                .join(previous_hash);
-            let _ = tokio::fs::remove_file(old_path).await;
+            let _ = state.object_store.delete(&previous_hash).await;
         }
     }
     Ok(Json(updated))
@@ -1318,28 +1252,18 @@ pub async fn attachments_get_content(
         let connection = state.database.connection();
         let attachment = get_attachment(&connection, id)?;
         (
-            attachment.sha256.ok_or_else(|| {
-                ApiError::new(
-                    StatusCode::CONFLICT,
-                    "attachment_content_missing",
-                    "Attachment content missing",
-                    "This attachment record does not have local file content yet.",
-                )
-            })?,
+            attachment.sha256.ok_or_else(attachment_content_missing)?,
             attachment.filename,
             attachment.media_type,
             attachment.byte_length.unwrap_or(0),
         )
     };
-    let object_path = state
-        .attachment_root
-        .join("objects")
-        .join(&hash[..2])
-        .join(&hash);
-    let file = tokio::fs::File::open(object_path)
+    let object = state
+        .object_store
+        .get(&hash)
         .await
-        .map_err(|error| attachment_io_error(error, "open"))?;
-    let mut response = Response::new(Body::from_stream(ReaderStream::new(file)));
+        .map_err(object_store_error)?;
+    let mut response = Response::new(Body::from_stream(ReaderStream::new(object)));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(&media_type)
@@ -2302,15 +2226,31 @@ fn attachment_size_error() -> ApiError {
     )
 }
 
-fn attachment_io_error(error: impl std::fmt::Display, action: &'static str) -> ApiError {
-    tracing::error!(%error, action, "attachment_store_operation_failed");
+fn attachment_content_missing() -> ApiError {
     ApiError::new(
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "attachment_store_error",
-        "Attachment store error",
-        "Tan Studio could not complete the local attachment file operation.",
+        StatusCode::CONFLICT,
+        "attachment_content_missing",
+        "Attachment content missing",
+        "This attachment record does not have its content yet.",
     )
 }
+
+fn object_store_error(error: ObjectStoreError) -> ApiError {
+    match error {
+        ObjectStoreError::Missing => attachment_content_missing(),
+        ObjectStoreError::InvalidSize => attachment_size_error(),
+        ObjectStoreError::Io { action, message } => {
+            tracing::error!(error = %message, action, "attachment_store_operation_failed");
+            ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "attachment_store_error",
+                "Attachment store error",
+                "Tan Studio could not complete the attachment store operation.",
+            )
+        }
+    }
+}
+
 fn validate_profile_values(level: Option<i64>, load: Option<i64>) -> ApiResult<()> {
     if level.is_some_and(|v| !(0..=10_000).contains(&v)) {
         return Err(ApiError::validation(

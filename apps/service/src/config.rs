@@ -17,6 +17,17 @@ pub const HOSTED_CLIENT_ID: &str = "tan-studio-hosted-v1";
 /// HTTP client holding an API token.
 pub const API_CLIENT_ID: &str = "tan-studio-api-v1";
 
+/// Where attachment objects go in the bucket. Deliberately a sibling of
+/// Litestream's `tan-studio/notebook` and never the same prefix: the two write
+/// on completely different schedules and neither may disturb the other.
+pub const DEFAULT_ATTACHMENT_PREFIX: &str = "tan-studio/attachments";
+
+/// The `LoadCredential=` id the hosted unit uses for the service-account key.
+/// systemd exposes it as `$CREDENTIALS_DIRECTORY/gcs.json`, readable by this
+/// unit alone; the key on disk stays root-owned 0600 and is never copied to a
+/// path the `tan-studio` user can read.
+const GCS_CREDENTIAL_ID: &str = "gcs.json";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
     Desktop,
@@ -35,6 +46,19 @@ pub struct OperatorAuthConfig {
     pub session_secret: Vec<u8>,
 }
 
+/// Where attachment bytes live. Desktop and the LAN appliance keep the disk
+/// they have always used; only the hosted placement, whose disk is a single
+/// ephemeral e2-micro volume, replicates them off the box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachmentStore {
+    LocalDisk,
+    CloudStorage {
+        bucket: String,
+        prefix: String,
+        credential_path: PathBuf,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceConfig {
     pub mode: LaunchMode,
@@ -51,6 +75,7 @@ pub struct ServiceConfig {
     pub application_version: String,
     pub development: bool,
     pub operator_auth: Option<OperatorAuthConfig>,
+    pub attachment_store: AttachmentStore,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +137,7 @@ impl ServiceConfig {
             application_version: env!("CARGO_PKG_VERSION").into(),
             development: true,
             operator_auth: None,
+            attachment_store: AttachmentStore::LocalDisk,
         })
     }
 
@@ -164,6 +190,7 @@ impl ServiceConfig {
             application_version: env!("CARGO_PKG_VERSION").into(),
             development: record.development,
             operator_auth: None,
+            attachment_store: AttachmentStore::LocalDisk,
         })
     }
 
@@ -210,6 +237,7 @@ impl ServiceConfig {
                 .unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
             development: false,
             operator_auth: None,
+            attachment_store: AttachmentStore::LocalDisk,
         })
     }
 
@@ -285,8 +313,57 @@ impl ServiceConfig {
                 oidc_redirect_uri,
                 session_secret,
             }),
+            attachment_store: hosted_attachment_store(),
         })
     }
+}
+
+/// Hosted mode wants Cloud Storage, but must still start without it. A local
+/// `TAN_STUDIO_HOSTED=1` run has no bucket and no service-account key, and
+/// refusing to boot would make the hosted configuration impossible to exercise
+/// off the VM. So a missing bucket or an unreachable credential degrades to the
+/// disk the notebook already uses — and says so at `warn`, because the whole
+/// point of the bucket is that nobody should have to guess whether attachment
+/// bytes are replicated.
+fn hosted_attachment_store() -> AttachmentStore {
+    let Ok(bucket) = value("TAN_STUDIO_ATTACHMENT_BUCKET") else {
+        tracing::warn!(
+            event = "attachment_replication_disabled",
+            reason = "no_bucket_configured",
+            "attachment bytes are on the local disk only"
+        );
+        return AttachmentStore::LocalDisk;
+    };
+    let prefix =
+        value("TAN_STUDIO_ATTACHMENT_PREFIX").unwrap_or_else(|_| DEFAULT_ATTACHMENT_PREFIX.into());
+    let Some(credential_path) = gcs_credential_path() else {
+        tracing::warn!(
+            event = "attachment_replication_disabled",
+            reason = "no_credential_available",
+            %bucket,
+            "attachment bytes are on the local disk only"
+        );
+        return AttachmentStore::LocalDisk;
+    };
+    AttachmentStore::CloudStorage {
+        bucket,
+        prefix,
+        credential_path,
+    }
+}
+
+/// The key is never read from `/etc/tan-studio/litestream-gcs.json` directly:
+/// that file is root-owned 0600 and the service runs as `tan-studio`. systemd
+/// reads it as root and exposes a copy under `$CREDENTIALS_DIRECTORY` that only
+/// this unit can open, which is the same handover the litestream unit uses.
+fn gcs_credential_path() -> Option<PathBuf> {
+    let path = env::var_os("TAN_STUDIO_GCS_CREDENTIAL_FILE")
+        .map(PathBuf::from)
+        .or_else(|| {
+            env::var_os("CREDENTIALS_DIRECTORY")
+                .map(|directory| PathBuf::from(directory).join(GCS_CREDENTIAL_ID))
+        })?;
+    path.is_file().then_some(path)
 }
 
 fn value(name: &'static str) -> Result<String, ConfigError> {
@@ -386,10 +463,18 @@ mod tests {
         ),
     ];
 
+    /// Set by systemd on the VM and by nothing in a test run, so a stray value
+    /// from the developer's shell must not decide what these tests observe.
+    const CREDENTIAL_ENVIRONMENT: &[&str] =
+        &["CREDENTIALS_DIRECTORY", "TAN_STUDIO_GCS_CREDENTIAL_FILE"];
+
     fn load_hosted(overrides: &[(&str, &str)]) -> Result<ServiceConfig, ConfigError> {
         let _guard = ENVIRONMENT
             .lock()
             .unwrap_or_else(|error| error.into_inner());
+        for name in CREDENTIAL_ENVIRONMENT {
+            env::remove_var(name);
+        }
         for (name, value) in HOSTED_ENVIRONMENT {
             env::set_var(name, value);
         }
@@ -479,6 +564,70 @@ mod tests {
             error,
             ConfigError::InvalidEnvironment("TAN_STUDIO_OIDC_REDIRECT_URI")
         ));
+    }
+
+    /// Hosted mode replicates attachment bytes when it is given a bucket and a
+    /// key, and the key comes from where systemd put it.
+    #[test]
+    fn hosted_replicates_attachments_when_systemd_hands_over_the_credential() {
+        let directory = tempfile::tempdir().unwrap();
+        let credential = directory.path().join("gcs.json");
+        std::fs::write(&credential, b"{}").unwrap();
+
+        let config = load_hosted(&[
+            ("TAN_STUDIO_ATTACHMENT_BUCKET", "tan-coffee-backups"),
+            (
+                "CREDENTIALS_DIRECTORY",
+                directory.path().to_str().expect("utf-8 temporary path"),
+            ),
+        ])
+        .expect("hosted config");
+
+        assert_eq!(
+            config.attachment_store,
+            AttachmentStore::CloudStorage {
+                bucket: "tan-coffee-backups".into(),
+                prefix: DEFAULT_ATTACHMENT_PREFIX.into(),
+                credential_path: credential,
+            }
+        );
+    }
+
+    /// The attachment prefix must be a sibling of the notebook prefix Litestream
+    /// replicates into the same bucket, never the same one.
+    #[test]
+    fn the_default_attachment_prefix_does_not_disturb_the_notebook_prefix() {
+        assert_eq!(DEFAULT_ATTACHMENT_PREFIX, "tan-studio/attachments");
+        assert_ne!(DEFAULT_ATTACHMENT_PREFIX, "tan-studio/notebook");
+    }
+
+    /// A hosted run off the VM has no bucket and no key. It has to start, and it
+    /// has to fall back to the disk rather than pretend the bytes are replicated.
+    #[test]
+    fn hosted_without_a_bucket_keeps_attachments_on_the_local_disk() {
+        let config = load_hosted(&[]).expect("hosted config");
+        assert_eq!(config.attachment_store, AttachmentStore::LocalDisk);
+    }
+
+    #[test]
+    fn hosted_with_a_bucket_but_no_reachable_credential_keeps_attachments_on_the_local_disk() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = load_hosted(&[
+            ("TAN_STUDIO_ATTACHMENT_BUCKET", "tan-coffee-backups"),
+            (
+                "CREDENTIALS_DIRECTORY",
+                directory.path().to_str().expect("utf-8 temporary path"),
+            ),
+        ])
+        .expect("hosted config");
+        assert_eq!(config.attachment_store, AttachmentStore::LocalDisk);
+    }
+
+    /// Desktop and the LAN appliance are untouched by any of this.
+    #[test]
+    fn development_keeps_attachments_on_the_local_disk() {
+        let config = ServiceConfig::development().expect("development config");
+        assert_eq!(config.attachment_store, AttachmentStore::LocalDisk);
     }
 
     #[test]

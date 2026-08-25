@@ -44,6 +44,16 @@ STATE_DATABASE="$STATE_DIRECTORY/tan-studio.sqlite"
 SNAPSHOT_KEEP="${TAN_STUDIO_SNAPSHOT_KEEP:-3}"
 UNIT_DIRECTORY="$(prefixed /etc/systemd/system)"
 PREVIOUS_RELEASE=""
+# Attachment bytes are replicated into the same bucket Litestream uses for the
+# notebook, under a sibling prefix. Distinct prefixes, on purpose: the two write
+# on completely different schedules and neither may disturb the other.
+ATTACHMENT_BUCKET="${TAN_STUDIO_ATTACHMENT_BUCKET:-tan-coffee-backups}"
+ATTACHMENT_PREFIX="${TAN_STUDIO_ATTACHMENT_PREFIX:-tan-studio/attachments}"
+# The service account key itself. It is never read by the installer and never
+# copied: the unit's LoadCredential= line names this path, and systemd reads it
+# as root. Only its presence is checked, because systemd refuses to start a unit
+# whose LoadCredential= source is missing.
+GCS_CREDENTIAL_FILE="$CONFIG_DIRECTORY/litestream-gcs.json"
 
 cleanup() {
   if [[ -d "$STAGING_DIRECTORY" ]]; then
@@ -116,6 +126,15 @@ if [[ ! "$SESSION_SECRET" =~ ^[a-f0-9]{64}$ ]]; then
   exit 1
 fi
 
+# Checked before anything is staged. The unit carries LoadCredential= for this
+# key so attachment bytes can be replicated, and systemd refuses to start a unit
+# whose credential source is missing -- which would take the notebook down, not
+# just the replication. Failing here says why; failing later would not.
+if [[ "$LIVE" == "1" && ! -f "$GCS_CREDENTIAL_FILE" ]]; then
+  echo "Missing $GCS_CREDENTIAL_FILE; run install_litestream.sh first" >&2
+  exit 2
+fi
+
 if [[ "$LIVE" == "1" ]]; then
   if ! getent group tan-studio >/dev/null; then
     groupadd --system tan-studio
@@ -184,6 +203,11 @@ ENVIRONMENT_STAGING="$CONFIG_DIRECTORY/.environment-$$"
   printf 'TAN_STUDIO_OIDC_CLIENT_SECRET=%s\n' "$CLIENT_SECRET"
   printf 'TAN_STUDIO_OPERATOR_EMAIL=%s\n' "$OPERATOR_EMAIL"
   printf 'TAN_STUDIO_SESSION_SECRET=%s\n' "$SESSION_SECRET"
+  # Which bucket and prefix, and nothing more. The credential is deliberately
+  # absent: it reaches the service through systemd LoadCredential=, so no key
+  # material is ever written into this file.
+  printf 'TAN_STUDIO_ATTACHMENT_BUCKET=%s\n' "$ATTACHMENT_BUCKET"
+  printf 'TAN_STUDIO_ATTACHMENT_PREFIX=%s\n' "$ATTACHMENT_PREFIX"
 } > "$ENVIRONMENT_STAGING"
 chmod 0600 "$ENVIRONMENT_STAGING"
 if [[ "$LIVE" == "1" ]]; then

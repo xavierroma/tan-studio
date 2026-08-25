@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashSet},
-    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -25,7 +24,7 @@ use uuid::Uuid;
 
 use crate::{
     api_token,
-    config::{LaunchMode, OperatorAuthConfig, ServiceConfig, HOSTED_CLIENT_ID},
+    config::{AttachmentStore, LaunchMode, OperatorAuthConfig, ServiceConfig, HOSTED_CLIENT_ID},
     contract::*,
     core_contract::{
         ApiTokenCreate, ApiTokenPage, ApiTokenResource, MintedApiTokenResource, SyncRunPage,
@@ -36,6 +35,7 @@ use crate::{
     error::{ApiError, ApiResult, ProblemDetails},
     kpro::{self, Document as KproDocument},
     lan_bridge,
+    object_store::{CloudStorageSettings, ObjectStore},
     operator_session::{self, OidcCallbackQuery},
     static_ui::{self, StaticUi},
 };
@@ -47,7 +47,7 @@ pub struct ApiState {
     pub(crate) device: Arc<NanoDeviceManager>,
     pub(crate) session_id: String,
     pub(crate) cursor_key: Arc<[u8]>,
-    pub(crate) attachment_root: Arc<PathBuf>,
+    pub(crate) object_store: ObjectStore,
     pub(crate) http: reqwest::Client,
 }
 
@@ -71,13 +71,22 @@ impl ApiState {
                 )
             })?
             .join("attachments");
-        std::fs::create_dir_all(attachment_root.join(".tmp")).map_err(|error| {
+        let object_store = match &config.attachment_store {
+            AttachmentStore::LocalDisk => ObjectStore::local_disk(&attachment_root),
+            AttachmentStore::CloudStorage {
+                bucket,
+                prefix,
+                credential_path,
+            } => CloudStorageSettings::service_account(bucket, prefix, credential_path)
+                .and_then(|settings| ObjectStore::cloud_storage(&attachment_root, settings)),
+        }
+        .map_err(|error| {
             tracing::error!(%error, "attachment_store_initialization_failed");
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "attachment_store_unavailable",
                 "Attachment store unavailable",
-                "Tan Studio could not initialize its local attachment store.",
+                "Tan Studio could not initialize its attachment store.",
             )
         })?;
         let http = reqwest::Client::builder()
@@ -99,9 +108,33 @@ impl ApiState {
             device,
             session_id,
             cursor_key,
-            attachment_root: Arc::new(attachment_root),
+            object_store,
             http,
         })
+    }
+
+    /// Copy attachment bytes the disk holds but the bucket does not, in the
+    /// background. Every object written before the hosted notebook had a bucket
+    /// exists only on one e2-micro volume; without this pass they would stay
+    /// there, silently, until that volume died. Content addressing makes the
+    /// pass free to repeat, so it runs on every start.
+    ///
+    /// Nothing waits on it: the notebook serves attachments from the disk in the
+    /// meantime, and a bucket that is refusing calls must not hold up the boot.
+    pub fn spawn_attachment_replication(&self) {
+        if !self.object_store.is_replicated() {
+            return;
+        }
+        let object_store = self.object_store.clone();
+        tokio::spawn(async move {
+            let report = object_store.replicate_local_objects().await;
+            tracing::info!(
+                event = "attachment_replication_finished",
+                uploaded = report.uploaded,
+                already_replicated = report.already_replicated,
+                failed = report.failed
+            );
+        });
     }
 }
 
@@ -3076,6 +3109,7 @@ mod tests {
                 oidc_redirect_uri: "https://studio.tan.coffee/auth/google/callback".into(),
                 session_secret: vec![0x5a; 32],
             }),
+            attachment_store: AttachmentStore::LocalDisk,
         };
         ApiState::new(config, database, device.clone()).unwrap()
     }
@@ -3188,23 +3222,9 @@ mod tests {
         let directory = tempdir().unwrap();
         let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
         let device = Arc::new(NanoDeviceManager::start(database.clone()));
-        let config = ServiceConfig {
-            mode: LaunchMode::Desktop,
-            bind_host: "127.0.0.1".into(),
-            port: 4317,
-            bridge_port: None,
-            database_path: directory.path().join("studio.sqlite"),
-            web_root: None,
-            launch_token: "test-contract-token".into(),
-            allowed_origins: vec!["http://127.0.0.1:1420".into()],
-            allowed_hosts: vec![],
-            allowed_client_ids: vec!["tan-studio-browser-dev".into()],
-            allow_originless_requests: false,
-            application_version: "test".into(),
-            development: true,
-            operator_auth: None,
-        };
-        let app = build_router(ApiState::new(config, database.clone(), device.clone()).unwrap());
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database.clone(), device.clone()).unwrap(),
+        );
 
         let (status, profile) = api_request(
             &app,
@@ -3658,6 +3678,208 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{restored_pantry}");
         assert_eq!(restored_pantry["items"][0]["roast"]["id"], roast_id);
         assert!(database.quick_check().unwrap());
+        device.stop();
+    }
+
+    fn desktop_config(directory: &tempfile::TempDir) -> ServiceConfig {
+        ServiceConfig {
+            mode: LaunchMode::Desktop,
+            bind_host: "127.0.0.1".into(),
+            port: 4317,
+            bridge_port: None,
+            database_path: directory.path().join("studio.sqlite"),
+            web_root: None,
+            launch_token: "test-contract-token".into(),
+            allowed_origins: vec!["http://127.0.0.1:1420".into()],
+            allowed_hosts: vec![],
+            allowed_client_ids: vec!["tan-studio-browser-dev".into()],
+            allow_originless_requests: false,
+            application_version: "test".into(),
+            development: true,
+            operator_auth: None,
+            attachment_store: AttachmentStore::LocalDisk,
+        }
+    }
+
+    async fn create_pending_attachment(app: &Router) -> (i64, i64) {
+        let (status, coffee) = api_request(
+            app,
+            Method::POST,
+            "/api/v1/coffees",
+            Some(json!({
+                "name": "Test coffee",
+                "provider": "Test provider",
+                "purchasedMassMg": 500000,
+                "remainingMassMg": 500000
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{coffee}");
+        let coffee_id = coffee["id"].as_i64().unwrap();
+        let (status, attachment) = api_request(
+            app,
+            Method::POST,
+            "/api/v1/attachments",
+            Some(json!({
+                "title": "Finished beans",
+                "filename": "beans.jpg",
+                "mediaType": "image/jpeg",
+                "links": [{"resourceType": "coffee", "resourceId": coffee_id}]
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{attachment}");
+        (
+            attachment["id"].as_i64().unwrap(),
+            attachment["revision"].as_i64().unwrap(),
+        )
+    }
+
+    /// An attachment record whose bytes are gone reads as pending rather than as a
+    /// server error, and the operator can upload them again.
+    #[tokio::test]
+    async fn missing_attachment_object_stays_pending_and_can_be_retried() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let (attachment_id, revision) = create_pending_attachment(&app).await;
+
+        let (status, _, body) = api_binary_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::empty(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let problem: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], "attachment_content_missing");
+
+        let content = b"finished-beans-photo";
+        let (status, _, uploaded) = api_binary_request(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::from(content.as_slice()),
+            Some(revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let uploaded: Value = serde_json::from_slice(&uploaded).unwrap();
+        assert_eq!(
+            uploaded["sha256"],
+            "a02d6ebe93f45e2a2923ca5bbc9a9e6098c50727f855974e6198e9363ce915de"
+        );
+        assert_eq!(uploaded["byteLength"], 20);
+        let next_revision = uploaded["revision"].as_i64().unwrap();
+
+        let hash = uploaded["sha256"].as_str().unwrap();
+        let object_path = directory
+            .path()
+            .join("attachments/objects")
+            .join(&hash[..2])
+            .join(hash);
+        std::fs::remove_file(&object_path).unwrap();
+
+        let (status, _, body) = api_binary_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::empty(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let problem: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["code"], "attachment_content_missing");
+
+        let (status, _, _) = api_binary_request(
+            &app,
+            Method::PUT,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::from(content.as_slice()),
+            Some(next_revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _, downloaded) = api_binary_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments/{attachment_id}/content"),
+            Body::empty(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(downloaded.as_ref(), content);
+        device.stop();
+    }
+
+    /// Once the configuration has decided attachments are replicated, a store
+    /// that cannot be built must stop the service rather than quietly serve from
+    /// the disk: a hosted notebook that only looks replicated is the failure this
+    /// whole adapter exists to prevent.
+    #[test]
+    fn a_configured_bucket_whose_credential_is_unusable_refuses_to_start() {
+        let directory = tempdir().unwrap();
+        let credential = directory.path().join("gcs.json");
+        std::fs::write(&credential, b"not a service account key").unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let mut config = desktop_config(&directory);
+        config.attachment_store = AttachmentStore::CloudStorage {
+            bucket: "tan-coffee-backups".into(),
+            prefix: "tan-studio/attachments".into(),
+            credential_path: credential,
+        };
+
+        let Err(error) = ApiState::new(config, database, device.clone()) else {
+            panic!("an unusable credential must not start a replicated notebook");
+        };
+        assert_eq!(error.code, "attachment_store_unavailable");
+        device.stop();
+    }
+
+    /// The declared length is refused before a single byte is read, so an oversized
+    /// upload never reaches the disk or the bucket.
+    #[tokio::test]
+    async fn attachment_content_over_512_mib_is_rejected() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let (attachment_id, revision) = create_pending_attachment(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/v1/attachments/{attachment_id}/content"))
+                    .header(header::HOST, "127.0.0.1:4317")
+                    .header(header::ORIGIN, "http://127.0.0.1:1420")
+                    .header(header::AUTHORIZATION, "Bearer test-contract-token")
+                    .header("x-tan-studio-client", "tan-studio-browser-dev")
+                    .header(header::CONTENT_TYPE, "application/octet-stream")
+                    .header(header::CONTENT_LENGTH, "536870913")
+                    .header(header::IF_MATCH, format!("\"revision:{revision}\""))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+        let problem: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(problem["code"], "attachment_size_invalid");
         device.stop();
     }
 }

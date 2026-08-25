@@ -4,7 +4,7 @@
 
 **Blocked by:** nothing (H5 already replicates the database; this is the other half)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 ## Why
 
@@ -39,3 +39,19 @@ Resumable or single-shot upload is your call; say which and why.
 `deploy/hosted/tan-studio.service` needs the `LoadCredential=` line, and the installer needs to pass the bucket and prefix. Keep `deploy/hosted/test.sh` honest — it should assert the unit loads the credential and that the environment file contains no key material.
 
 **Do not deploy.** Land the code; deployment happens separately.
+
+## Comments
+
+- 2026-08-24 — Code landed on `worktree-agent-a3431ab7dd0663672`; **not deployed** (the deploy step is owned elsewhere), hence `ready-for-human` rather than `completed`.
+
+  The archived `archive/object-store-port` commit was ported rather than rewritten: `object_store.rs` and its seven tests came across unchanged, `attachment_root: Arc<PathBuf>` is gone from `ApiState`, and the PUT/GET handlers now talk to the port. The Cloud Storage adapter is new, in `object_store/gcs.rs`, behind the same `ObjectStore` surface. ADR 0007 records the decisions.
+
+  **Streaming.** Uploads are hashed and written to the spool chunk by chunk, then sent to the bucket as a single-shot `uploadType=media` POST with an exact `Content-Length` — no chunked framing, so a body that stops short leaves no object. Downloads come back as an `AsyncRead` over the response body. Two tests hold this: one watches earlier chunks reach the disk before the body has produced the next, the other stalls the bucket mid-body and still reads the first chunk.
+
+  **Migration.** Every hosted start walks the local object tree in the background and uploads what the bucket lacks (`attachment_replication_finished`, with counts). Reads fall back to the disk while that runs, so nothing is orphaned.
+
+  **Degradation.** Hosted with no bucket or no readable credential keeps attachments on the disk and logs `attachment_replication_disabled` at `warn`. A bucket that *is* configured but whose key will not parse refuses to start, rather than looking replicated.
+
+  **Credential.** `LoadCredential=gcs.json:/etc/tan-studio/litestream-gcs.json` in `tan-studio.service`, read from `$CREDENTIALS_DIRECTORY`. No copy, nothing in the environment file. `install.sh` now refuses to install if that key is absent, because systemd will not start a unit whose credential source is missing — run `install_litestream.sh` first.
+
+  Not verified: nothing has run against real Cloud Storage. The adapter's tests drive a fake bucket, and the JWT-minting path has no test that signs with a real RSA key. First deploy should check `journalctl -u tan-studio | grep attachment_replication` and confirm objects under `gs://tan-coffee-backups/tan-studio/attachments/`.
