@@ -251,7 +251,7 @@ say "Do not publish; do not request scopes beyond openid / email / profile."
 open_url "https://console.cloud.google.com/auth/overview?project=tan-coffee"
 step "If you see Get started, click it. Otherwise open Branding in the left nav."
 step "App name: Tan Studio"
-step "User support email: romaxavier12@gmail.com (or the Google account you will sign in with)."
+step "User support email: operator@example.com (or the Google account you will sign in with)."
 step "Developer contact: the same address."
 step "Skip the logo. Skip homepage / privacy / terms — those are for a published app."
 step "Audience: External. Publishing status: Testing. Do not click Publish app."
@@ -291,20 +291,20 @@ else
   _upsert_gcp_secret google-oauth-client-secret "$GOOGLE_OAUTH_CLIENT_SECRET"
 fi
 open_url "https://console.cloud.google.com/auth/audience?project=tan-coffee"
-step "Test users → Add users → romaxavier12@gmail.com (change it in the next stage if the operator email is different)."
+step "Test users → Add users → operator@example.com (change it in the next stage if the operator email is different)."
 pause "Press Enter after the test user is added."
 
 # ── 5. Operator email allowlist ──
 stage "Operator Google email"
-say "Hosted mode allowlists exactly one email. GCP owner today is romaxavier12@gmail.com."
+say "Hosted mode allowlists exactly one email. GCP owner today is operator@example.com."
 ask OPERATOR_GOOGLE_EMAIL "Operator Google email (the one that may sign in):"
 if [[ -z "${OPERATOR_GOOGLE_EMAIL:-}" ]]; then
-  OPERATOR_GOOGLE_EMAIL="romaxavier12@gmail.com"
+  OPERATOR_GOOGLE_EMAIL="operator@example.com"
 fi
 write_env OPERATOR_GOOGLE_EMAIL "$OPERATOR_GOOGLE_EMAIL"
 note "Ticket 03 (hosted OIDC) must use redirect https://studio.tan.coffee/auth/google/callback"
 
 finish
 note "Apex tan.coffee was not pointed at GCP. OpenTofu (ticket 04) can now own the studio zone."
-note "Budget tan-coffee hosted notebook is \$5/month on billing account 019874-118FAB-BDEC6E; mail goes to the billing admin."
+note "Budget tan-coffee hosted notebook is \$5/month on billing account <billing account, see console>; mail goes to the billing admin."
 

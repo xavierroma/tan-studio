@@ -42,7 +42,7 @@ Secrets on first install (mapped to `TAN_STUDIO_*`):
 sudo \
   GOOGLE_OAUTH_CLIENT_ID=... \
   GOOGLE_OAUTH_CLIENT_SECRET=... \
-  OPERATOR_GOOGLE_EMAIL=romaxavier12@gmail.com \
+  OPERATOR_GOOGLE_EMAIL=operator@example.com \
   ./install.sh /path/to/release <version>
 ```
 

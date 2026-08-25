@@ -1,5 +1,7 @@
 {
-	email romaxavier12@gmail.com
+	# Substituted by install.sh from the operator email so the real
+	# address stays out of a public repository.
+	email __ACME_EMAIL__
 }
 
 http://studio.tan.coffee {

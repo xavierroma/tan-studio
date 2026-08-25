@@ -187,7 +187,7 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
   if ! TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" \
     GOOGLE_OAUTH_CLIENT_ID='hosted-client-id' \
     GOOGLE_OAUTH_CLIENT_SECRET='hosted-client-secret' \
-    OPERATOR_GOOGLE_EMAIL='romaxavier12@gmail.com' \
+    OPERATOR_GOOGLE_EMAIL='operator@example.com' \
     "$INSTALLER" "$SOURCE_DIRECTORY" "test-version-1" >"$TEST_ROOT/first-install.log" 2>&1; then
     fail "first install with mapped Google secrets failed: $(tr '\n' ' ' < "$TEST_ROOT/first-install.log")"
   else
@@ -215,7 +215,7 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
       'env Google redirect'
     require_env TAN_STUDIO_OIDC_CLIENT_ID 'hosted-client-id' 'maps GOOGLE_OAUTH_CLIENT_ID'
     require_env TAN_STUDIO_OIDC_CLIENT_SECRET 'hosted-client-secret' 'maps GOOGLE_OAUTH_CLIENT_SECRET'
-    require_env TAN_STUDIO_OPERATOR_EMAIL 'romaxavier12@gmail.com' 'maps OPERATOR_GOOGLE_EMAIL'
+    require_env TAN_STUDIO_OPERATOR_EMAIL 'operator@example.com' 'maps OPERATOR_GOOGLE_EMAIL'
     require_env TAN_STUDIO_DATABASE_PATH '/var/lib/tan-studio/tan-studio.sqlite' 'env database path'
     require_env TAN_STUDIO_WEB_ROOT '/opt/tan-studio/current/web' 'env web root uses current symlink'
     SESSION_SECRET="$(sed -n 's/^TAN_STUDIO_SESSION_SECRET=//p' "$ENV_FILE" | head -n 1)"
@@ -252,6 +252,13 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
 
   if [[ -f "$INSTALL_ROOT/etc/caddy/Caddyfile" ]]; then
     pass 'installed Caddyfile'
+    # The repo ships a token, not the operator's address. If substitution ever
+    # regresses, Caddy gets a literal __ACME_EMAIL__ and certificate contact
+    # is silently wrong, so assert both directions.
+    forbid_match "$INSTALL_ROOT/etc/caddy/Caddyfile" '__ACME_EMAIL__' \
+      'installed Caddyfile has no unsubstituted ACME email token'
+    require_match "$INSTALL_ROOT/etc/caddy/Caddyfile" '^\s*email .+@.+$' \
+      'installed Caddyfile carries a real ACME email'
   else
     fail 'installed Caddyfile'
   fi

@@ -183,8 +183,10 @@ mv "$ENVIRONMENT_STAGING" "$ENVIRONMENT_FILE"
 
 install -m 0644 "$SOURCE_DIRECTORY/system/tan-studio.service" \
   "$UNIT_DIRECTORY/tan-studio.service"
-install -m 0644 "$SOURCE_DIRECTORY/system/Caddyfile" \
-  "$CADDY_DIRECTORY/Caddyfile"
+sed "s|__ACME_EMAIL__|$OPERATOR_EMAIL|" "$SOURCE_DIRECTORY/system/Caddyfile" \
+  > "$CADDY_DIRECTORY/.Caddyfile-$$"
+chmod 0644 "$CADDY_DIRECTORY/.Caddyfile-$$"
+mv "$CADDY_DIRECTORY/.Caddyfile-$$" "$CADDY_DIRECTORY/Caddyfile"
 
 if [[ "$LIVE" == "1" ]]; then
   # Stop before copying: the notebook runs SQLite in WAL mode, so a copy taken

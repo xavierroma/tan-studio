@@ -10,8 +10,8 @@ Public facts for tickets 01 / 03 / 04. Secrets live in repo-root `.env` (gitigno
 | Project number | `1033405121253` |
 | Display name | tan coffee |
 | Region | `us-west1` (zone `us-west1-a`) |
-| Owner | `romaxavier12@gmail.com` |
-| Billing account | `019874-118FAB-BDEC6E` (My Maps Billing Account) |
+| Owner | `operator@example.com` |
+| Billing account | `<billing account, see console>` (My Maps Billing Account) |
 | Budget | `tan-coffee hosted notebook`, **$5 USD / calendar month**, 50% / 90% / 100% of current spend, filtered to this project. Mail goes to the billing admin. |
 
 Enabled APIs: Compute Engine, Cloud Storage, IAM, IAM Credentials, Cloud DNS, Cloud Billing, Cloud Billing Budgets, Secret Manager.
@@ -48,7 +48,7 @@ Delegation is live: public NS for `studio.tan.coffee` is Cloud DNS; public A is 
 | --- | --- |
 | Origin | `https://studio.tan.coffee` |
 | Redirect | `https://studio.tan.coffee/auth/google/callback` |
-| Operator email | `romaxavier12@gmail.com` (`.env` `OPERATOR_GOOGLE_EMAIL`) |
+| Operator email | `operator@example.com` (`.env` `OPERATOR_GOOGLE_EMAIL`) |
 | Client ID / secret | `.env` (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`) and Secret Manager secrets `google-oauth-client-id` / `google-oauth-client-secret` |
 
 gcloud’s default project on this machine is still `daisy-hcp`. Pass `--project=tan-coffee` (or switch config) when touching this stack.
