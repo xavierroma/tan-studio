@@ -133,17 +133,24 @@ require_match "$INSTALLER" 'TAN_STUDIO_SESSION_SECRET' 'installer writes session
 require_match "$INSTALLER" 'systemctl enable caddy' 'installer enables Caddy on boot'
 require_match "$INSTALLER" 'systemctl enable tan-studio' 'installer enables the service on boot'
 
-require_match "$INSTALLER" "'-wal'" 'installer backs up the SQLite write-ahead log'
+require_match "$INSTALLER" 'VACUUM INTO' \
+  'installer takes a consistent single-file snapshot'
 
 forbid_match "$DEPLOY_SCRIPT" 'rsync' \
   'deploy script does not require rsync on the VM'
 require_match "$DEPLOY_SCRIPT" 'tar -C' 'deploy script ships the release with tar'
-STOP_LINE="$(grep -n 'systemctl stop tan-studio' "$INSTALLER" | head -n 1 | cut -d: -f1)"
-BACKUP_LINE="$(grep -n 'pre-deploy-' "$INSTALLER" | head -n 1 | cut -d: -f1)"
+# Ordering matters more than any other line in the installer: snapshotting a
+# database the service is still writing to can tear it. Match executable lines
+# only -- an earlier grep here matched a comment and silently inverted itself.
+installer_line() {
+  grep -nE "$1" "$INSTALLER" | grep -vE '^[0-9]+: *#' | head -n 1 | cut -d: -f1
+}
+STOP_LINE="$(installer_line 'systemctl stop tan-studio')"
+BACKUP_LINE="$(installer_line "VACUUM INTO '")"
 if [[ -n "$STOP_LINE" && -n "$BACKUP_LINE" && "$STOP_LINE" -lt "$BACKUP_LINE" ]]; then
-  pass 'installer stops the service before copying the database'
+  pass 'installer stops the service before snapshotting the database'
 else
-  fail 'installer copies the database while the service may still be writing'
+  fail 'installer snapshots the database while the service may still be writing'
 fi
 
 forbid_match "$DOCKERFILE" '\.env' 'Dockerfile does not copy .env'
@@ -300,6 +307,75 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
       pass 'redeploy switches the current symlink'
     else
       fail "redeploy current symlink is $TARGET"
+    fi
+  fi
+
+
+  # Snapshot retention. These share the notebook's disk, so an unbounded
+  # history would eventually fill it and cause the outage backups exist to
+  # survive. Drive the installer repeatedly against a changing database.
+  if command -v sqlite3 >/dev/null 2>&1; then
+    SNAPSHOT_STATE="$INSTALL_ROOT/var/lib/tan-studio"
+    SNAPSHOT_DIR="$SNAPSHOT_STATE/backups"
+    mkdir -p "$SNAPSHOT_STATE"
+    sqlite3 "$SNAPSHOT_STATE/tan-studio.sqlite" \
+      'CREATE TABLE IF NOT EXISTS roast(id INTEGER PRIMARY KEY); INSERT INTO roast DEFAULT VALUES;'
+
+    snapshot_count() {
+      find "$SNAPSHOT_DIR" -maxdepth 1 -name '*.sqlite' -type f 2>/dev/null | wc -l | tr -d ' '
+    }
+
+    run_install() {
+      TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" TAN_STUDIO_SNAPSHOT_KEEP=2 \
+        "$INSTALLER" "$SOURCE_DIRECTORY" "$1" >/dev/null 2>&1
+    }
+
+    run_install snap-1
+    FIRST_COUNT="$(snapshot_count)"
+    if [[ "$FIRST_COUNT" == "1" ]]; then
+      pass 'first deploy writes a snapshot'
+    else
+      fail "first deploy wrote $FIRST_COUNT snapshots"
+    fi
+
+    # Same bytes, so a second deploy must not spend disk on a duplicate.
+    run_install snap-2
+    if [[ "$(snapshot_count)" == "1" ]]; then
+      pass 'unchanged notebook does not create a second snapshot'
+    else
+      fail 'unchanged notebook created a redundant snapshot'
+    fi
+
+    for VERSION_LABEL in snap-3 snap-4 snap-5; do
+      sqlite3 "$SNAPSHOT_STATE/tan-studio.sqlite" 'INSERT INTO roast DEFAULT VALUES;'
+      sleep 1
+      run_install "$VERSION_LABEL"
+    done
+    FINAL_COUNT="$(snapshot_count)"
+    if [[ "$FINAL_COUNT" == "2" ]]; then
+      pass 'snapshot history is bounded by TAN_STUDIO_SNAPSHOT_KEEP'
+    else
+      fail "snapshot history kept $FINAL_COUNT, expected 2"
+    fi
+
+    ORPHANS="$(find "$SNAPSHOT_DIR" -maxdepth 1 -name '*.sha256' -type f 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "$ORPHANS" == "$FINAL_COUNT" ]]; then
+      pass 'pruning removes each snapshot digest with its snapshot'
+    else
+      fail "found $ORPHANS digests for $FINAL_COUNT snapshots"
+    fi
+
+    NEWEST_SNAPSHOT="$(find "$SNAPSHOT_DIR" -maxdepth 1 -name '*.sqlite' -type f -print0 \
+      | xargs -0 -r ls -1t | head -n 1)"
+    if sqlite3 "$NEWEST_SNAPSHOT" 'PRAGMA integrity_check;' 2>/dev/null | grep -q '^ok$'; then
+      pass 'snapshot is a valid SQLite database'
+    else
+      fail 'snapshot failed integrity_check'
+    fi
+    if [[ "$(sqlite3 "$NEWEST_SNAPSHOT" 'SELECT count(*) FROM roast;' 2>/dev/null)" == "4" ]]; then
+      pass 'snapshot carries the rows written before the deploy'
+    else
+      fail 'snapshot lost rows written before the deploy'
     fi
   fi
 

@@ -38,6 +38,10 @@ STATE_DIRECTORY="$(prefixed /var/lib/tan-studio)"
 CONFIG_DIRECTORY="$(prefixed /etc/tan-studio)"
 ENVIRONMENT_FILE="$CONFIG_DIRECTORY/environment"
 CADDY_DIRECTORY="$(prefixed /etc/caddy)"
+SNAPSHOT_DIRECTORY="$STATE_DIRECTORY/backups"
+STATE_DATABASE="$STATE_DIRECTORY/tan-studio.sqlite"
+# How many pre-deploy snapshots to keep on the VM disk.
+SNAPSHOT_KEEP="${TAN_STUDIO_SNAPSHOT_KEEP:-3}"
 UNIT_DIRECTORY="$(prefixed /etc/systemd/system)"
 PREVIOUS_RELEASE=""
 
@@ -127,6 +131,12 @@ if [[ "$LIVE" == "1" ]]; then
       apt-get install -y caddy
     fi
   fi
+  # sqlite3 takes the pre-deploy snapshot. VACUUM INTO is the only way to get a
+  # single consistent file out of a WAL database without copying three of them.
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get install -y sqlite3
+  fi
 fi
 
 install -d -m 0755 "$(prefixed /opt/tan-studio)" "$RELEASES_DIRECTORY" \
@@ -188,21 +198,67 @@ sed "s|__ACME_EMAIL__|$OPERATOR_EMAIL|" "$SOURCE_DIRECTORY/system/Caddyfile" \
 chmod 0644 "$CADDY_DIRECTORY/.Caddyfile-$$"
 mv "$CADDY_DIRECTORY/.Caddyfile-$$" "$CADDY_DIRECTORY/Caddyfile"
 
+# Stop before snapshotting: the notebook runs SQLite in WAL mode, so a copy
+# taken under a live writer can tear, and the -wal sidecar holds commits not
+# yet checkpointed into the main file.
 if [[ "$LIVE" == "1" ]]; then
-  # Stop before copying: the notebook runs SQLite in WAL mode, so a copy taken
-  # under a live writer can tear, and the -wal sidecar holds commits that have
-  # not been checkpointed into the main file yet.
   systemctl stop tan-studio.service 2>/dev/null || true
-  if [[ -f /var/lib/tan-studio/tan-studio.sqlite ]]; then
-    BACKUP_DIRECTORY="/var/lib/tan-studio/backups/pre-deploy-$VERSION"
-    install -d -o tan-studio -g tan-studio -m 0750 "$BACKUP_DIRECTORY"
-    for SUFFIX in '' '-wal' '-shm'; do
-      if [[ -f "/var/lib/tan-studio/tan-studio.sqlite$SUFFIX" ]]; then
-        cp "/var/lib/tan-studio/tan-studio.sqlite$SUFFIX" \
-          "$BACKUP_DIRECTORY/tan-studio.sqlite$SUFFIX"
-      fi
-    done
+fi
+
+if [[ -f "$STATE_DATABASE" ]]; then
+  # A release-labelled restore point for the one failure Litestream is
+  # awkward for: a deploy that corrupts data, where you must land just
+  # before a known release rather than guess a timestamp. Litestream
+  # remains the off-box copy; these snapshots share the notebook's disk
+  # and are not a substitute for it.
+  if [[ "$LIVE" == "1" ]]; then
+    install -d -o tan-studio -g tan-studio -m 0750 "$SNAPSHOT_DIRECTORY"
+  else
+    install -d -m 0750 "$SNAPSHOT_DIRECTORY"
   fi
+  SNAPSHOT_CANDIDATE="$SNAPSHOT_DIRECTORY/.candidate-$$.sqlite"
+  rm -f "$SNAPSHOT_CANDIDATE"
+  # VACUUM INTO on a stopped database: one file, already checkpointed, and
+  # smaller than the original because it is written fresh.
+  sqlite3 "$STATE_DATABASE" \
+    "VACUUM INTO '$SNAPSHOT_CANDIDATE'"
+  SNAPSHOT_DIGEST="$(sha256sum "$SNAPSHOT_CANDIDATE" | cut -d' ' -f1)"
+  NEWEST_DIGEST_FILE="$(find "$SNAPSHOT_DIRECTORY" -maxdepth 1 -name '*.sha256' \
+    -type f -print0 2>/dev/null | xargs -0 -r ls -1t 2>/dev/null | head -n 1)"
+  NEWEST_DIGEST=""
+  if [[ -n "$NEWEST_DIGEST_FILE" && -f "$NEWEST_DIGEST_FILE" ]]; then
+    NEWEST_DIGEST="$(cut -d' ' -f1 < "$NEWEST_DIGEST_FILE")"
+  fi
+  if [[ "$SNAPSHOT_DIGEST" == "$NEWEST_DIGEST" ]]; then
+    # Nothing was written since the last deploy. Keeping a byte-identical
+    # second copy would only spend disk and push a real restore point out
+    # of the retention window.
+    rm -f "$SNAPSHOT_CANDIDATE"
+    printf 'Notebook unchanged since the last snapshot; kept %s\n' \
+      "$(basename "${NEWEST_DIGEST_FILE%.sha256}")"
+  else
+    SNAPSHOT_NAME="$(date -u +%Y%m%dT%H%M%SZ)-$VERSION"
+    mv "$SNAPSHOT_CANDIDATE" "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sqlite"
+    printf '%s  %s\n' "$SNAPSHOT_DIGEST" "$SNAPSHOT_NAME.sqlite" \
+      > "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sha256"
+    if [[ "$LIVE" == "1" ]]; then
+      chown tan-studio:tan-studio \
+        "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sqlite" \
+        "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sha256"
+    fi
+    chmod 0640 \
+      "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sqlite" \
+      "$SNAPSHOT_DIRECTORY/$SNAPSHOT_NAME.sha256"
+  fi
+  # Bounded on purpose. These live on the same 10 GB disk as the notebook,
+  # so an unbounded history would eventually fill the disk and take the
+  # service down -- a backup that causes the outage it exists to survive.
+  find "$SNAPSHOT_DIRECTORY" -maxdepth 1 -name '*.sqlite' -type f -print0 \
+    | xargs -0 -r ls -1t 2>/dev/null \
+    | tail -n +$((SNAPSHOT_KEEP + 1)) \
+    | while read -r STALE; do
+      rm -f "$STALE" "${STALE%.sqlite}.sha256"
+    done
 fi
 
 ln -sfn "$RELEASE_DIRECTORY" "$CURRENT_LINK"
