@@ -4,7 +4,7 @@ Status: executed on 20 July 2026
 
 ## Purpose
 
-Prove that the installed Codex plugin is a thin, typed MCP adapter over the production Tan Studio HTTP API; that it does not own coffee data or USB state; and that its read and write workflows behave correctly against both an isolated Rust service and the live Mac service connected to the Kaffeelogic Nano.
+Prove that the installed Codex plugin is a thin, typed MCP adapter over the production Tan Studio HTTP API; that it does not own coffee data or device state; and that its read and write workflows behave correctly against both an isolated Rust test process and the hosted service.
 
 The repository does not currently ship a user-facing `tan` CLI. The repeatable programs under `plugins/tan-studio/scripts/` are MCP protocol test clients: they start the MCP server over stdio, enumerate its tools and resources, invoke them, and assert the returned protocol data.
 
@@ -12,7 +12,7 @@ The repository does not currently ship a user-facing `tan` CLI. The repeatable p
 
 ```mermaid
 flowchart LR
-  C["Codex client"] -->|"MCP over stdio"| M["Local Bun MCP process"]
+  C["Codex client"] -->|"MCP over stdio"| M["Client-side Bun MCP process"]
   M --> P["TanStudioGateway port"]
   P -->|"generated OpenAPI client over HTTP"| R["Rust Tan Studio service"]
   W["React web UI"] -->|"generated OpenAPI client over HTTP"| R
@@ -22,7 +22,7 @@ flowchart LR
   H --> F["native files and labels"]
 ```
 
-Codex starts the installed `dist/server.js` declared by the plugin's `.mcp.json`. The MCP process is local to the Codex client and has no listening TCP port. It exits with its stdio session. It reads the backend URL and a token-file path from local configuration, then authenticates to the separately running Rust service.
+Codex starts the installed `dist/server.js` declared by the plugin's `.mcp.json`. The MCP process has no listening TCP port and exits with its stdio session. It reads the hosted backend URL and a token-file path from client configuration, then authenticates to the Rust service.
 
 The MCP controller depends only on the `TanStudioGateway` interface. The composition root injects `OpenApiTanStudioGateway`, whose request and response types are generated from the Rust OpenAPI document. Unit tests inject an in-memory fake gateway. The architecture checker prevents the MCP controller from importing HTTP, SQLite, filesystem, USB, or backend implementation modules.
 
@@ -38,7 +38,7 @@ The current Rust core API keeps some application orchestration directly in `core
 | --- | --- | --- | --- |
 | Unit | In-memory gateway fakes | No files or network | MCP schemas, units, annotations, controller-to-port calls |
 | Isolated E2E | Real Rust service, random loopback port, temporary SQLite | Creates disposable profile, coffee, roast, brew, notes, and label; deletes the temporary directory | Full MCP → HTTP → Rust → SQLite write and failure paths |
-| Live | Installed MCP bundle and production Mac LAN service | Reads all records; optional Nano synchronization is read-only toward the roaster | Installed packaging, real data, every roast graph, resources, and device connection |
+| Live | Installed MCP bundle and hosted production service | Reads all records; optional Nano synchronization is read-only toward the roaster | Installed packaging, real data, every roast graph, resources, and device connection |
 | Fresh Codex | Installed plugin in a new `codex exec` task | Read-only prompt; synchronization forbidden | Skill discovery and real agent-to-MCP invocation |
 
 No live test creates a coffee, brew, note, roast, or label. `tan_sync_device` is the only live mutation: it imports device files into the backend and sends no device-write commands.

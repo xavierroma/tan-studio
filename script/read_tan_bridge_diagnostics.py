@@ -20,6 +20,7 @@ import serial
 
 
 MAX_LINE_BYTES = 4_096
+SETUP_SCHEMA_VERSION = 2
 
 
 def main() -> int:
@@ -84,7 +85,7 @@ def read_status(port: Path) -> dict[str, Any]:
     request_id = str(uuid.uuid4())
     encoded = json.dumps(
         {
-            "schemaVersion": 1,
+            "schemaVersion": SETUP_SCHEMA_VERSION,
             "requestId": request_id,
             "type": "setup.getStatus",
             "payload": {},

@@ -2,11 +2,12 @@ import { z } from "zod"
 
 import { UuidSchema } from "./primitives"
 
-export const TanBridgeSetupSchemaVersion = 1 as const
+export const TanBridgeSetupSchemaVersion = 2 as const
 export const TanBridgeSetupMaxLineBytes = 4_096 as const
 export const TanBridgeSetupMaxInFlightRequests = 8 as const
-export const TanBridgeBackendHost = "xrc.local" as const
-export const TanBridgeBackendPort = 8_081 as const
+export const TanBridgeBackendHost = "studio.tan.coffee" as const
+export const TanBridgeBackendPort = 443 as const
+export const TanBridgeBackendPath = "/device/v1/session" as const
 
 export const TanBridgeLifecycleSchema = z.enum([
   "booting",
@@ -109,11 +110,10 @@ export const TanBridgeSetupStatusSchema = z
     backend: z
       .object({
         state: TanBridgeBackendStateSchema,
-        host: z.union([
-          z.literal(TanBridgeBackendHost),
-          z.literal("bridge.tanstudio.xroma.dev"),
-        ]),
-        port: z.literal(TanBridgeBackendPort).optional(),
+        transport: z.literal("wss"),
+        host: z.literal(TanBridgeBackendHost),
+        port: z.literal(TanBridgeBackendPort),
+        path: z.literal(TanBridgeBackendPath),
       })
       .strict(),
     claim: z

@@ -5,8 +5,10 @@ idf_component_register(
     esp_event
     espcoredump
     esp_netif
+    esp_websocket_client
     esp_wifi
     json
     lwip
+    mbedtls
     nvs_flash
 )

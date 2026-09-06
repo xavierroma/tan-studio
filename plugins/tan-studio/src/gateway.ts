@@ -41,7 +41,7 @@ export interface RoastDetail {
   series?: Series
 }
 
-export interface AttachmentFileInput {
+export interface AttachmentUploadInput {
   filePath: string
   title?: string | undefined
   mediaType?: string | undefined
@@ -87,7 +87,7 @@ export interface TanStudioGateway {
     resourceType: string,
     resourceId: number
   ): Promise<AttachmentPage>
-  attachLocalFile(input: AttachmentFileInput): Promise<Attachment>
+  attachFile(input: AttachmentUploadInput): Promise<Attachment>
   setProfileImage(
     resourceType: "profile" | "coffee" | "roast" | "brew",
     resourceId: number,

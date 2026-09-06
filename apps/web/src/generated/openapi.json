@@ -867,6 +867,68 @@
         }
       }
     },
+    "/api/v1/bridges/{id}/revoke": {
+      "post": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridge_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bridge row id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/coffees": {
       "get": {
         "tags": [
@@ -3489,6 +3551,12 @@
             "type": "string"
           },
           "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
             "type": [
               "string",
               "null"

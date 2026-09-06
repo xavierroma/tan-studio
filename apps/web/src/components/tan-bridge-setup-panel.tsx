@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Alert,
   AlertDescription,
@@ -29,10 +29,16 @@ import {
   WifiIcon,
 } from "lucide-react"
 
-import { createBridgeClaim, listBridges, queryKeys } from "@/lib/api"
+import {
+  createBridgeClaim,
+  listBridges,
+  queryKeys,
+  revokeBridge,
+} from "@/lib/api"
 import { browserSerial, TanBridgeSetupClient } from "@/lib/tan-bridge-setup"
 import {
   TanBridgeBackendHost,
+  TanBridgeBackendPath,
   TanBridgeBackendPort,
   type TanBridgeSetupStatus,
   type TanBridgeVisibleWifiNetwork,
@@ -75,6 +81,12 @@ export function TanBridgeSetupPanel() {
     queryFn: ({ signal }) => listBridges(signal),
     refetchInterval: 5_000,
   })
+  const revoke = useMutation({
+    mutationFn: revokeBridge,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.bridges() }),
+    onError: (nextError) => setError(errorMessage(nextError)),
+  })
   const selectedNetwork = useMemo(
     () => networks?.find((network) => network.networkId === selectedNetworkId),
     [networks, selectedNetworkId]
@@ -90,8 +102,10 @@ export function TanBridgeSetupPanel() {
   const needsCredential =
     selectedNetwork !== undefined && selectedNetwork.authMode !== "open"
   const firmwareCompatible =
+    status?.backend.transport === "wss" &&
     status?.backend.host === TanBridgeBackendHost &&
-    status.backend.port === TanBridgeBackendPort
+    status.backend.port === TanBridgeBackendPort &&
+    status.backend.path === TanBridgeBackendPath
 
   useEffect(
     () => () => {
@@ -201,12 +215,13 @@ export function TanBridgeSetupPanel() {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="font-semibold">Tan Bridge setup</h2>
-            <Badge variant="secondary">Local LAN</Badge>
+            <Badge variant="secondary">Hosted</Badge>
           </div>
           <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
             Connect the Atom to this computer once, choose Wi-Fi, then move its
-            single USB-C connection to the Nano. It will connect outbound to
-            {` ${TanBridgeBackendHost}:${TanBridgeBackendPort}`}.
+            single USB-C connection to the Nano. It will connect outbound over
+            TLS to
+            {` wss://${TanBridgeBackendHost}${TanBridgeBackendPath}`}.
           </p>
         </div>
         <div className="flex gap-2">
@@ -262,10 +277,8 @@ export function TanBridgeSetupPanel() {
           <RefreshCwIcon />
           <AlertTitle>Firmware update required</AlertTitle>
           <AlertDescription>
-            This Atom is still running setup-only firmware{" "}
-            {status.firmware.version}. You can scan and choose Wi-Fi now, but
-            connecting it to xrc.local requires the local-LAN firmware currently
-            being prepared.
+            This Atom is running incompatible firmware {status.firmware.version}
+            . Flash the hosted bridge firmware before saving its Wi-Fi and claim.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -276,7 +289,8 @@ export function TanBridgeSetupPanel() {
           <AlertTitle>Bridge configured</AlertTitle>
           <AlertDescription>
             Unplug the Atom from this computer and connect that same USB-C port
-            to the powered Nano. Its claim is waiting at xrc.local.
+            to the powered Nano. It will claim itself through Tan Studio’s hosted
+            TLS endpoint.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -409,19 +423,48 @@ export function TanBridgeSetupPanel() {
 
       {bridges.data?.length ? (
         <div className="mt-5 rounded-lg border p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-medium">Registered bridge</h3>
-            <Badge
-              variant={
-                bridges.data[0]?.state === "connected" ? "secondary" : "outline"
-              }
-            >
-              {bridges.data[0]?.state}
-            </Badge>
-          </div>
-          <p className="text-muted-foreground mt-2 font-mono text-xs">
-            {bridges.data[0]?.bridgeId}
-          </p>
+          <h3 className="text-sm font-medium">Registered bridges</h3>
+          <ul className="mt-3 flex flex-col gap-3">
+            {bridges.data.map((bridge) => (
+              <li
+                key={bridge.id}
+                className="flex flex-wrap items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-muted-foreground truncate font-mono text-xs">
+                      {bridge.bridgeId}
+                    </p>
+                    <Badge
+                      variant={
+                        bridge.revokedAt
+                          ? "warning"
+                          : bridge.state === "connected"
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {bridge.revokedAt ? "revoked" : bridge.state}
+                    </Badge>
+                  </div>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Firmware {bridge.firmwareVersion}
+                  </p>
+                </div>
+                {bridge.revokedAt ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={revoke.isPending}
+                    onClick={() => revoke.mutate(Number(bridge.id))}
+                  >
+                    Revoke
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </section>

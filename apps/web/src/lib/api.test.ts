@@ -5,6 +5,7 @@ import {
   getCoffee,
   getUiPreferences,
   listRoasts,
+  revokeBridge,
   setEntityProfileImage,
   updateRoast,
   updateBrew,
@@ -21,6 +22,25 @@ function response(value: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("generated API client integration", () => {
+  test("revokes a registered bridge through its typed path", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        id: "12",
+        bridgeId: "abcdefghijklmnopqrstuvwxyz",
+        state: "offline",
+        revokedAt: "2026-08-30T23:00:00.000Z",
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await revokeBridge(12)
+
+    const request = fetchMock.mock.calls[0]?.[0] as Request
+    expect(request.method).toBe("POST")
+    expect(new URL(request.url).pathname).toBe("/api/v1/bridges/12/revoke")
+    await expect(request.clone().json()).resolves.toEqual({})
+  })
+
   test("keeps roast filters in the URL query contract", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

@@ -2,6 +2,14 @@
 	# Substituted by install.sh from the operator email so the real
 	# address stays out of a public repository.
 	email __ACME_EMAIL__
+	# The AtomS3's pinned ESP-IDF TLS stack trusts ISRG Root X1 but fails
+	# the newer ECDSA YE1 certificate flight before the HTTP upgrade. Keep
+	# the public site on a broadly compatible RSA chain so browsers, MCP
+	# clients, and the embedded bridge all terminate at the same origin.
+	key_type rsa2048
+	preferred_chains {
+		root_common_name "ISRG Root X1"
+	}
 }
 
 http://studio.tan.coffee {

@@ -17,7 +17,7 @@ Defaults:
 
 | | |
 | --- | --- |
-| SSH | `xavi@136.67.36.35` with `~/.ssh/google_compute_engine` |
+| SSH | `xavi@136.67.36.35` with `~/.ssh/id_ed25519_tan_studio` |
 | Env file | repo-root `.env` (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OPERATOR_GOOGLE_EMAIL`) |
 | Secret Manager | `google-oauth-client-id` / `google-oauth-client-secret` in project `tan-coffee` if `.env` is missing those keys |
 | Origin | `https://studio.tan.coffee` |
@@ -54,6 +54,13 @@ curl -fsS --header 'Host: studio.tan.coffee' https://studio.tan.coffee/healthz
 ```
 
 Sign in with Google is `https://studio.tan.coffee/auth/google`.
+
+Unauthenticated notebook document routes redirect to Google sign-in. The one
+intentional public exception is `wss://studio.tan.coffee/device/v1/session`:
+an Atom authenticates there with a single-use bridge claim or its retained
+device token, never with an operator cookie or API token. Caddy's site-wide
+reverse proxy carries the WebSocket upgrade on port 443; port 8081 remains a
+LAN-only development listener and is not exposed by the hosted deployment.
 
 ## Continuous backup
 
@@ -192,3 +199,18 @@ or, for an installed plugin, put the origin in
 The LAN token (`TAN_STUDIO_LAN_TOKEN`) is not a hosted credential: hosted mode
 has no launch token, and a single global bearer would be a second permanent
 anonymous operator.
+
+## Hosted Tan Bridge
+
+The hosted setup panel is operator-session-only. It mints a ten-minute,
+single-use claim for firmware `0.3.1-hosted`, whose endpoint is fixed at
+`wss://studio.tan.coffee/device/v1/session`. API tokens cannot mint bridge
+claims. Once redeemed, the Atom retains a durable token in NVS; revoking its
+bridge from the operator UI closes an active session and rejects future
+reconnects.
+
+The backend and Atom enforce the same read-only SASSI allowlist. This permits
+directory, profile, roast-log, information, and time synchronization traffic;
+it does not permit profile writes, roast control, or arbitrary serial frames.
+See `firmware/tan-bridge-setup/README.md` for the guarded application-only
+update that preserves an existing bridge identity and Wi-Fi configuration.

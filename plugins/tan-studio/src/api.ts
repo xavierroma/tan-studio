@@ -7,7 +7,7 @@ import {
   TanStudioGatewayError,
   type Attachment,
   type AttachmentCreate,
-  type AttachmentFileInput,
+  type AttachmentUploadInput,
   type AttachmentPage,
   type Bootstrap,
   type BridgePage,
@@ -272,7 +272,7 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     )
   }
 
-  async attachLocalFile(input: AttachmentFileInput): Promise<Attachment> {
+  async attachFile(input: AttachmentUploadInput): Promise<Attachment> {
     if (!isAbsolute(input.filePath)) {
       throw new Error("filePath must be absolute")
     }

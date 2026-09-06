@@ -19,7 +19,6 @@ use crate::{
     db::Database,
     klog::{ImportInput as KlogImportInput, KlogError, KlogImporter},
     kpro::{ImportInput as KproImportInput, KproError, KproImporter},
-    lan_bridge::BridgeTransport,
     sassi::{
         self, acknowledgement_frame, directory_frame, file_frame, info_frame, time_sync_frame,
         Decoder, Message, TransferChunk,
@@ -46,7 +45,10 @@ enum Command {
     Synchronize(oneshot::Sender<Result<(), String>>),
     AttachBridge {
         bridge_id: String,
-        transport: BridgeTransport,
+        transport: Box<dyn SessionTransport>,
+    },
+    DetachBridge {
+        bridge_id: String,
     },
     Stop,
 }
@@ -121,11 +123,18 @@ impl NanoDeviceManager {
             .map_err(|_| "device_session_stopped".to_owned())?
     }
 
-    pub fn attach_bridge(&self, bridge_id: String, transport: BridgeTransport) {
+    pub(crate) fn attach_bridge<T>(&self, bridge_id: String, transport: T)
+    where
+        T: SessionTransport + 'static,
+    {
         let _ = self.commands.send(Command::AttachBridge {
             bridge_id,
-            transport,
+            transport: Box::new(transport),
         });
+    }
+
+    pub(crate) fn detach_bridge(&self, bridge_id: String) {
+        let _ = self.commands.send(Command::DetachBridge { bridge_id });
     }
 
     pub fn stop(&self) {
@@ -135,7 +144,7 @@ impl NanoDeviceManager {
     }
 }
 
-trait SessionTransport: Read + Write + Send {}
+pub(crate) trait SessionTransport: Read + Write + Send {}
 impl<T: Read + Write + Send> SessionTransport for T {}
 
 struct Session {
@@ -203,17 +212,33 @@ fn device_loop(
                     } else {
                         Err("device_not_connected".into())
                     };
+                    if result
+                        .as_ref()
+                        .err()
+                        .is_some_and(|reason| !sync_failure_keeps_session(reason))
+                    {
+                        session = None;
+                        next_scan = Instant::now() + SCAN_INTERVAL;
+                    }
                     let _ = reply.send(result);
                 }
                 Ok(Command::AttachBridge {
                     bridge_id,
                     transport,
                 }) => {
-                    session = Some(new_bridge_session(Box::new(transport)));
+                    session = Some(new_bridge_session(transport));
                     let mut current = reconnecting("awaiting_sassi_handshake");
                     current.transport = Some("tan-bridge".into());
                     current.bridge_id = Some(bridge_id);
                     *snapshot.write() = current;
+                }
+                Ok(Command::DetachBridge { bridge_id }) => {
+                    if snapshot.read().bridge_id.as_deref() == Some(bridge_id.as_str()) {
+                        session = None;
+                        let mut current = disconnected("bridge_revoked");
+                        current.bridge_id = Some(bridge_id);
+                        *snapshot.write() = current;
+                    }
                 }
                 Ok(Command::Stop) => return,
                 Err(TryRecvError::Empty) => break,
@@ -256,6 +281,7 @@ fn device_loop(
             continue;
         }
 
+        let mut reset_session_after_sync = false;
         if let Some(active) = session.as_mut() {
             match poll_session(active, &snapshot) {
                 Ok(()) => {
@@ -279,6 +305,7 @@ fn device_loop(
                             current.sync_state = if waiting { "idle" } else { "failed" }.into();
                             if !waiting {
                                 current.state = "degraded".into();
+                                reset_session_after_sync = true;
                             }
                         }
                     }
@@ -299,7 +326,11 @@ fn device_loop(
                     next_scan = Instant::now() + SCAN_INTERVAL;
                 }
             }
-        } else {
+        }
+        if reset_session_after_sync {
+            session = None;
+            next_scan = Instant::now() + SCAN_INTERVAL;
+        } else if session.is_none() {
             thread::sleep(Duration::from_millis(25));
         }
     }
@@ -574,6 +605,15 @@ fn synchronize(
         current.quarantined_profile_count = 0;
     }
     let result = synchronize_run(session, snapshot, log_importer, profile_importer);
+    if let Err(reason) = &result {
+        let waiting = sync_failure_keeps_session(reason);
+        let mut current = snapshot.write();
+        current.reason = Some(reason.clone());
+        current.sync_state = if waiting { "idle" } else { "failed" }.into();
+        if !waiting {
+            current.state = "degraded".into();
+        }
+    }
     let current = snapshot.read().clone();
     {
         let connection = database.connection();
@@ -612,6 +652,13 @@ fn synchronize(
         }
     }
     result
+}
+
+fn sync_failure_keeps_session(reason: &str) -> bool {
+    matches!(
+        reason,
+        "device_busy" | "device_session_negotiating" | "sassi_outcome_103"
+    )
 }
 
 fn synchronize_run(
@@ -753,11 +800,11 @@ where
     F: FnOnce(u64, u16, usize) -> Result<Vec<u8>, sassi::CodecError>,
 {
     write_frame(session, encode)?;
-    let deadline = Instant::now() + timeout;
+    let mut idle_deadline = Instant::now() + timeout;
     let mut output = Vec::new();
     let mut expected_sequence = 1u32;
     let mut buffer = [0u8; 4096];
-    while Instant::now() < deadline {
+    while Instant::now() < idle_deadline {
         match session.port.read(&mut buffer) {
             Ok(0) => continue,
             Ok(length) => {
@@ -777,6 +824,7 @@ where
                         continue;
                     };
                     accept_chunk(&chunk, expected_sequence)?;
+                    idle_deadline = Instant::now() + timeout;
                     if chunk.outcome != 0 {
                         return Err(format!("sassi_outcome_{}", chunk.outcome));
                     }
@@ -1107,6 +1155,10 @@ mod tests {
                 "manual",
             );
             assert_eq!(result.unwrap_err(), expected, "{fault:?}");
+            let current = snapshot.read();
+            assert_eq!(current.state, "degraded", "{fault:?}");
+            assert_eq!(current.sync_state, "failed", "{fault:?}");
+            assert_eq!(current.reason.as_deref(), Some(expected), "{fault:?}");
         }
 
         let mut busy = VirtualNanoScenario::smoke();

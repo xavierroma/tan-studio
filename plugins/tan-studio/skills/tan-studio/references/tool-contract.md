@@ -11,7 +11,7 @@
 | `tan_search_roasts`    | Find 1–200 lightweight roast summaries without telemetry.                        |
 | `tan_get_context`      | Fetch a profile, coffee, roast, or brew with its available related records.      |
 | `tan_get_roast`        | Fetch roast detail and, when requested, 50–2,000 downsampled telemetry points.   |
-| `tan_list_attachments` | List local files linked to one core resource.                                    |
+| `tan_list_attachments` | List attachments linked to one core resource.                                     |
 
 MCP resources mirror common reads at `tan://pantry`, `tan://device`, `tan://profiles/{id}`, `tan://coffees/{id}`, `tan://roasts/{id}`, and `tan://brews/{id}`.
 
@@ -25,7 +25,7 @@ MCP resources mirror common reads at `tan://pantry`, `tan://device`, `tan://prof
 | `tan_update_brew`   | Revision-guarded update of supplied brew details through the same OpenAPI operation as the web UI.               |
 | `tan_update_roast`  | Revision-guarded update of roast yield, duration, cooling time, end temperature, first crack, result, archive state, or supported settings without changing green input. Archived roasts leave normal searches and pantry but remain recoverable with an archived search. |
 | `tan_add_note`      | Creates one note and atomically links it to 1–10 resources. Source is `agent`; metadata identifies Codex.        |
-| `tan_attach_file`   | Streams one local file into the content-addressed store and links it to 1–20 core resources.                     |
+| `tan_attach_file`   | Streams one user-selected file from the MCP host into the content-addressed store and links it to 1–20 resources. |
 | `tan_create_label`  | Creates one roast-linked label request/artifact; it does not imply physical printing.                            |
 | `tan_sync_device`   | Imports Kaffeelogic profiles/logs into Tan Studio and does not write to the roaster.                             |
 

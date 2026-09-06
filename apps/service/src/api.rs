@@ -6,7 +6,7 @@ use std::{
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
+    extract::{ws::WebSocketUpgrade, Path, Query, State},
     http::{header, HeaderMap, Method, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -23,7 +23,7 @@ use utoipa::{IntoParams, OpenApi};
 use uuid::Uuid;
 
 use crate::{
-    api_token,
+    api_token, bridge_session,
     config::{AttachmentStore, LaunchMode, OperatorAuthConfig, ServiceConfig, HOSTED_CLIENT_ID},
     contract::*,
     core_contract::{
@@ -170,6 +170,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device/sync-runs", get(device_sync_runs))
         .route("/bridges", get(bridges_list))
         .route("/bridges/claims", post(bridge_claim_create))
+        .route("/bridges/{id}/revoke", post(bridge_revoke))
         .route("/api-tokens", get(api_tokens_list).post(api_tokens_create))
         .route("/api-tokens/{id}/revoke", post(api_tokens_revoke))
         .route(
@@ -283,18 +284,28 @@ pub fn build_router(state: ApiState) -> Router {
         // other site could fire, and `SameSite=Lax` withholds the cookie from a
         // cross-site POST.
         .route("/auth/logout", post(auth_logout))
+        .route("/device/v1/session", get(bridge_session_upgrade))
         .nest("/api/v1", api)
         .with_state(state.clone());
     if let (LaunchMode::Headless | LaunchMode::Hosted, Some(root)) =
         (state.config.mode, &state.config.web_root)
     {
-        let (token, client_id): (Option<Arc<str>>, Arc<str>) = match state.config.mode {
+        let (token, client_id, operator_auth): (
+            Option<Arc<str>>,
+            Arc<str>,
+            Option<Arc<OperatorAuthConfig>>,
+        ) = match state.config.mode {
             // Hosted mode authenticates with the operator session cookie, so the HTML
             // carries no secret at all.
-            LaunchMode::Hosted => (None, HOSTED_CLIENT_ID.into()),
+            LaunchMode::Hosted => (
+                None,
+                HOSTED_CLIENT_ID.into(),
+                state.config.operator_auth.clone().map(Arc::new),
+            ),
             _ => (
                 Some(state.config.launch_token.clone().into()),
                 "tan-studio-lan-v1".into(),
+                None,
             ),
         };
         router = router.fallback_service(Router::new().fallback(static_ui::serve).with_state(
@@ -302,10 +313,15 @@ pub fn build_router(state: ApiState) -> Router {
                 root: root.clone(),
                 token,
                 client_id,
+                operator_auth,
             },
         ));
     }
     router.layer(middleware::from_fn_with_state(state, host_security))
+}
+
+async fn bridge_session_upgrade(State(state): State<ApiState>, ws: WebSocketUpgrade) -> Response {
+    bridge_session::upgrade(ws, state.database, state.device)
 }
 
 async fn host_security(
@@ -324,11 +340,17 @@ async fn host_security(
             .split(':')
             .next()
             .is_some_and(|name| name == "127.0.0.1" || name == "localhost"),
-        LaunchMode::Headless | LaunchMode::Hosted => state
+        LaunchMode::Headless => state
             .config
             .allowed_hosts
             .iter()
             .any(|allowed| allowed.eq_ignore_ascii_case(&host)),
+        LaunchMode::Hosted => state.config.allowed_hosts.iter().any(|allowed| {
+            allowed.eq_ignore_ascii_case(&host)
+                || host
+                    .strip_suffix(":443")
+                    .is_some_and(|name| allowed.eq_ignore_ascii_case(name))
+        }),
     };
     if !permitted {
         return ApiError::new(
@@ -734,6 +756,7 @@ pub async fn bridges_list(State(state): State<ApiState>) -> ApiResult<Json<Bridg
                     .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
                 updated_at: timestamp_from_ms(record.updated_at_ms)
                     .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+                revoked_at: record.revoked_at_ms.and_then(timestamp_from_ms),
             })
             .collect(),
     }))
@@ -823,21 +846,67 @@ fn api_token_resource(record: api_token::ApiTokenRecord) -> ApiTokenResource {
 #[utoipa::path(post, path = "/api/v1/bridges/claims", tag = "bridges", responses((status = 201, body = BridgeClaimResource), (status = 500, body = ProblemDetails)))]
 pub async fn bridge_claim_create(
     State(state): State<ApiState>,
+    Extension(credential): Extension<Credential>,
 ) -> ApiResult<(StatusCode, Json<BridgeClaimResource>)> {
+    if state.config.mode == LaunchMode::Hosted {
+        operator_session_only(credential)?;
+    }
     let claim = lan_bridge::create_claim(&state.database)?;
+    let (backend_host, backend_port) = if state.config.mode == LaunchMode::Hosted {
+        ("studio.tan.coffee", 443)
+    } else {
+        (
+            "xrc.local",
+            state
+                .config
+                .bridge_port
+                .unwrap_or(lan_bridge::DEFAULT_BRIDGE_PORT),
+        )
+    };
     Ok((
         StatusCode::CREATED,
         Json(BridgeClaimResource {
             claim_token: claim.token,
             expires_at: timestamp_from_ms(claim.expires_at_ms)
                 .expect("generated claim expiry is representable"),
-            backend_host: "xrc.local".into(),
-            backend_port: state
-                .config
-                .bridge_port
-                .unwrap_or(lan_bridge::DEFAULT_BRIDGE_PORT),
+            backend_host: backend_host.into(),
+            backend_port,
         }),
     ))
+}
+
+#[utoipa::path(post, path = "/api/v1/bridges/{id}/revoke", tag = "bridges", params(("id" = i64, Path, description = "Bridge row id")), request_body = Object, responses((status = 200, body = BridgeResource), (status = 403, body = ProblemDetails), (status = 404, body = ProblemDetails)))]
+pub async fn bridge_revoke(
+    State(state): State<ApiState>,
+    Extension(credential): Extension<Credential>,
+    Path(id): Path<i64>,
+) -> ApiResult<Json<BridgeResource>> {
+    if state.config.mode == LaunchMode::Hosted {
+        operator_session_only(credential)?;
+    }
+    let record = lan_bridge::revoke_bridge(&state.database, id)?.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "resource_not_found",
+            "Bridge not found",
+            "No bridge has that id.",
+        )
+    })?;
+    state.device.detach_bridge(record.bridge_id.clone());
+    tracing::info!(event = "bridge_revoked", bridge_id = %record.bridge_id);
+    Ok(Json(BridgeResource {
+        id: record.id.to_string(),
+        bridge_id: record.bridge_id,
+        firmware_version: record.firmware_version,
+        build_id: record.build_id,
+        state: record.state,
+        last_seen_at: record.last_seen_at_ms.and_then(timestamp_from_ms),
+        created_at: timestamp_from_ms(record.created_at_ms)
+            .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+        updated_at: timestamp_from_ms(record.updated_at_ms)
+            .unwrap_or_else(|| "1970-01-01T00:00:00Z".into()),
+        revoked_at: record.revoked_at_ms.and_then(timestamp_from_ms),
+    }))
 }
 
 fn timestamp_from_ms(value: i64) -> Option<String> {

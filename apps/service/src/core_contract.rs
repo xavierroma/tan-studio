@@ -20,6 +20,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_sync_runs,
         crate::api::bridges_list,
         crate::api::bridge_claim_create,
+        crate::api::bridge_revoke,
         crate::core_api::openapi_get,
         crate::core_api::profiles_list,
         crate::core_api::profiles_create,

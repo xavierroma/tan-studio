@@ -1,7 +1,7 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-export const DEFAULT_TAN_STUDIO_URL = "http://xrc.local:8080"
+export const DEFAULT_TAN_STUDIO_URL = "https://studio.tan.coffee"
 export const DEFAULT_TIMEOUT_MS = 5_000
 
 export interface TanStudioConfig {
@@ -42,7 +42,6 @@ export async function loadConfig(
   const token = await resolveToken(
     environment,
     userHome,
-    baseUrl,
     fileConfig.tokenFile
   )
 
@@ -51,8 +50,13 @@ export async function loadConfig(
 
 export function normalizeBaseUrl(value: string): string {
   const parsed = new URL(value.trim())
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("TAN_STUDIO_URL must use http or https")
+  const isLoopbackHttp =
+    parsed.protocol === "http:" &&
+    ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname)
+  if (parsed.protocol !== "https:" && !isLoopbackHttp) {
+    throw new Error(
+      "TAN_STUDIO_URL must use https (http is allowed only for loopback tests)"
+    )
   }
   if (parsed.username || parsed.password) {
     throw new Error("TAN_STUDIO_URL must not contain credentials")
@@ -73,7 +77,6 @@ export function normalizeBaseUrl(value: string): string {
 async function resolveToken(
   environment: ConfigEnvironment,
   userHome: string,
-  baseUrl: string,
   configuredTokenFile: string | undefined
 ): Promise<string> {
   const directToken = environment.TAN_STUDIO_API_TOKEN?.trim()
@@ -82,22 +85,7 @@ async function resolveToken(
   const explicitTokenFile =
     environment.TAN_STUDIO_TOKEN_FILE?.trim() ?? configuredTokenFile
   const userTokenFile = join(userHome, ".config", "tan-studio", "token")
-  const macLanTokenFile = join(
-    userHome,
-    "Library",
-    "Application Support",
-    "com.xavierroma.tanstudio",
-    "lan",
-    "token"
-  )
-  const candidates = explicitTokenFile
-    ? [explicitTokenFile]
-    : [
-        userTokenFile,
-        ...(new URL(baseUrl).hostname === "tan-studio.local"
-          ? []
-          : [macLanTokenFile]),
-      ]
+  const candidates = explicitTokenFile ? [explicitTokenFile] : [userTokenFile]
 
   for (const tokenFile of candidates) {
     try {
@@ -126,17 +114,17 @@ async function loadFileConfig(
 ): Promise<FileConfig> {
   const configFile =
     environment.TAN_STUDIO_CONFIG_FILE?.trim() ??
-    join(userHome, ".config", "tan-studio", "codex-plugin.json")
+    join(userHome, ".config", "tan-studio", "mcp.json")
   if (!(await Bun.file(configFile).exists())) return {}
 
   let value: unknown
   try {
     value = JSON.parse(await Bun.file(configFile).text())
   } catch {
-    throw new Error(`Tan Studio plugin config is not valid JSON: ${configFile}`)
+    throw new Error(`Tan Studio MCP config is not valid JSON: ${configFile}`)
   }
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Tan Studio plugin config must be an object: ${configFile}`)
+    throw new Error(`Tan Studio MCP config must be an object: ${configFile}`)
   }
 
   const record = value as Record<string, unknown>
@@ -144,7 +132,7 @@ async function loadFileConfig(
   const unknownKey = Object.keys(record).find((key) => !allowedKeys.has(key))
   if (unknownKey !== undefined) {
     throw new Error(
-      `Unknown Tan Studio plugin config field ${JSON.stringify(unknownKey)}`
+      `Unknown Tan Studio MCP config field ${JSON.stringify(unknownKey)}`
     )
   }
 
@@ -188,7 +176,7 @@ function optionalNonEmptyString(
   if (value === undefined) return undefined
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(
-      `Tan Studio plugin config ${field} must be a non-empty string`
+      `Tan Studio MCP config ${field} must be a non-empty string`
     )
   }
   return value.trim()
@@ -197,7 +185,7 @@ function optionalNonEmptyString(
 function optionalInteger(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined
   if (!Number.isInteger(value)) {
-    throw new Error(`Tan Studio plugin config ${field} must be an integer`)
+    throw new Error(`Tan Studio MCP config ${field} must be an integer`)
   }
   return value as number
 }
