@@ -107,10 +107,12 @@ fi
 require_match "$CADDYFILE" 'studio\.tan\.coffee' 'Caddyfile serves studio.tan.coffee'
 require_match "$CADDYFILE" 'http://studio\.tan\.coffee' 'Caddyfile defines the HTTP site'
 require_match "$CADDYFILE" 'redir https://studio\.tan\.coffee' 'Caddyfile redirects HTTP to HTTPS'
-# The bridge does not speak HTTP to this origin: it dials a plaintext TCP port
-# and the service rejects non-private peers (ADR 0005). A proxy route for it
-# would forward to a path the service does not serve.
-forbid_match "$CADDYFILE" '/device/v1/session' 'Caddyfile does not proxy a bridge session route'
+# Caddy's site-wide reverse proxy carries both normal HTTP and WebSocket
+# upgrades for /device/v1/session. The retired LAN listener must never become a
+# second public port.
+require_match "$CADDYFILE" 'reverse_proxy 127\.0\.0\.1:8080' \
+  'Caddyfile proxies hosted HTTP and WebSocket traffic to the service'
+forbid_match "$CADDYFILE" '8081' 'Caddyfile does not expose the LAN bridge port'
 
 require_match "$UNIT" '^ExecStart=/opt/tan-studio/current/bin/tan-studio-service$' \
   'unit starts the current-release binary'
@@ -156,6 +158,8 @@ require_match "$INSTALLER" 'VACUUM INTO' \
 forbid_match "$DEPLOY_SCRIPT" 'rsync' \
   'deploy script does not require rsync on the VM'
 require_match "$DEPLOY_SCRIPT" 'tar -C' 'deploy script ships the release with tar'
+require_match "$DEPLOY_SCRIPT" 'id_ed25519_tan_studio' \
+  'deploy script defaults to the repository-specific VM key'
 # Ordering matters more than any other line in the installer: snapshotting a
 # database the service is still writing to can tear it. Match executable lines
 # only -- an earlier grep here matched a comment and silently inverted itself.
@@ -171,7 +175,14 @@ else
 fi
 
 forbid_match "$DOCKERFILE" '\.env' 'Dockerfile does not copy .env'
-require_match "$DOCKERFILE" 'linux/amd64|FROM rust:' 'Dockerfile builds the hosted linux binary'
+require_match "$DOCKERFILE" 'Advanced Micro Devices X86-64' \
+  'Dockerfile verifies the hosted linux binary architecture'
+# Match the Dockerfile variable literally rather than expanding it in this shell.
+# shellcheck disable=SC2016
+require_match "$DOCKERFILE" 'FROM --platform=\$BUILDPLATFORM rust:' \
+  'service compiler runs natively on the build host'
+require_match "$DOCKERFILE" 'x86_64-unknown-linux-gnu' \
+  'service compiler targets the hosted amd64 VM explicitly'
 require_match "$DOCKERFILE" 'Caddyfile' 'Dockerfile ships the Caddyfile'
 require_match "$DOCKERFILE" 'tan-studio.service' 'Dockerfile ships the systemd unit'
 

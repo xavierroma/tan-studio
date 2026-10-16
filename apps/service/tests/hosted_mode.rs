@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
+    io::{self, Read, Write},
     path::Path,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -12,6 +14,7 @@ use axum::{
     routing::{get, post},
     Form, Json, Router,
 };
+use futures_util::{SinkExt, StreamExt};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -19,9 +22,14 @@ use tan_studio_service::device::NanoDeviceManager;
 use tan_studio_service::{
     build_router,
     config::{AttachmentStore, API_CLIENT_ID, HOSTED_CLIENT_ID},
+    virtual_nano::{VirtualNanoScenario, VirtualNanoTransport},
     ApiState, Database, LaunchMode, OperatorAuthConfig, ServiceConfig,
 };
 use tempfile::TempDir;
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Message},
+};
 use tower::ServiceExt;
 
 const STUDIO_HOST: &str = "studio.tan.coffee";
@@ -272,8 +280,9 @@ fn hosted_config(database_path: &Path, web_root: &Path, issuer: &str) -> Service
 fn hosted_app(issuer: &str) -> Hosted {
     let directory = TempDir::new().unwrap();
     let web_root = directory.path().join("web");
-    std::fs::create_dir_all(&web_root).unwrap();
+    std::fs::create_dir_all(web_root.join("assets")).unwrap();
     std::fs::write(web_root.join("index.html"), INDEX_HTML).unwrap();
+    std::fs::write(web_root.join("assets/app.js"), "export const ready = true;").unwrap();
     let database_path = directory.path().join("studio.sqlite");
     let database = Database::open(&database_path).unwrap();
     let device = Arc::new(NanoDeviceManager::start(database.clone()));
@@ -529,8 +538,328 @@ async fn complete_google_login(
     .await
 }
 
+async fn connect_bridge_socket(
+    app: &Router,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind hosted service");
+    let address = listener.local_addr().expect("hosted service address");
+    let app = app.clone();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve hosted app");
+    });
+
+    let mut request = format!("ws://{address}/device/v1/session")
+        .into_client_request()
+        .expect("bridge WebSocket request");
+    request.headers_mut().insert(
+        header::HOST,
+        STUDIO_HOST.parse().expect("studio Host header"),
+    );
+    let (socket, response) = connect_async(request)
+        .await
+        .expect("connect hosted bridge WebSocket");
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    socket
+}
+
+async fn bridge_hello(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    credential_name: &str,
+    credential: &str,
+) -> Value {
+    socket
+        .send(Message::Text(
+            json!({
+                "schemaVersion": 1,
+                "bridgeId": "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "firmwareVersion": "test-hosted",
+                "buildId": "integration-test",
+                credential_name: credential,
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("send bridge hello");
+    let Message::Text(response) = socket
+        .next()
+        .await
+        .expect("bridge hello response")
+        .expect("read bridge hello response")
+    else {
+        panic!("bridge hello response was not text");
+    };
+    serde_json::from_str(&response).expect("bridge hello response JSON")
+}
+
 #[tokio::test]
-async fn hosted_allows_studio_host_and_rejects_hostile_hosts() {
+async fn operator_claim_opens_a_persistent_bridge_session_and_device_token_reconnects() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/bridges/claims",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{}", json_body(&body));
+    let claim = json_body(&body);
+    assert_eq!(claim["backendHost"], STUDIO_HOST);
+    assert_eq!(claim["backendPort"], 443);
+    let claim_token = claim["claimToken"].as_str().expect("claim token");
+
+    let mut claimed = connect_bridge_socket(&hosted.app).await;
+    let accepted = bridge_hello(&mut claimed, "claimToken", claim_token).await;
+    assert_eq!(accepted["accepted"], true);
+    let device_token = accepted["deviceToken"]
+        .as_str()
+        .expect("durable device token")
+        .to_owned();
+    claimed
+        .send(Message::Ping(b"claimed-alive".as_slice().into()))
+        .await
+        .expect("ping claimed session");
+    assert_eq!(
+        claimed
+            .next()
+            .await
+            .expect("claimed pong")
+            .expect("claimed pong"),
+        Message::Pong(b"claimed-alive".as_slice().into())
+    );
+    claimed.close(None).await.expect("close claimed session");
+
+    let mut reconnected = connect_bridge_socket(&hosted.app).await;
+    let accepted = bridge_hello(&mut reconnected, "deviceToken", &device_token).await;
+    assert_eq!(accepted["accepted"], true);
+    assert!(accepted["deviceToken"].is_null());
+    reconnected
+        .send(Message::Ping(b"reconnected-alive".as_slice().into()))
+        .await
+        .expect("ping reconnected session");
+    assert_eq!(
+        reconnected
+            .next()
+            .await
+            .expect("reconnected pong")
+            .expect("reconnected pong"),
+        Message::Pong(b"reconnected-alive".as_slice().into())
+    );
+}
+
+#[tokio::test]
+async fn hosted_websocket_tunnels_a_complete_virtual_nano_smoke_session() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/bridges/claims",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{}", json_body(&body));
+    let claim = json_body(&body);
+
+    let mut socket = connect_bridge_socket(&hosted.app).await;
+    let accepted = bridge_hello(
+        &mut socket,
+        "claimToken",
+        claim["claimToken"].as_str().expect("claim token"),
+    )
+    .await;
+    assert_eq!(accepted["accepted"], true);
+
+    let (mut nano, _) =
+        VirtualNanoTransport::new(VirtualNanoScenario::smoke()).expect("construct virtual Nano");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut bytes = [0u8; 8_192];
+    while Instant::now() < deadline && !nano.verification().smoke_complete {
+        loop {
+            match nano.read(&mut bytes) {
+                Ok(0) => break,
+                Ok(length) => {
+                    let length = u16::try_from(length).expect("virtual Nano chunk length");
+                    let mut record = Vec::with_capacity(usize::from(length) + 3);
+                    record.push(1);
+                    record.extend_from_slice(&length.to_be_bytes());
+                    record.extend_from_slice(&bytes[..usize::from(length)]);
+                    socket
+                        .send(Message::Binary(record.into()))
+                        .await
+                        .expect("send Nano bytes");
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::TimedOut
+                            | io::ErrorKind::WouldBlock
+                            | io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    break;
+                }
+                Err(error) => panic!("virtual Nano read failed: {error}"),
+            }
+        }
+
+        match tokio::time::timeout(Duration::from_millis(25), socket.next()).await {
+            Ok(Some(Ok(Message::Binary(record)))) => {
+                assert!(record.len() >= 4, "backend record has a payload");
+                assert_eq!(record[0], 2, "backend-to-USB record type");
+                let length = u16::from_be_bytes([record[1], record[2]]) as usize;
+                assert_eq!(length, record.len() - 3, "backend record length");
+                nano.write_all(&record[3..])
+                    .expect("deliver backend bytes to virtual Nano");
+                nano.flush().expect("flush virtual Nano");
+            }
+            Ok(Some(Ok(Message::Ping(payload)))) => {
+                socket
+                    .send(Message::Pong(payload))
+                    .await
+                    .expect("answer hosted heartbeat");
+            }
+            Ok(Some(Ok(Message::Pong(_)))) | Err(_) => {}
+            Ok(Some(Ok(Message::Close(frame)))) => {
+                panic!("hosted bridge closed during smoke session: {frame:?}")
+            }
+            Ok(Some(Ok(other))) => panic!("unexpected hosted bridge message: {other:?}"),
+            Ok(Some(Err(error))) => panic!("hosted bridge failed: {error}"),
+            Ok(None) => panic!("hosted bridge ended during smoke session"),
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    let verification = nano.verification();
+    assert!(
+        verification.smoke_complete,
+        "hosted tunnel did not complete the Nano smoke session: {verification:?}"
+    );
+}
+
+#[tokio::test]
+async fn hosted_api_token_cannot_mint_a_bridge_claim() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let (secret, _) = mint_api_token(&hosted.app, &issuer, "automation").await;
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/bridges/claims",
+        STUDIO_HOST,
+        None,
+        None,
+        &[
+            ("authorization", &format!("Bearer {secret}")),
+            ("x-tan-studio-client", API_CLIENT_ID),
+        ],
+        json!({}),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN, "{}", json_body(&body));
+    assert_eq!(json_body(&body)["code"], "operator_session_required");
+}
+
+#[tokio::test]
+async fn operator_revocation_closes_the_bridge_and_rejects_its_durable_token() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/bridges/claims",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{}", json_body(&body));
+    let claim = json_body(&body);
+    let mut socket = connect_bridge_socket(&hosted.app).await;
+    let accepted = bridge_hello(
+        &mut socket,
+        "claimToken",
+        claim["claimToken"].as_str().expect("claim token"),
+    )
+    .await;
+    let device_token = accepted["deviceToken"]
+        .as_str()
+        .expect("durable device token")
+        .to_owned();
+
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/bridges",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
+    let bridge_id = json_body(&body)["items"][0]["id"]
+        .as_str()
+        .expect("stored bridge id")
+        .to_owned();
+
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        &format!("/api/v1/bridges/{bridge_id}/revoke"),
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie_header(&jar).as_deref(),
+        HOSTED_CLIENT,
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
+    assert_eq!(json_body(&body)["state"], "offline");
+    assert!(json_body(&body)["revokedAt"].is_string());
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(1), socket.next()).await,
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
+    ));
+
+    let mut reconnect = connect_bridge_socket(&hosted.app).await;
+    let rejected = bridge_hello(&mut reconnect, "deviceToken", &device_token).await;
+    assert_eq!(rejected["accepted"], false);
+    assert_eq!(rejected["error"], "authentication_failed");
+}
+
+#[tokio::test]
+async fn hosted_allows_studio_host_with_default_https_port_and_rejects_hostile_hosts() {
     let hosted = hosted_app("http://127.0.0.1:1");
     let (status, _, body) = send(
         &hosted.app,
@@ -545,10 +874,24 @@ async fn hosted_allows_studio_host_and_rejects_hostile_hosts() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json_body(&body)["status"], "ok");
 
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/healthz",
+        "studio.tan.coffee:443",
+        None,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json_body(&body)["status"], "ok");
+
     for host in [
         "evil.example",
         "tan.coffee",
         "studio.tan.coffee.evil.example",
+        "studio.tan.coffee:444",
     ] {
         let (status, _, body) =
             send(&hosted.app, Method::GET, "/healthz", host, None, None, &[]).await;
@@ -558,10 +901,90 @@ async fn hosted_allows_studio_host_and_rejects_hostile_hosts() {
 }
 
 #[tokio::test]
+async fn hosted_document_routes_redirect_to_google_until_the_operator_is_signed_in() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+
+    for method in [Method::GET, Method::HEAD] {
+        for path in ["/", "/roasts"] {
+            let (status, headers, body) = send(
+                &hosted.app,
+                method.clone(),
+                path,
+                STUDIO_HOST,
+                None,
+                None,
+                &[],
+            )
+            .await;
+            assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{method} {path}");
+            assert_eq!(
+                headers
+                    .get(header::LOCATION)
+                    .and_then(|value| value.to_str().ok()),
+                Some("/auth/google")
+            );
+            assert!(body.is_empty());
+        }
+    }
+
+    let (status, headers, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/assets/app.js",
+        STUDIO_HOST,
+        None,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/javascript")
+    );
+    assert_eq!(body.as_ref(), b"export const ready = true;");
+
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/roasts",
+        STUDIO_HOST,
+        None,
+        cookie_header(&jar).as_deref(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8(body.to_vec())
+        .unwrap()
+        .contains("Tan Studio"));
+}
+
+#[tokio::test]
 async fn hosted_html_carries_no_token_and_no_session_secret() {
-    let hosted = hosted_app("http://127.0.0.1:1");
-    let (status, headers, body) =
-        send(&hosted.app, Method::GET, "/", STUDIO_HOST, None, None, &[]).await;
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+    let (status, headers, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/",
+        STUDIO_HOST,
+        None,
+        cookie_header(&jar).as_deref(),
+        &[],
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         headers
@@ -810,6 +1233,25 @@ async fn sign_out_clears_the_operator_session() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(json_body(&body)["code"], "unauthenticated");
+
+    let (status, headers, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/roasts",
+        STUDIO_HOST,
+        None,
+        cookie_header(&jar).as_deref(),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/auth/google")
+    );
+    assert!(body.is_empty());
 }
 
 #[tokio::test]

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import {
   TanBridgeBackendHost,
+  TanBridgeBackendPath,
+  TanBridgeBackendPort,
   TanBridgeSetupGetStatusRequestSchema,
   TanBridgeSetupGetStatusResponseSchema,
   TanBridgeSetupScanWifiResponseSchema,
@@ -13,7 +15,7 @@ describe("Tan Bridge Web Serial setup contract", () => {
   test("accepts the bounded status exchange", () => {
     expect(
       TanBridgeSetupGetStatusRequestSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId,
         type: "setup.getStatus",
         payload: {},
@@ -22,15 +24,21 @@ describe("Tan Bridge Web Serial setup contract", () => {
 
     expect(
       TanBridgeSetupGetStatusResponseSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
           bridgeId: "abcdefghijklmnopqrstuvwxyz",
           firmware: { version: "0.1.0-dev", build: "setup-v1" },
           lifecycle: "unprovisioned",
           wifi: { state: "disabled" },
-          backend: { state: "offline", host: TanBridgeBackendHost },
+          backend: {
+            state: "offline",
+            transport: "wss",
+            host: TanBridgeBackendHost,
+            port: TanBridgeBackendPort,
+            path: TanBridgeBackendPath,
+          },
           claim: { state: "unclaimed" },
           diagnostics: {
             bootCount: 1,
@@ -55,7 +63,7 @@ describe("Tan Bridge Web Serial setup contract", () => {
   test("rejects unknown properties and secret-shaped response fields", () => {
     expect(
       TanBridgeSetupGetStatusRequestSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId,
         type: "setup.getStatus",
         payload: {},
@@ -65,16 +73,61 @@ describe("Tan Bridge Web Serial setup contract", () => {
 
     expect(
       TanBridgeSetupGetStatusResponseSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
           bridgeId: "abcdefghijklmnopqrstuvwxyz",
           firmware: { version: "0.1.0-dev", build: "setup-v1" },
           lifecycle: "unprovisioned",
           wifi: { state: "disabled", password: "must-not-leak" },
-          backend: { state: "offline", host: TanBridgeBackendHost },
+          backend: {
+            state: "offline",
+            transport: "wss",
+            host: TanBridgeBackendHost,
+            port: TanBridgeBackendPort,
+            path: TanBridgeBackendPath,
+          },
           claim: { state: "unclaimed" },
+          diagnostics: {
+            bootCount: 1,
+            brownoutCount: 0,
+            watchdogCount: 0,
+            lastResetReason: "powerOn",
+            previousResetReason: "unknown",
+            interruptWatchdogCount: 0,
+            taskWatchdogCount: 0,
+            otherWatchdogCount: 0,
+            watchdogUsbStage: "boot",
+            watchdogNetworkStage: "notStarted",
+            persisted: true,
+            networkStartDelayMs: 2_500,
+            wifiMaxTxPowerQuarterDbm: 44,
+          },
+        },
+      }).success
+    ).toBe(false)
+  })
+
+  test("rejects the retired local-LAN endpoint", () => {
+    expect(
+      TanBridgeSetupGetStatusResponseSchema.safeParse({
+        schemaVersion: 2,
+        requestId,
+        result: {
+          protocolVersion: 2,
+          bridgeId: "abcdefghijklmnopqrstuvwxyz",
+          firmware: { version: "0.2.7-local", build: "local-lan-v8" },
+          lifecycle: "operational",
+          wifi: { state: "online" },
+          backend: {
+            state: "online",
+            transport: "tcp",
+            host: "xrc.local",
+            port: 8081,
+            path: "/",
+          },
+          claim: { state: "claimed" },
           diagnostics: {
             bootCount: 1,
             brownoutCount: 0,
@@ -98,7 +151,7 @@ describe("Tan Bridge Web Serial setup contract", () => {
   test("accepts a sanitized and bounded Wi-Fi scan", () => {
     expect(
       TanBridgeSetupScanWifiResponseSchema.safeParse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         requestId,
         result: {
           scanId: "0123456789abcdef",

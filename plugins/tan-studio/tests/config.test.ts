@@ -10,7 +10,7 @@ import {
 } from "../src/config"
 
 describe("Tan Studio plugin configuration", () => {
-  test("defaults to the current always-on Mac LAN origin", async () => {
+  test("defaults to the hosted Tan Studio origin", async () => {
     const config = await loadConfig(
       { TAN_STUDIO_API_TOKEN: "a".repeat(64) },
       "/unused"
@@ -21,16 +21,25 @@ describe("Tan Studio plugin configuration", () => {
   })
 
   test("accepts an API URL and normalizes it to an origin", () => {
-    expect(normalizeBaseUrl("http://coffee.local:8080/api/v1/")).toBe(
-      "http://coffee.local:8080"
+    expect(normalizeBaseUrl("https://studio.tan.coffee/api/v1/")).toBe(
+      "https://studio.tan.coffee"
+    )
+  })
+
+  test("requires HTTPS outside isolated loopback tests", () => {
+    expect(() => normalizeBaseUrl("http://studio.tan.coffee")).toThrow(
+      "must use https"
+    )
+    expect(normalizeBaseUrl("http://127.0.0.1:8080")).toBe(
+      "http://127.0.0.1:8080"
     )
   })
 
   test("rejects embedded credentials and unrelated paths", () => {
-    expect(() => normalizeBaseUrl("http://secret@coffee.local")).toThrow(
+    expect(() => normalizeBaseUrl("https://secret@studio.tan.coffee")).toThrow(
       "must not contain credentials"
     )
-    expect(() => normalizeBaseUrl("http://coffee.local/admin")).toThrow(
+    expect(() => normalizeBaseUrl("https://studio.tan.coffee/admin")).toThrow(
       "must be an origin"
     )
   })
@@ -52,30 +61,30 @@ describe("Tan Studio plugin configuration", () => {
       await mkdir(configDirectory, { recursive: true })
       await writeFile(tokenFile, "c".repeat(64), { mode: 0o600 })
       await writeFile(
-        join(configDirectory, "codex-plugin.json"),
+        join(configDirectory, "mcp.json"),
         JSON.stringify({
-          url: "http://configured.local:8080/api/v1",
+          url: "https://configured.example/api/v1",
           tokenFile,
           timeoutMs: 7_500,
         })
       )
 
       expect(await loadConfig({}, userHome)).toEqual({
-        baseUrl: "http://configured.local:8080",
+        baseUrl: "https://configured.example",
         token: "c".repeat(64),
         timeoutMs: 7_500,
       })
       expect(
         await loadConfig(
           {
-            TAN_STUDIO_URL: "http://override.local:9000",
+            TAN_STUDIO_URL: "https://override.example",
             TAN_STUDIO_API_TOKEN: "d".repeat(64),
             TAN_STUDIO_TIMEOUT_MS: "9000",
           },
           userHome
         )
       ).toEqual({
-        baseUrl: "http://override.local:9000",
+        baseUrl: "https://override.example",
         token: "d".repeat(64),
         timeoutMs: 9_000,
       })
@@ -90,11 +99,11 @@ describe("Tan Studio plugin configuration", () => {
     try {
       await mkdir(configDirectory, { recursive: true })
       await writeFile(
-        join(configDirectory, "codex-plugin.json"),
+        join(configDirectory, "mcp.json"),
         JSON.stringify({ token: "must-not-live-here" })
       )
       expect(loadConfig({}, userHome)).rejects.toThrow(
-        "Unknown Tan Studio plugin config field"
+        "Unknown Tan Studio MCP config field"
       )
     } finally {
       await rm(userHome, { recursive: true, force: true })

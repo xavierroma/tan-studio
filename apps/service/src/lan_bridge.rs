@@ -7,46 +7,25 @@ use std::{
 
 use rand::random;
 use rusqlite::{params, OptionalExtension};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     time::timeout,
 };
 
-use crate::{db::Database, device::NanoDeviceManager};
+use crate::{
+    bridge_session::{
+        accept_hello, allowed_read_only_sassi_frame, sha256_hex, BridgeHelloResponse,
+        BACKEND_TO_USB, BRIDGE_PROTOCOL_VERSION, MAX_TUNNEL_PAYLOAD_BYTES, USB_TO_BACKEND,
+    },
+    db::Database,
+    device::NanoDeviceManager,
+};
 
-pub const BRIDGE_PROTOCOL_VERSION: u8 = 1;
 pub const DEFAULT_BRIDGE_PORT: u16 = 8081;
 const HANDSHAKE_LIMIT_BYTES: usize = 2_048;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_millis(250);
-const MAX_TUNNEL_PAYLOAD_BYTES: usize = 8_192;
-const USB_TO_BACKEND: u8 = 1;
-const BACKEND_TO_USB: u8 = 2;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BridgeHello {
-    schema_version: u8,
-    bridge_id: String,
-    firmware_version: String,
-    build_id: String,
-    claim_token: Option<String>,
-    device_token: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BridgeHelloResponse<'a> {
-    schema_version: u8,
-    accepted: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    device_token: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<&'a str>,
-}
 
 #[derive(Debug, Clone)]
 pub struct CreatedBridgeClaim {
@@ -64,11 +43,7 @@ pub struct StoredBridge {
     pub last_seen_at_ms: Option<i64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
-}
-
-struct Authentication {
-    issued_device_token: Option<String>,
-    revision: i64,
+    pub revoked_at_ms: Option<i64>,
 }
 
 pub fn create_claim(database: &Database) -> Result<CreatedBridgeClaim, rusqlite::Error> {
@@ -90,7 +65,7 @@ pub fn list_bridges(database: &Database) -> Result<Vec<StoredBridge>, rusqlite::
     let connection = database.connection();
     let mut statement = connection.prepare(
         "SELECT id, bridge_id, firmware_version, build_id, state,
-                last_seen_at_ms, created_at_ms, updated_at_ms
+                last_seen_at_ms, created_at_ms, updated_at_ms, revoked_at_ms
            FROM tan_bridges
           ORDER BY coalesce(last_seen_at_ms, 0) DESC, id DESC",
     )?;
@@ -105,10 +80,47 @@ pub fn list_bridges(database: &Database) -> Result<Vec<StoredBridge>, rusqlite::
                 last_seen_at_ms: row.get(5)?,
                 created_at_ms: row.get(6)?,
                 updated_at_ms: row.get(7)?,
+                revoked_at_ms: row.get(8)?,
             })
         })?
         .collect();
     rows
+}
+
+pub fn revoke_bridge(
+    database: &Database,
+    id: i64,
+) -> Result<Option<StoredBridge>, rusqlite::Error> {
+    let now = now_ms();
+    let connection = database.connection();
+    connection.execute(
+        "UPDATE tan_bridges
+            SET state='offline', revoked_at_ms=coalesce(revoked_at_ms, ?),
+                updated_at_ms=?, revision=revision+1
+          WHERE id=?",
+        params![now, now, id],
+    )?;
+    connection
+        .query_row(
+            "SELECT id, bridge_id, firmware_version, build_id, state,
+                    last_seen_at_ms, created_at_ms, updated_at_ms, revoked_at_ms
+               FROM tan_bridges WHERE id=?",
+            [id],
+            |row| {
+                Ok(StoredBridge {
+                    id: row.get(0)?,
+                    bridge_id: row.get(1)?,
+                    firmware_version: row.get(2)?,
+                    build_id: row.get(3)?,
+                    state: row.get(4)?,
+                    last_seen_at_ms: row.get(5)?,
+                    created_at_ms: row.get(6)?,
+                    updated_at_ms: row.get(7)?,
+                    revoked_at_ms: row.get(8)?,
+                })
+            },
+        )
+        .optional()
 }
 
 pub async fn serve(
@@ -163,27 +175,15 @@ async fn accept_bridge(
     if length == 0 || length > HANDSHAKE_LIMIT_BYTES || !line.ends_with('\n') {
         return Err("invalid_handshake");
     }
-    let hello: BridgeHello =
-        serde_json::from_str(line.trim_end()).map_err(|_| "invalid_handshake")?;
-    if hello.schema_version != BRIDGE_PROTOCOL_VERSION
-        || !valid_bridge_id(&hello.bridge_id)
-        || hello.firmware_version.is_empty()
-        || hello.firmware_version.len() > 64
-        || hello.build_id.is_empty()
-        || hello.build_id.len() > 64
-        || (hello.claim_token.is_some() == hello.device_token.is_some())
-    {
-        return reject(reader.into_inner(), "invalid_handshake").await;
-    }
-    let authentication = authenticate(&database, &hello).map_err(|_| "authentication_failed")?;
-    let Some(authentication) = authentication else {
-        return reject(reader.into_inner(), "authentication_failed").await;
+    let accepted = match accept_hello(&database, line.trim_end()) {
+        Ok(accepted) => accepted,
+        Err(error) => return reject(reader.into_inner(), error).await,
     };
 
     let response = BridgeHelloResponse {
         schema_version: BRIDGE_PROTOCOL_VERSION,
         accepted: true,
-        device_token: authentication.issued_device_token.as_deref(),
+        device_token: accepted.authentication.issued_device_token.as_deref(),
         error: None,
     };
     let mut stream = reader.into_inner();
@@ -205,10 +205,15 @@ async fn accept_bridge(
         .set_write_timeout(Some(Duration::from_secs(3)))
         .map_err(|_| "socket_setup_failed")?;
 
-    tracing::info!(event = "bridge_connected", bridge_id = %hello.bridge_id);
+    tracing::info!(event = "bridge_connected", bridge_id = %accepted.hello.bridge_id);
     device.attach_bridge(
-        hello.bridge_id.clone(),
-        BridgeTransport::new(standard, database, hello.bridge_id, authentication.revision),
+        accepted.hello.bridge_id.clone(),
+        BridgeTransport::new(
+            standard,
+            database,
+            accepted.hello.bridge_id,
+            accepted.authentication.revision,
+        ),
     );
     Ok(())
 }
@@ -225,115 +230,6 @@ async fn reject(mut stream: TcpStream, error: &'static str) -> Result<(), &'stat
         let _ = stream.write_all(&encoded).await;
     }
     Err(error)
-}
-
-fn authenticate(
-    database: &Database,
-    hello: &BridgeHello,
-) -> Result<Option<Authentication>, rusqlite::Error> {
-    let now = now_ms();
-    let mut connection = database.connection();
-    let transaction = connection.transaction()?;
-    let result = if let Some(claim_token) = &hello.claim_token {
-        if !valid_token(claim_token) {
-            None
-        } else {
-            let claim_id: Option<i64> = transaction
-                .query_row(
-                    "SELECT id FROM bridge_claims
-                      WHERE token_sha256=? AND consumed_at_ms IS NULL AND expires_at_ms>=?",
-                    params![sha256_hex(claim_token), now],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if let Some(claim_id) = claim_id {
-                let device_token = hex::encode(random::<[u8; 32]>());
-                transaction.execute(
-                    "INSERT INTO tan_bridges(
-                       bridge_id, device_token_sha256, firmware_version, build_id,
-                       state, last_seen_at_ms, created_at_ms, updated_at_ms
-                     ) VALUES (?, ?, ?, ?, 'connected', ?, ?, ?)
-                     ON CONFLICT(bridge_id) DO UPDATE SET
-                       device_token_sha256=excluded.device_token_sha256,
-                       firmware_version=excluded.firmware_version,
-                       build_id=excluded.build_id,
-                       state='connected', last_seen_at_ms=excluded.last_seen_at_ms,
-                       updated_at_ms=excluded.updated_at_ms, revision=tan_bridges.revision+1",
-                    params![
-                        hello.bridge_id,
-                        sha256_hex(&device_token),
-                        hello.firmware_version,
-                        hello.build_id,
-                        now,
-                        now,
-                        now
-                    ],
-                )?;
-                transaction.execute(
-                    "UPDATE bridge_claims SET consumed_at_ms=? WHERE id=?",
-                    params![now, claim_id],
-                )?;
-                let revision = transaction.query_row(
-                    "SELECT revision FROM tan_bridges WHERE bridge_id=?",
-                    [&hello.bridge_id],
-                    |row| row.get(0),
-                )?;
-                Some(Authentication {
-                    issued_device_token: Some(device_token),
-                    revision,
-                })
-            } else {
-                None
-            }
-        }
-    } else if let Some(device_token) = &hello.device_token {
-        if !valid_token(device_token) {
-            None
-        } else {
-            let expected: Option<String> = transaction
-                .query_row(
-                    "SELECT device_token_sha256 FROM tan_bridges WHERE bridge_id=?",
-                    [&hello.bridge_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let presented = sha256_hex(device_token);
-            if expected.as_deref().is_some_and(|value| {
-                value.len() == presented.len()
-                    && constant_time_eq::constant_time_eq(value.as_bytes(), presented.as_bytes())
-            }) {
-                transaction.execute(
-                    "UPDATE tan_bridges SET firmware_version=?, build_id=?, state='connected',
-                            last_seen_at_ms=?, updated_at_ms=?, revision=revision+1
-                      WHERE bridge_id=?",
-                    params![
-                        hello.firmware_version,
-                        hello.build_id,
-                        now,
-                        now,
-                        hello.bridge_id
-                    ],
-                )?;
-                let revision = transaction.query_row(
-                    "SELECT revision FROM tan_bridges WHERE bridge_id=?",
-                    [&hello.bridge_id],
-                    |row| row.get(0),
-                )?;
-                Some(Authentication {
-                    issued_device_token: None,
-                    revision,
-                })
-            } else {
-                None
-            }
-        }
-    } else {
-        None
-    };
-    if result.is_some() {
-        transaction.commit()?;
-    }
-    Ok(result)
 }
 
 pub struct BridgeTransport {
@@ -450,48 +346,6 @@ impl Drop for BridgeTransport {
     }
 }
 
-fn allowed_read_only_sassi_frame(bytes: &[u8]) -> bool {
-    if bytes.len() < 8
-        || !bytes.starts_with(b"KL*")
-        || bytes.last() != Some(&b'\r')
-        || bytes[..bytes.len() - 1]
-            .iter()
-            .any(|byte| !(0x20..=0x7e).contains(byte))
-    {
-        return false;
-    }
-    let Some(separator) = bytes[3..]
-        .iter()
-        .position(|byte| *byte == b'|')
-        .map(|index| index + 3)
-    else {
-        return false;
-    };
-    let Ok(message_type) = std::str::from_utf8(&bytes[3..separator])
-        .ok()
-        .and_then(|value| value.parse::<u8>().ok())
-        .ok_or(())
-    else {
-        return false;
-    };
-    matches!(message_type, 1 | 3 | 5 | 7 | 13)
-}
-
-fn valid_bridge_id(value: &str) -> bool {
-    value.len() == 26
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || (b'2'..=b'7').contains(&byte))
-}
-
-fn valid_token(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn sha256_hex(value: &str) -> String {
-    hex::encode(Sha256::digest(value.as_bytes()))
-}
-
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -499,6 +353,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge_session::{authenticate, BridgeHello};
 
     fn connected_socket_pair() -> (StdTcpStream, StdTcpStream) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

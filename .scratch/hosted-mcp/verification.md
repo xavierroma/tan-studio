@@ -1,32 +1,25 @@
-# Hosted MCP verification — 16 October 2026
+# Integrated hosted MCP verification — 16 October 2026
 
-Status: ready-for-human
+Status: local review candidate; no push, PR, CI dispatch, deployment, public enablement or real agent access.
 
-Implementation commit: `8e7bd8ffff17cc0fcef9919c8892112ec8a37615`.
-Baseline: `6c4af912173dcad06221139ce6838fd6b938a2fc`.
-This follow-up changes verification fixtures and documentation only; production behavior is unchanged.
+Base: upstream `4b8ec415f885dc471911e61bf9b200cc444434a7`. The local merge preserves the hosted bridge WebSocket, operator-only bridge enrollment/revocation, TLS RSA/ISRG Root X1 settings, hosted stdio defaults and native Rust cross compilation. Bridge migration `0015_bridge_revocation.sql`, ADR 0008 and the bridge session implementation/tests are unchanged from upstream. Agent credentials use migration **16** and ADR **0009**. A new upgrade test verifies an existing revoked bridge and the migration-15 hash survive, and that no agent credential is created by migration.
 
-## Desktop failure comparison
+**Obsolete:** release `hosted-mcp-review-20261016`, commits `8e7bd8f`/`fa3ca67` as standalone candidates, and both previously delivered review bundles. They predate upstream migration 15 and must not be installed. The integrated patch must be applied against the exact base above, not the earlier base.
 
-A fresh, separate checkout of the unchanged baseline ran `bun install --frozen-lockfile` and `bun run --cwd apps/desktop build` on the same Mac (Darwin arm64, Bun 1.4.2, Rust 1.97.1, Xcode 27.1). It failed with `E0463: can't find crate for ctor_proc_macro`, the same first failure as the MCP branch. The baseline working tree remained clean. A targeted dependency-cache retry on the MCP branch failed loading `libdarling_macro` with `mis-aligned LINKEDIT string pool`.
+## Integrated checks
 
-`git diff 6c4af91 8e7bd8f -- apps/desktop package.json` is empty. Both checkouts have identical desktop hashes:
-
-- Cargo.toml: `1413a267af7da089f894af08a663753a22a5a62f281cd0f8ab7fa020b91a3488`
-- Cargo.lock: `1d0299487d9fa4739fcd7cc05e082c51a4a2502c5f5859aa4accffe228bc7459`
-
-The packaging failure therefore reproduces before the MCP implementation. No unrelated desktop/compiler workaround was added. The complete `bun run check` remains blocked at this pre-existing packaging step.
-
-## Exact test counts
-
-The original full gate passed all typechecks, **286 tests**, and **118 hosted shell assertions**, before desktop packaging failed:
+- Architecture boundaries, all workspace typechecks, Rust formatting and workflow YAML/Prettier checks pass.
+- **296 application tests pass**, including the real HTTP MCP end-to-end fixture. The full test command then found an upstream ShellCheck SC2016 warning on a deliberately literal Docker variable. A narrow documented suppression fixes it; the affected hosted suite was rerun and **122 shell assertions pass**. Application tests were not repeated for that comment-only test-script correction.
+- Web and both MCP bundles build successfully. Generated contracts were regenerated after the merge.
+- Caddy 2 validates the merged TLS configuration both with and without the optional MCP route, using local fixture settings and network-disabled containers.
 
 | Suite | Passed |
 |---|---:|
-| Rust service unit tests | 87 |
-| Rust hosted integration tests | 16 |
-| MCP plugin | 31 |
-| Web UI | 27 |
+| Rust service unit | 88 |
+| Rust hosted bridge integration | 1 |
+| Rust hosted mode integration | 21 |
+| MCP plugin | 32 |
+| Web UI | 28 |
 | Desktop | 8 |
 | Serial bridge | 3 |
 | UI package | 1 |
@@ -34,43 +27,44 @@ The original full gate passed all typechecks, **286 tests**, and **118 hosted sh
 | Device Sassi | 23 |
 | Native format adapters | 17 |
 | Application | 7 |
-| API contract | 13 |
+| API contract | 14 |
 | Printing adapters | 9 |
 | Companion | 37 |
 
-Follow-up verification passed:
+Native Linux ARM64 runtime verification passed **142 tests** (32 MCP + 88 Rust unit + 1 hosted bridge + 21 hosted mode), zero failures, using the actual bundled HTTP entrypoint and a network-disabled container with no mounts or published ports. The integrated Linux AMD64 release build also passed: both Rust and Bun are verified x86-64 ELF files, and the released HTTP bundle exactly matches the checked-in SHA-256 `91e3cdff4bcb80612374232ad563e7382aa9d55d0a68e223fe52bd8950a73711`. Release output: `dist/hosted/hosted-mcp-integrated-20261016`. Repeated architecture runs are not additional distinct test cases.
 
-- Native macOS arm64, Bun 1.4.2: **1 targeted end-to-end test**, now using a real ephemeral loopback HTTP listener and official client fetch, private Unix authorization and real Rust REST. **31 MCP tests** and plugin typecheck also passed again.
-- Native Docker Linux aarch64, Bun 1.4.2, Rust 1.97.1: **134 tests** (31 MCP + 87 Rust unit + 16 Rust hosted integration), **0 failures**. The end-to-end test starts the actual bundled `http-server.js` subprocess with the production entrypoint's fixed ports inside the isolated container. It verifies readiness, unauthenticated 401, 8/16 scoped catalogs, reads/writes, server attribution, stale revisions, and MCP-token rejection by REST.
-- Docker execution used `--network none`, no mounts and no published ports. Temporary databases/credentials/socket are fixture-only and removed with the container. No production resources were contacted.
+## AMD64 workflow prepared locally
 
-Counts across the repeated runs are not distinct test cases; do not add them together.
+`.github/workflows/hosted-mcp-verify.yml` is PR-only, restricted to the same-repository `codex/hosted-mcp` branch targeting main. It uses `ubuntu-24.04`, asserts x86_64, builds `Dockerfile.verify` for linux/amd64 and executes tests with `--network none`, no host mounts and no published ports. The checkout action is pinned to its observed official v4 SHA and uses `persist-credentials: false`; the token has only `contents: read`. There are no secret references, cloud credentials, deployment environments, push triggers or manual dispatch triggers. Dependency downloads occur only during the image build.
 
-## Linux target distinction
+The workflow has **not been pushed or run**. Native AMD64 runtime verification remains outstanding. Earlier AMD64 Bun under QEMU on this ARM Mac crashed before the smoke script ran; ARM64 success cannot establish AMD64 runtime compatibility. Creating the PR after approval will itself trigger this workflow; it needs no dispatch call. Deployment, public enablement and granting a real agent access remain separate decisions.
 
-The Linux AMD64 release build succeeded, and its Rust executable generated OpenAPI under local emulation. Its bundled HTTP JavaScript matches the checked-in SHA-256. However, QEMU on this ARM Mac crashes AMD64 Bun 1.4.2 before the smoke script executes. Native ARM64 Linux passing does not establish AMD64 runtime success.
+## Desktop packaging limitation
 
-The checked-in `deploy/hosted/Dockerfile.verify` and `verify-mcp-runtime.sh` provide a reproducible native test route. For the remaining AMD64 check, run them on a **non-production native x86-64 Linux machine with Docker**, for example a dedicated Debian 13 test VM. Build-time dependency downloads are needed; runtime is isolated with `--network none`. No credentials, production configuration, domain or public ports are needed. Actual systemd/Caddy ownership/restart and e2-micro memory/load validation remain separate rollout checks.
+The earlier complete `bun run check` passed typechecks and tests, then failed during desktop packaging. A fresh separate checkout of baseline `6c4af912173dcad06221139ce6838fd6b938a2fc` reproduced the same first failure, `E0463: can't find crate for ctor_proc_macro`, on Darwin arm64, Bun 1.4.2, Rust 1.97.1 and Xcode 27.1. A targeted dependency-cache retry on the MCP branch failed loading `libdarling_macro` with `mis-aligned LINKEDIT string pool`.
 
-## Review and eventual activation
+Desktop code and manifests are unchanged by this integration. Both compared checkouts had identical desktop hashes:
 
-The branch is local and unpushed; this task created no GitHub PR. A small patch/docs/checksums bundle supports remote review. The full Linux release remains at `dist/hosted/hosted-mcp-review-20261016` in the isolated implementation checkout.
+- Cargo.toml: `1413a267af7da089f894af08a663753a22a5a62f281cd0f8ab7fa020b91a3488`
+- Cargo.lock: `1d0299487d9fa4739fcd7cc05e082c51a4a2502c5f5859aa4accffe228bc7459`
 
-Nothing was deployed or enabled, and no real agent credential was created. Eventual approval must identify:
+No unrelated compiler workaround was added. Integrated desktop typechecks and eight tests pass. Desktop release packaging was not repeated; the complete all-artifact gate remains limited by that pre-existing packaging failure.
 
-1. The concrete reviewed release to install on the hosted VM, including schema 15 migration, snapshot and service restarts.
-2. Enabling public authenticated `/mcp`, including the dedicated Unix identity, private socket configuration, Bun systemd service and Caddy route.
-3. The specific agent/client, whether it supports bearer headers, read-only versus write access, and credential expiry. Default proposed grant is read only for 30 days; no grant has been approved or made.
+## Operational limits
 
-OAuth-only clients require another implementation milestone. A schema-14 binary cannot be used as a simple rollback after migration; disable MCP while retaining compatible Rust.
+No production resource was modified or authenticated notebook call made, and no real credential was created. Test databases, credentials, sockets and processes are disposable fixtures. The future endpoint is `https://studio.tan.coffee/mcp`; this report does not establish that it is live. Authentication is per-agent bearer, default read only for 30 days; OAuth-only clients are unsupported.
 
-## Evidence files
+Actual systemd ownership/restart, VM memory/load and authenticated production verification remain rollout checks. After schema 16, do not restore a schema-15 binary over the upgraded database; disable MCP while retaining compatible Rust. A database restore requires accounting for writes since the snapshot.
 
-- `/tmp/tan-studio-full-check.log`
-- `/tmp/tan-studio-baseline-build.log`
-- `/tmp/tan-studio-desktop-build-retry.log`
-- `/tmp/tan-studio-native-macos-e2e.log`
-- `/tmp/tan-studio-native-linux-build.log`
-- `/tmp/tan-studio-native-linux-tests.log`
-- `/tmp/tan-studio-followup-typecheck.log`
-- `/tmp/tan-studio-followup-mcp-tests.log`
+## Local evidence
+
+- `/tmp/tan-studio-integrated-typecheck.log`
+- `/tmp/tan-studio-integrated-tests.log`
+- `/tmp/tan-studio-integrated-hosted-tests.log`
+- `/tmp/tan-studio-integrated-web-build.log`
+- `/tmp/tan-studio-integrated-caddy.log`
+- `/tmp/tan-studio-integrated-caddy-disabled.log`
+- `/tmp/tan-studio-integrated-linux-build.log`
+- `/tmp/tan-studio-integrated-linux-tests.log`
+- `/tmp/tan-studio-integrated-release.log`
+- Historical desktop comparison: `/tmp/tan-studio-baseline-build.log` and `/tmp/tan-studio-desktop-build-retry.log`

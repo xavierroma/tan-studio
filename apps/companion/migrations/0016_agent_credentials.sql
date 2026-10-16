@@ -11,4 +11,4 @@ CREATE TABLE agent_credentials (
   version INTEGER NOT NULL DEFAULT 1
 ) STRICT;
 
-UPDATE app_metadata SET schema_version = 15 WHERE id = 1;
+UPDATE app_metadata SET schema_version = 16 WHERE id = 1;

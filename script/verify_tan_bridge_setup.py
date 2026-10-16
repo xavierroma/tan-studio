@@ -13,8 +13,11 @@ import uuid
 import serial
 
 
-BACKEND_HOST = "xrc.local"
-BACKEND_PORT = 8081
+SETUP_SCHEMA_VERSION = 2
+BACKEND_HOST = "studio.tan.coffee"
+BACKEND_PORT = 443
+BACKEND_PATH = "/device/v1/session"
+FIRMWARE_VERSION = "0.3.1-hosted"
 MAX_LINE_BYTES = 4_096
 
 
@@ -29,7 +32,7 @@ def exchange(device: serial.Serial, request_object: dict[str, object]) -> dict[s
     response = json.loads(response_line)
     if set(response) not in ({"schemaVersion", "requestId", "result"}, {"schemaVersion", "requestId", "error"}):
         raise AssertionError("bridge returned an invalid response envelope")
-    if response["schemaVersion"] != 1:
+    if response["schemaVersion"] != SETUP_SCHEMA_VERSION:
         raise AssertionError("bridge response schema drifted")
     return response
 
@@ -39,7 +42,7 @@ def request(device: serial.Serial, operation: str, payload: dict[str, object]) -
     response = exchange(
         device,
         {
-            "schemaVersion": 1,
+            "schemaVersion": SETUP_SCHEMA_VERSION,
             "requestId": request_id,
             "type": operation,
             "payload": payload,
@@ -73,7 +76,7 @@ def validate_negative_paths(device: serial.Serial) -> None:
     expect_error(
         device,
         {
-            "schemaVersion": 1,
+            "schemaVersion": SETUP_SCHEMA_VERSION,
             "requestId": unknown_property_id,
             "type": "setup.getStatus",
             "payload": {},
@@ -84,7 +87,7 @@ def validate_negative_paths(device: serial.Serial) -> None:
 
     duplicate_id = str(uuid.uuid4())
     duplicate_request = {
-        "schemaVersion": 1,
+        "schemaVersion": SETUP_SCHEMA_VERSION,
         "requestId": duplicate_id,
         "type": "setup.getStatus",
         "payload": {},
@@ -98,7 +101,7 @@ def validate_negative_paths(device: serial.Serial) -> None:
     expect_error(
         device,
         {
-            "schemaVersion": 1,
+            "schemaVersion": SETUP_SCHEMA_VERSION,
             "requestId": invalid_configuration_id,
             "type": "setup.configure",
             "payload": {},
@@ -129,13 +132,22 @@ def validate_status(status: dict[str, object]) -> None:
         "diagnostics",
     }:
         raise AssertionError("status properties drifted")
-    if status["protocolVersion"] != 1:
+    if status["protocolVersion"] != SETUP_SCHEMA_VERSION:
         raise AssertionError("unexpected setup protocol version")
+    firmware = status["firmware"]
+    if (
+        not isinstance(firmware, dict)
+        or firmware.get("version") != FIRMWARE_VERSION
+        or firmware.get("build") != "hosted-wss-v2"
+    ):
+        raise AssertionError("unexpected firmware image")
     backend = status["backend"]
     if (
         not isinstance(backend, dict)
+        or backend.get("transport") != "wss"
         or backend.get("host") != BACKEND_HOST
         or backend.get("port") != BACKEND_PORT
+        or backend.get("path") != BACKEND_PATH
     ):
         raise AssertionError("unexpected backend status")
     diagnostics = status["diagnostics"]

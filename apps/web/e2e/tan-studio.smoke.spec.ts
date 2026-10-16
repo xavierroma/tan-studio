@@ -188,7 +188,7 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
                 ],
               }
             : {
-                protocolVersion: 1,
+                protocolVersion: 2,
                 bridgeId: "abcdefghijklmnopqrstuvwxyz",
                 firmware: {
                   version: "0.2.7-local",
@@ -196,7 +196,13 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
                 },
                 lifecycle: "operational",
                 wifi: { state: "online" },
-                backend: { state: "online", host: "xrc.local", port: 8081 },
+                backend: {
+                  state: "online",
+                  transport: "wss",
+                  host: "studio.tan.coffee",
+                  port: 443,
+                  path: "/device/v1/session",
+                },
                 claim: { state: "claimed" },
                 diagnostics: {
                   bootCount: 1,
@@ -216,7 +222,7 @@ test("Tan Bridge setup exposes a selectable Wi-Fi picker", async ({ page }) => {
               }
         responseController.enqueue(
           encoder.encode(
-            `${JSON.stringify({ schemaVersion: 1, requestId: request.requestId, result })}\n`
+            `${JSON.stringify({ schemaVersion: 2, requestId: request.requestId, result })}\n`
           )
         )
       },

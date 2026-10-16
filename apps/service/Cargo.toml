@@ -7,7 +7,7 @@ description = "Local-first HTTP, SQLite and Kaffeelogic USB service for Tan Stud
 license = "MIT"
 
 [dependencies]
-axum = { version = "0.8.4", features = ["http1", "json", "macros", "tokio"] }
+axum = { version = "0.8.4", features = ["http1", "json", "macros", "tokio", "ws"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.41", default-features = false, features = ["clock", "serde"] }
 constant_time_eq = "0.3.1"
@@ -37,6 +37,7 @@ uuid = { version = "1.16.0", features = ["serde", "v7"] }
 
 [dev-dependencies]
 tempfile = "3.20.0"
+tokio-tungstenite = "0.29.0"
 tower = { version = "0.5.2", features = ["util"] }
 
 [profile.release]

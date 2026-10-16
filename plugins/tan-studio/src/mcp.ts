@@ -119,10 +119,7 @@ export function createTanStudioServer(
     async ({ query, coffeeId, roastId, limit }) =>
       protect(async () => {
         const page = await api.searchProfiles({ q: query, coffeeId, roastId })
-        return success(
-          "Matching roasting profiles",
-          boundedPage(page, limit)
-        )
+        return success("Matching roasting profiles", boundedPage(page, limit))
       })
   )
 
@@ -641,9 +638,9 @@ export function createTanStudioServer(
     server.registerTool(
       "tan_attach_file",
       {
-        title: "Attach local file",
+        title: "Attach selected file",
         description:
-          "Upload one local photo, video, PDF, or document to Tan Studio and link it to one or more profiles, coffees, roasts, or brews.",
+          "Upload one user-selected photo, video, PDF, or document from the MCP host to Tan Studio and link it to one or more profiles, coffees, roasts, or brews.",
         inputSchema: {
           filePath: z.string().trim().min(1).max(4_096),
           title: z.string().trim().min(1).max(300).optional(),
@@ -665,7 +662,7 @@ export function createTanStudioServer(
         links,
       }) =>
         protect(async () => {
-          const stored = await api.attachLocalFile({
+          const stored = await api.attachFile({
             filePath,
             ...(title !== undefined ? { title } : {}),
             ...(mediaType !== undefined ? { mediaType } : {}),

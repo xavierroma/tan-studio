@@ -3,20 +3,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <netdb.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <time.h>
 
 #include "cJSON.h"
 #include "esp_attr.h"
+#include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_random.h"
 #include "esp_system.h"
+#include "esp_websocket_client.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -27,16 +28,19 @@
 #include "tinyusb_default_config.h"
 #include "tunnel_policy.h"
 
-#define SETUP_SCHEMA_VERSION 1
+#define SETUP_SCHEMA_VERSION 2
+#define BRIDGE_PROTOCOL_VERSION 1
 #define SETUP_LINE_BYTES 4096U
 #define SETUP_RX_CHUNK_BYTES 512U
 #define SETUP_REQUEST_ID_BYTES 37U
 #define SETUP_RECENT_REQUESTS 8U
 #define SETUP_MAX_NETWORKS 12U
-#define SETUP_BACKEND_HOST "xrc.local"
-#define SETUP_BACKEND_PORT 8081U
-#define SETUP_FIRMWARE_VERSION "0.2.7-local"
-#define SETUP_BUILD_ID "local-lan-v8-heap-tunnel"
+#define SETUP_BACKEND_HOST "studio.tan.coffee"
+#define SETUP_BACKEND_PORT 443U
+#define SETUP_BACKEND_PATH "/device/v1/session"
+#define SETUP_BACKEND_URI "wss://studio.tan.coffee/device/v1/session"
+#define SETUP_FIRMWARE_VERSION "0.3.1-hosted"
+#define SETUP_BUILD_ID "hosted-wss-v2"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
 #define SETUP_NETWORK_TASK_CORE 0
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
@@ -46,6 +50,10 @@
 #define TUNNEL_MAX_PAYLOAD_BYTES 8192U
 #define TUNNEL_USB_TO_BACKEND 1U
 #define TUNNEL_BACKEND_TO_USB 2U
+#define WEBSOCKET_MESSAGE_BYTES (TUNNEL_MAX_PAYLOAD_BYTES + 3U)
+#define WEBSOCKET_CONNECTED_BIT BIT0
+#define WEBSOCKET_AUTHENTICATED_BIT BIT1
+#define WEBSOCKET_FAILED_BIT BIT2
 #define DIAGNOSTIC_RTC_MAGIC 0x54414e44U
 
 typedef enum {
@@ -89,8 +97,20 @@ static const char *backend_state = "offline";
 static bool wifi_initialized;
 static esp_netif_t *wifi_netif;
 static volatile bool setup_protocol_active;
-static SemaphoreHandle_t socket_mutex;
-static int bridge_socket = -1;
+static SemaphoreHandle_t bridge_mutex;
+static EventGroupHandle_t websocket_events;
+static esp_websocket_client_handle_t bridge_client;
+static uint8_t *websocket_message;
+static size_t websocket_message_length;
+static uint8_t websocket_message_opcode;
+static bool websocket_authenticated;
+static int diagnostic_websocket_error_type;
+static int diagnostic_websocket_http_status;
+static int diagnostic_websocket_esp_error;
+static int diagnostic_websocket_tls_error;
+static int diagnostic_websocket_verify_flags;
+static int diagnostic_websocket_socket_errno;
+static bool sntp_initialized;
 static uint8_t pending_usb_bytes[TUNNEL_MAX_PAYLOAD_BYTES];
 static size_t pending_usb_length;
 static bool usb_bootstrap_confirmed;
@@ -503,8 +523,22 @@ static void send_status(const char *request_id)
     cJSON_AddStringToObject(wifi, "state", wifi_state);
     cJSON_AddItemToObject(result, "wifi", wifi);
     cJSON_AddStringToObject(backend, "state", backend_state);
+    cJSON_AddStringToObject(backend, "transport", "wss");
     cJSON_AddStringToObject(backend, "host", SETUP_BACKEND_HOST);
     cJSON_AddNumberToObject(backend, "port", SETUP_BACKEND_PORT);
+    cJSON_AddStringToObject(backend, "path", SETUP_BACKEND_PATH);
+    cJSON_AddNumberToObject(backend, "lastErrorType",
+                            diagnostic_websocket_error_type);
+    cJSON_AddNumberToObject(backend, "lastHttpStatus",
+                            diagnostic_websocket_http_status);
+    cJSON_AddNumberToObject(backend, "lastEspError",
+                            diagnostic_websocket_esp_error);
+    cJSON_AddNumberToObject(backend, "lastTlsError",
+                            diagnostic_websocket_tls_error);
+    cJSON_AddNumberToObject(backend, "lastVerifyFlags",
+                            diagnostic_websocket_verify_flags);
+    cJSON_AddNumberToObject(backend, "lastSocketErrno",
+                            diagnostic_websocket_socket_errno);
     cJSON_AddItemToObject(result, "backend", backend);
     cJSON_AddStringToObject(
         claim, "state",
@@ -820,7 +854,8 @@ static void process_request(const char *line)
     const cJSON *payload =
         cJSON_GetObjectItemCaseSensitive(request, "payload");
 
-    if (!cJSON_IsNumber(schema) || schema->valuedouble != 1.0 ||
+    if (!cJSON_IsNumber(schema) ||
+        schema->valuedouble != (double)SETUP_SCHEMA_VERSION ||
         !valid_request_id ||
         !cJSON_IsString(type) || !cJSON_IsObject(payload)) {
         send_error(request_id, "invalid_request",
@@ -889,87 +924,59 @@ static void consume_bytes(const uint8_t *bytes, size_t length)
     }
 }
 
-static bool send_all(int socket_fd, const uint8_t *bytes, size_t length)
+static void signal_websocket_failure(void)
 {
-    size_t offset = 0U;
-    while (offset < length) {
-        ssize_t sent = send(socket_fd, bytes + offset, length - offset, 0);
-        if (sent <= 0) {
-            return false;
-        }
-        offset += (size_t)sent;
+    if (websocket_events != NULL) {
+        xEventGroupSetBits(websocket_events, WEBSOCKET_FAILED_BIT);
     }
-    return true;
 }
 
-static bool receive_exact(int socket_fd, uint8_t *bytes, size_t length)
+static bool send_tunnel_frame(esp_websocket_client_handle_t client,
+                              const uint8_t *bytes, size_t length)
 {
-    size_t offset = 0U;
-    while (offset < length) {
-        ssize_t received = recv(socket_fd, bytes + offset, length - offset, 0);
-        if (received <= 0) {
-            return false;
-        }
-        offset += (size_t)received;
+    if (client == NULL || bytes == NULL || length == 0U ||
+        length > TUNNEL_MAX_PAYLOAD_BYTES) {
+        return false;
     }
-    return true;
-}
-
-static bool receive_json_line(int socket_fd, char *line, size_t capacity)
-{
-    size_t length = 0U;
-    while (length + 1U < capacity) {
-        uint8_t value;
-        if (!receive_exact(socket_fd, &value, 1U)) {
-            return false;
-        }
-        if (value == '\n') {
-            if (length > 0U && line[length - 1U] == '\r') {
-                length--;
-            }
-            line[length] = '\0';
-            return true;
-        }
-        line[length++] = (char)value;
+    size_t record_length = length + 3U;
+    uint8_t *record = malloc(record_length);
+    if (record == NULL) {
+        return false;
     }
-    return false;
+    record[0] = TUNNEL_USB_TO_BACKEND;
+    record[1] = (uint8_t)(length >> 8U);
+    record[2] = (uint8_t)(length & 0xffU);
+    memcpy(record + 3U, bytes, length);
+    int sent = esp_websocket_client_send_bin(
+        client, (const char *)record, (int)record_length,
+        pdMS_TO_TICKS(3000));
+    free(record);
+    return sent == (int)record_length;
 }
 
-static bool send_tunnel_frame(int socket_fd, const uint8_t *bytes,
-                              size_t length)
+static void set_bridge_client(esp_websocket_client_handle_t client)
 {
-    uint8_t header[3] = {
-        TUNNEL_USB_TO_BACKEND,
-        (uint8_t)(length >> 8U),
-        (uint8_t)(length & 0xffU),
-    };
-    return send_all(socket_fd, header, sizeof(header)) &&
-           send_all(socket_fd, bytes, length);
-}
-
-static void set_bridge_socket(int socket_fd)
-{
-    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        bridge_socket = socket_fd;
+    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        bridge_client = client;
         if (pending_usb_length > 0U) {
             set_usb_stage(DIAGNOSTIC_USB_REPLAYING);
-            if (!send_tunnel_frame(socket_fd, pending_usb_bytes,
+            if (!send_tunnel_frame(client, pending_usb_bytes,
                                    pending_usb_length)) {
-                shutdown(socket_fd, SHUT_RDWR);
+                signal_websocket_failure();
             }
             set_usb_stage(DIAGNOSTIC_USB_IDLE);
         }
-        xSemaphoreGive(socket_mutex);
+        xSemaphoreGive(bridge_mutex);
     }
 }
 
-static void clear_bridge_socket(int socket_fd)
+static void clear_bridge_client(esp_websocket_client_handle_t client)
 {
-    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        if (bridge_socket == socket_fd) {
-            bridge_socket = -1;
+    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (bridge_client == client) {
+            bridge_client = NULL;
         }
-        xSemaphoreGive(socket_mutex);
+        xSemaphoreGive(bridge_mutex);
     }
 }
 
@@ -977,30 +984,28 @@ static void bridge_send_usb(const uint8_t *bytes, size_t length)
 {
     set_usb_stage(DIAGNOSTIC_USB_BUFFERING);
     if (length == 0U || length > UINT16_MAX ||
-        xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
         set_usb_stage(DIAGNOSTIC_USB_IDLE);
         return;
     }
-    int socket_fd = bridge_socket;
+    esp_websocket_client_handle_t client = bridge_client;
     if (!usb_bootstrap_confirmed &&
         length <= sizeof(pending_usb_bytes) - pending_usb_length) {
         memcpy(pending_usb_bytes + pending_usb_length, bytes, length);
         pending_usb_length += length;
     }
-    if (socket_fd >= 0) {
-        if (!send_tunnel_frame(socket_fd, bytes, length)) {
-            shutdown(socket_fd, SHUT_RDWR);
-        }
+    if (client != NULL && !send_tunnel_frame(client, bytes, length)) {
+        signal_websocket_failure();
     }
-    xSemaphoreGive(socket_mutex);
+    xSemaphoreGive(bridge_mutex);
     set_usb_stage(DIAGNOSTIC_USB_IDLE);
 }
 
 static void confirm_usb_session_started(void)
 {
-    if (xSemaphoreTake(socket_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
+    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
         usb_bootstrap_confirmed = true;
-        xSemaphoreGive(socket_mutex);
+        xSemaphoreGive(bridge_mutex);
     }
 }
 
@@ -1047,38 +1052,21 @@ static bool associate_wifi(void)
     return false;
 }
 
-static int connect_backend(void)
+static bool synchronize_clock(void)
 {
-    set_network_stage(DIAGNOSTIC_NETWORK_RESOLVING);
-    backend_state = "resolving";
-    char service[6];
-    snprintf(service, sizeof(service), "%u", SETUP_BACKEND_PORT);
-    const struct addrinfo hints = {
-        .ai_family = AF_INET,
-        .ai_socktype = SOCK_STREAM,
-    };
-    struct addrinfo *addresses = NULL;
-    if (getaddrinfo(SETUP_BACKEND_HOST, service, &hints, &addresses) != 0 ||
-        addresses == NULL) {
-        if (addresses != NULL) {
-            freeaddrinfo(addresses);
-        }
-        return -1;
+    time_t now = time(NULL);
+    if (now >= 1704067200) {
+        return true;
     }
-    backend_state = "connecting";
-    set_network_stage(DIAGNOSTIC_NETWORK_CONNECTING);
-    int socket_fd = socket(addresses->ai_family, addresses->ai_socktype,
-                           addresses->ai_protocol);
-    if (socket_fd < 0 ||
-        connect(socket_fd, addresses->ai_addr, addresses->ai_addrlen) != 0) {
-        if (socket_fd >= 0) {
-            close(socket_fd);
+    if (!sntp_initialized) {
+        esp_sntp_config_t configuration =
+            ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+        if (esp_netif_sntp_init(&configuration) != ESP_OK) {
+            return false;
         }
-        freeaddrinfo(addresses);
-        return -1;
+        sntp_initialized = true;
     }
-    freeaddrinfo(addresses);
-    return socket_fd;
+    return esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15000)) == ESP_OK;
 }
 
 static bool persist_device_token(const char *token)
@@ -1105,15 +1093,13 @@ static bool persist_device_token(const char *token)
     return result == ESP_OK;
 }
 
-static bool authenticate_backend(int socket_fd)
+static char *backend_hello(void)
 {
-    set_network_stage(DIAGNOSTIC_NETWORK_AUTHENTICATING);
-    backend_state = "authenticating";
     cJSON *hello = cJSON_CreateObject();
     if (hello == NULL) {
-        return false;
+        return NULL;
     }
-    cJSON_AddNumberToObject(hello, "schemaVersion", SETUP_SCHEMA_VERSION);
+    cJSON_AddNumberToObject(hello, "schemaVersion", BRIDGE_PROTOCOL_VERSION);
     cJSON_AddStringToObject(hello, "bridgeId", bridge_id);
     cJSON_AddStringToObject(hello, "firmwareVersion",
                             SETUP_FIRMWARE_VERSION);
@@ -1125,21 +1111,22 @@ static bool authenticate_backend(int socket_fd)
     }
     char *encoded = cJSON_PrintUnformatted(hello);
     cJSON_Delete(hello);
+    return encoded;
+}
+
+static bool authenticate_backend_message(const uint8_t *bytes, size_t length)
+{
+    if (bytes == NULL || length == 0U || length >= 2048U) {
+        return false;
+    }
+    char *encoded = malloc(length + 1U);
     if (encoded == NULL) {
         return false;
     }
-    bool sent = send_all(socket_fd, (const uint8_t *)encoded, strlen(encoded)) &&
-                send_all(socket_fd, (const uint8_t *)"\n", 1U);
-    cJSON_free(encoded);
-    if (!sent) {
-        return false;
-    }
-
-    char response_line[2048];
-    if (!receive_json_line(socket_fd, response_line, sizeof(response_line))) {
-        return false;
-    }
-    cJSON *response = cJSON_Parse(response_line);
+    memcpy(encoded, bytes, length);
+    encoded[length] = '\0';
+    cJSON *response = cJSON_Parse(encoded);
+    free(encoded);
     const cJSON *schema =
         cJSON_GetObjectItemCaseSensitive(response, "schemaVersion");
     const cJSON *accepted =
@@ -1147,7 +1134,7 @@ static bool authenticate_backend(int socket_fd)
     const cJSON *issued =
         cJSON_GetObjectItemCaseSensitive(response, "deviceToken");
     bool valid = response != NULL && cJSON_IsNumber(schema) &&
-                 schema->valuedouble == SETUP_SCHEMA_VERSION &&
+                 schema->valuedouble == BRIDGE_PROTOCOL_VERSION &&
                  cJSON_IsTrue(accepted);
     if (valid && device_token[0] == '\0') {
         valid = cJSON_IsString(issued) && is_token(issued->valuestring) &&
@@ -1157,46 +1144,139 @@ static bool authenticate_backend(int socket_fd)
     return valid;
 }
 
-static void tunnel_backend(int socket_fd)
+static bool deliver_backend_record(const uint8_t *record, size_t length)
 {
-    /*
-     * The network task has an 8 KiB stack. Keeping an equally large receive
-     * buffer there corrupts that stack as soon as the first tunnel payload is
-     * read. The buffer is bounded and owned for exactly one tunnel session.
-     */
-    uint8_t *payload = malloc(TUNNEL_MAX_PAYLOAD_BYTES);
-    if (payload == NULL) {
-        shutdown(socket_fd, SHUT_RDWR);
-        close(socket_fd);
-        backend_state = "backoff";
+    if (record == NULL || length < 4U ||
+        record[0] != TUNNEL_BACKEND_TO_USB) {
+        return false;
+    }
+    size_t payload_length = ((size_t)record[1] << 8U) | record[2];
+    const uint8_t *payload = record + 3U;
+    if (payload_length == 0U || payload_length > TUNNEL_MAX_PAYLOAD_BYTES ||
+        length != payload_length + 3U ||
+        !tan_tunnel_allows_backend_frame(payload, payload_length)) {
+        return false;
+    }
+    if (!setup_protocol_active &&
+        write_line((const char *)payload, payload_length)) {
+        confirm_usb_session_started();
+    }
+    return true;
+}
+
+static void reset_websocket_message(void)
+{
+    free(websocket_message);
+    websocket_message = NULL;
+    websocket_message_length = 0U;
+    websocket_message_opcode = 0U;
+}
+
+static void receive_websocket_data(const esp_websocket_event_data_t *event)
+{
+    if (event != NULL &&
+        (event->op_code == 0x8U || event->op_code == 0x9U ||
+         event->op_code == 0xaU)) {
         return;
     }
-    set_network_stage(DIAGNOSTIC_NETWORK_TUNNEL);
-    backend_state = "online";
-    lifecycle_state = "operational";
-    set_bridge_socket(socket_fd);
-    while (true) {
-        uint8_t header[3];
-        if (!receive_exact(socket_fd, header, sizeof(header))) {
-            break;
-        }
-        size_t length = ((size_t)header[1] << 8U) | header[2];
-        if (header[0] != TUNNEL_BACKEND_TO_USB || length == 0U ||
-            length > TUNNEL_MAX_PAYLOAD_BYTES ||
-            !receive_exact(socket_fd, payload, length) ||
-            !tan_tunnel_allows_backend_frame(payload, length)) {
-            break;
-        }
-        if (!setup_protocol_active &&
-            write_line((const char *)payload, length)) {
-            confirm_usb_session_started();
-        }
+    if (event == NULL || event->data_len < 0 || event->payload_len <= 0 ||
+        event->payload_offset < 0 ||
+        event->payload_len > (int)WEBSOCKET_MESSAGE_BYTES ||
+        event->payload_offset + event->data_len > event->payload_len ||
+        (event->data_len > 0 && event->data_ptr == NULL)) {
+        signal_websocket_failure();
+        return;
     }
-    free(payload);
-    clear_bridge_socket(socket_fd);
-    shutdown(socket_fd, SHUT_RDWR);
-    close(socket_fd);
-    backend_state = "backoff";
+    if (event->payload_offset == 0) {
+        reset_websocket_message();
+        if (event->op_code != 0x1U && event->op_code != 0x2U) {
+            return;
+        }
+        websocket_message = malloc((size_t)event->payload_len + 1U);
+        if (websocket_message == NULL) {
+            signal_websocket_failure();
+            return;
+        }
+        websocket_message_length = (size_t)event->payload_len;
+        websocket_message_opcode = event->op_code;
+    }
+    if (websocket_message == NULL ||
+        websocket_message_length != (size_t)event->payload_len) {
+        signal_websocket_failure();
+        return;
+    }
+    memcpy(websocket_message + event->payload_offset, event->data_ptr,
+           (size_t)event->data_len);
+    if (event->payload_offset + event->data_len != event->payload_len) {
+        return;
+    }
+    websocket_message[websocket_message_length] = '\0';
+    bool valid = false;
+    if (websocket_message_opcode == 0x1U && !websocket_authenticated) {
+        valid = authenticate_backend_message(websocket_message,
+                                             websocket_message_length);
+        if (valid) {
+            websocket_authenticated = true;
+            backend_state = "online";
+            lifecycle_state = "operational";
+            set_network_stage(DIAGNOSTIC_NETWORK_TUNNEL);
+            xEventGroupSetBits(websocket_events,
+                               WEBSOCKET_AUTHENTICATED_BIT);
+        }
+    } else if (websocket_message_opcode == 0x2U &&
+               websocket_authenticated) {
+        valid = deliver_backend_record(websocket_message,
+                                       websocket_message_length);
+    }
+    reset_websocket_message();
+    if (!valid) {
+        signal_websocket_failure();
+    }
+}
+
+static void websocket_event_handler(void *handler_args,
+                                    esp_event_base_t event_base,
+                                    int32_t event_id, void *event_data)
+{
+    (void)handler_args;
+    (void)event_base;
+    esp_websocket_event_data_t *event = event_data;
+    switch (event_id) {
+    case WEBSOCKET_EVENT_BEFORE_CONNECT:
+        backend_state = "connecting";
+        set_network_stage(DIAGNOSTIC_NETWORK_CONNECTING);
+        break;
+    case WEBSOCKET_EVENT_CONNECTED:
+        websocket_authenticated = false;
+        reset_websocket_message();
+        backend_state = "authenticating";
+        set_network_stage(DIAGNOSTIC_NETWORK_AUTHENTICATING);
+        xEventGroupSetBits(websocket_events, WEBSOCKET_CONNECTED_BIT);
+        break;
+    case WEBSOCKET_EVENT_DATA:
+        receive_websocket_data(event);
+        break;
+    case WEBSOCKET_EVENT_ERROR:
+        diagnostic_websocket_error_type = event->error_handle.error_type;
+        diagnostic_websocket_http_status =
+            event->error_handle.esp_ws_handshake_status_code;
+        diagnostic_websocket_esp_error =
+            event->error_handle.esp_tls_last_esp_err;
+        diagnostic_websocket_tls_error =
+            event->error_handle.esp_tls_stack_err;
+        diagnostic_websocket_verify_flags =
+            event->error_handle.esp_tls_cert_verify_flags;
+        diagnostic_websocket_socket_errno =
+            event->error_handle.esp_transport_sock_errno;
+        signal_websocket_failure();
+        break;
+    case WEBSOCKET_EVENT_DISCONNECTED:
+    case WEBSOCKET_EVENT_CLOSED:
+        signal_websocket_failure();
+        break;
+    default:
+        break;
+    }
 }
 
 static void network_task(void *context)
@@ -1204,27 +1284,106 @@ static void network_task(void *context)
     (void)context;
     set_network_stage(DIAGNOSTIC_NETWORK_DELAYING);
     vTaskDelay(pdMS_TO_TICKS(SETUP_NETWORK_START_DELAY_MS));
+    uint32_t reconnect_delay_ms = 1500U;
     while (true) {
         if (!associate_wifi()) {
             wifi_state = "backoff";
             backend_state = "offline";
             set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            vTaskDelay(pdMS_TO_TICKS(3000U + esp_random() % 500U));
             continue;
         }
-        int socket_fd = connect_backend();
-        if (socket_fd < 0 || !authenticate_backend(socket_fd)) {
-            if (socket_fd >= 0) {
-                close(socket_fd);
+        backend_state = "resolving";
+        set_network_stage(DIAGNOSTIC_NETWORK_RESOLVING);
+        if (!synchronize_clock()) {
+            backend_state = "backoff";
+            set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
+            vTaskDelay(pdMS_TO_TICKS(3000U + esp_random() % 500U));
+            continue;
+        }
+
+        const esp_websocket_client_config_t configuration = {
+            .uri = SETUP_BACKEND_URI,
+            .disable_auto_reconnect = true,
+            .task_core_id_set = true,
+            .task_core_id = SETUP_NETWORK_TASK_CORE,
+            .task_prio = 5,
+            .task_stack = 8192,
+            .buffer_size = 2048,
+            .user_agent = "Tan-Bridge/0.3",
+            .pingpong_timeout_sec = 60,
+            .disable_pingpong_discon = false,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .cert_common_name = SETUP_BACKEND_HOST,
+            .skip_cert_common_name_check = false,
+            .network_timeout_ms = 10000,
+            .ping_interval_sec = 20U,
+        };
+        xEventGroupClearBits(websocket_events,
+                             WEBSOCKET_CONNECTED_BIT |
+                             WEBSOCKET_AUTHENTICATED_BIT |
+                             WEBSOCKET_FAILED_BIT);
+        esp_websocket_client_handle_t client =
+            esp_websocket_client_init(&configuration);
+        if (client == NULL ||
+            esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY,
+                                          websocket_event_handler,
+                                          NULL) != ESP_OK ||
+            esp_websocket_client_start(client) != ESP_OK) {
+            if (client != NULL) {
+                esp_websocket_client_destroy(client);
             }
             backend_state = "backoff";
             set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            vTaskDelay(pdMS_TO_TICKS(reconnect_delay_ms));
+            reconnect_delay_ms = reconnect_delay_ms < 30000U
+                                     ? reconnect_delay_ms * 2U
+                                     : 60000U;
             continue;
         }
-        tunnel_backend(socket_fd);
+
+        EventBits_t bits = xEventGroupWaitBits(
+            websocket_events,
+            WEBSOCKET_CONNECTED_BIT | WEBSOCKET_FAILED_BIT,
+            pdTRUE, pdFALSE, pdMS_TO_TICKS(15000));
+        if ((bits & WEBSOCKET_CONNECTED_BIT) != 0U) {
+            char *hello = backend_hello();
+            size_t hello_length = hello == NULL ? 0U : strlen(hello);
+            int sent = hello == NULL ? -1 : esp_websocket_client_send_text(
+                client, hello, (int)hello_length, pdMS_TO_TICKS(3000));
+            if (hello != NULL) {
+                cJSON_free(hello);
+            }
+            if (sent < 0 || (size_t)sent != hello_length) {
+                signal_websocket_failure();
+            }
+        } else {
+            signal_websocket_failure();
+        }
+
+        bits = xEventGroupWaitBits(
+            websocket_events,
+            WEBSOCKET_AUTHENTICATED_BIT | WEBSOCKET_FAILED_BIT,
+            pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
+        if ((bits & WEBSOCKET_AUTHENTICATED_BIT) != 0U) {
+            reconnect_delay_ms = 1500U;
+            set_bridge_client(client);
+            (void)xEventGroupWaitBits(websocket_events,
+                                      WEBSOCKET_FAILED_BIT,
+                                      pdTRUE, pdFALSE, portMAX_DELAY);
+        }
+        clear_bridge_client(client);
+        (void)esp_websocket_client_stop(client);
+        (void)esp_websocket_client_destroy(client);
+        reset_websocket_message();
+        websocket_authenticated = false;
+        backend_state = "backoff";
         set_network_stage(DIAGNOSTIC_NETWORK_BACKOFF);
-        vTaskDelay(pdMS_TO_TICKS(1500));
+        uint32_t jitter_ms = esp_random() % 500U;
+        vTaskDelay(pdMS_TO_TICKS(reconnect_delay_ms + jitter_ms));
+        reconnect_delay_ms = reconnect_delay_ms < 30000U
+                                 ? reconnect_delay_ms * 2U
+                                 : 60000U;
     }
 }
 
@@ -1339,8 +1498,10 @@ void app_main(void)
     initialize_identity();
 
     rx_queue = xQueueCreate(16U, sizeof(setup_rx_event_t));
-    socket_mutex = xSemaphoreCreateMutex();
-    if (rx_queue == NULL || socket_mutex == NULL) {
+    bridge_mutex = xSemaphoreCreateMutex();
+    websocket_events = xEventGroupCreate();
+    if (rx_queue == NULL || bridge_mutex == NULL ||
+        websocket_events == NULL) {
         abort();
     }
 

@@ -20,6 +20,7 @@ use crate::error::{FieldError, ProblemDetails};
         crate::api::device_synchronize,
         crate::api::bridges_list,
         crate::api::bridge_claim_create,
+        crate::api::bridge_revoke,
         crate::api::profiles_list,
         crate::api::providers_list,
         crate::api::providers_create,
@@ -222,6 +223,7 @@ pub struct BridgeResource {
     pub last_seen_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub revoked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]

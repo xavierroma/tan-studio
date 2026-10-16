@@ -645,6 +645,8 @@ mod tests {
         for path in [
             "/api-tokens",
             "/agent-credentials",
+            "/bridges/claims",
+            "/bridges/1/revoke",
             "/device/synchronize",
             "/coffees/1",
             "/coffees/../notes",

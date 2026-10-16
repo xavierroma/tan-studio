@@ -1,7 +1,7 @@
 {
   "name": "tan-studio",
   "version": "0.1.0+codex.20260726183000",
-  "description": "Manage coffee roasts, brews, tasting notes, Wi-Fi bridges, and the Kaffeelogic device through Tan Studio's typed local API.",
+  "description": "Manage coffee roasts, brews, tasting notes, Wi-Fi bridges, and the Kaffeelogic device through Tan Studio's hosted typed API.",
   "author": {
     "name": "Xavier Roma"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Tan Studio",
     "shortDescription": "Manage coffee roasts and brews from Codex.",
-    "longDescription": "Connect Codex to the Tan Studio service at xrc.local to inspect profiles, coffees, roasts, pantry, registered Wi-Fi bridges, and device status; record brews and tasting notes; and create roast labels through a generated OpenAPI client.",
+    "longDescription": "Connect Codex to Tan Studio at studio.tan.coffee to inspect profiles, coffees, roasts, pantry, registered Wi-Fi bridges, and device status; record brews and tasting notes; and create roast labels through a generated OpenAPI client.",
     "developerName": "Xavier Roma",
     "category": "Lifestyle",
     "capabilities": [

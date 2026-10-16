@@ -2,6 +2,7 @@ import {
   TanBridgeSetupGetStatusResponseSchema,
   TanBridgeSetupConfigureResponseSchema,
   TanBridgeSetupMaxLineBytes,
+  TanBridgeSetupSchemaVersion,
   TanBridgeSetupScanWifiResponseSchema,
   type TanBridgeSetupError,
   type TanBridgeSetupStatus,
@@ -167,7 +168,7 @@ export class TanBridgeSetupClient {
     const requestId = crypto.randomUUID()
     const encoded = this.encoder.encode(
       `${JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: TanBridgeSetupSchemaVersion,
         requestId,
         type,
         payload,

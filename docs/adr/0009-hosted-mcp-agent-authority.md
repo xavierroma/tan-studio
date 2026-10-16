@@ -1,10 +1,12 @@
-# ADR 0008 — Hosted MCP with per-agent authority
+# ADR 0009 — Hosted MCP with per-agent authority
 
 Status: Accepted for implementation; deployment and public enablement pending operator approval.
 
 ## Context
 
 The existing stdio MCP adapter already translates curated notebook tools to the generated Rust REST API. The hosted notebook has Google operator sessions and general REST API tokens (ADR 0004), but neither is a suitable scoped credential for a remote agent. A network adapter must not acquire a shared operator token or filesystem access.
+
+Upstream ADR 0008 and migration 15 remain unchanged: the authenticated hosted bridge WebSocket, operator-only bridge enrollment/revocation, and TLS compatibility settings coexist with MCP. MCP uses migration 16.
 
 ## Decision
 
@@ -26,5 +28,5 @@ Deployment packages both adapters, a pinned Bun binary, systemd unit and optiona
 - Request/body/result/concurrency limits protect this small VM. Oversized successful mutations return a compact success receipt. Network failures after writes report an unknown outcome; callers must reconcile before retrying. No automatic mutation retry or durable idempotency is added.
 - Credentials cover the single operator notebook, not tenant or row-level grants.
 - A process restart rotates delegations and can interrupt requests. Agent credentials remain valid until revoked or expired.
-- Schema migration 15 is additive but old binaries reject future schemas. Disable MCP while retaining schema-15-capable Rust for the ordinary rollback. The installer refuses automatic binary downgrade after a schema change; snapshot restoration requires an explicitly planned, stopped-service recovery and may discard later writes.
+- Schema migration 16 is additive but old binaries reject future schemas. Disable MCP while retaining schema-16-capable Rust for the ordinary rollback. The installer refuses automatic binary downgrade after a schema change; snapshot restoration requires an explicitly planned, stopped-service recovery and may discard later writes.
 - e2-micro memory/load verification and an actual intended agent client smoke test remain launch gates.

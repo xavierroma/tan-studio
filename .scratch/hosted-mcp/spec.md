@@ -2,9 +2,9 @@
 
 Status: implemented for review after Xavier’s explicit implementation approval. Deployment, public enablement and real credential creation remain separate action-time approvals.
 
-Implementation notes: ADR 0008 and deploy/hosted/MCP.md record the final decisions. Delegation signing keys are ephemeral Rust process state. Schema-14 binaries cannot reopen schema 15; ordinary rollback disables MCP while retaining compatible Rust. The release uses native Docker builds with Linux-amd64 cross compilation.
+Implementation notes: ADR 0009 and deploy/hosted/MCP.md record the final decisions. Delegation signing keys are ephemeral Rust process state. Schema-15 binaries cannot reopen schema 16; ordinary rollback disables MCP while retaining compatible Rust. The release uses native Docker builds with Linux-amd64 cross compilation.
 Authoring date: 2026-10-16. Repository: https://github.com/xavierroma/tan-studio.
-Inspected checkout: `/Users/xavi/projects/tan-studio`, tracked HEAD `6c4af91`.
+Initially inspected checkout: `/Users/xavi/projects/tan-studio`, tracked HEAD `6c4af91`. The implementation is now integrated with upstream `4b8ec415f885dc471911e61bf9b200cc444434a7`; the initial observations below are historical. Upstream bridge migration 15 and ADR 0008 are preserved; agent credentials use migration 16 and ADR 0009.
 
 ## 1. Decision and scope
 
@@ -28,7 +28,7 @@ If Rust is chosen later, both REST and MCP controllers must invoke the same extr
 
 The existing MCP starts from `plugins/tan-studio/src/server.ts` using `StdioServerTransport`. Its `.mcp.json` launches `bun run ./dist/server.js`. `createTanStudioServer(api)` in `src/mcp.ts` accepts the `TanStudioGateway` port; `src/api.ts` implements that port using OpenAPI-generated types. The controller has an architecture boundary against importing HTTP/storage implementations.
 
-The repository currently declares `@modelcontextprotocol/sdk ^1.29.0`; the installed SDK advertises 2025-11-25 as its latest protocol version. Older project prose calling v2 pre-alpha is stale: the official upstream now describes v2 as stable and supporting 2026-07-28. Pin tested releases and the lockfile during implementation; do not upgrade dependencies as part of writing this spec. [Official SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+The initially inspected baseline declared `@modelcontextprotocol/sdk ^1.29.0`; that installed SDK advertised 2025-11-25 as its latest protocol version. Older project prose calling v2 pre-alpha is stale: the official upstream now describes v2 as stable and supporting 2026-07-28. Pin tested releases and the lockfile during implementation; do not upgrade dependencies as part of writing this spec. [Official SDK](https://github.com/modelcontextprotocol/typescript-sdk)
 
 The deployment is a GCP e2-micro VM in `us-west1-a`; Caddy terminates HTTPS and forwards to Rust on `127.0.0.1:8080`. systemd runs the notebook. SQLite resides on the VM, with Litestream replication and attachment objects in GCS. The release pipeline builds immutable release directories and switches `/opt/tan-studio/current`.
 
@@ -46,7 +46,7 @@ The dirty deployment suffix means source inspection does not prove byte-for-byte
 
 Existing API tokens are per-client, hashed, revocable, and managed only from the operator's signed-in session. They have no audience, expiry, or granular scope fields in the inspected model. They allow notebook writes and cannot list/mint/revoke API tokens. The browser's Google login is operator authentication; it is not an OAuth authorization server for arbitrary MCP clients.
 
-Hosted mode has no bridge listener. ADR-0005 explicitly corrects an earlier, unimplemented WebSocket design. Remote MCP must not imply remote roasting is available.
+Upstream main 4b8ec415 adds authenticated hosted bridge WebSocket sessions at /device/v1/session (ADR-0008), including operator-only enrollment/revocation and schema migration 15. Preserve those changes. MCP credentials use migration 16 and do not grant bridge enrollment, revocation, synchronization, serial access or roast control.
 
 ## 3. Deployment and routing
 
@@ -218,11 +218,11 @@ Log structured events: release version, request/correlation IDs, verified agent 
 | Hosted Dockerfile/install/systemd/Caddy | Package and supervise Bun service; exact routing; health/rollback |
 | `scripts/check-boundaries.ts` and generated contract checks | Keep controller decoupled; prevent local file adapter in hosted bundle |
 
-A shared HMAC/API delegation key belongs only to Rust's protected credential environment; Bun receives only expiring request credentials. Additive database migrations must preserve current `api_tokens` and existing stdio clients. The HTTP entry point must refuse startup if configured with `TAN_STUDIO_API_TOKEN` as a global hosted backend credential or if the expected audience/internal auth endpoint is missing.
+The HMAC delegation key is generated in Rust process memory; Bun receives only expiring request credentials. Additive database migrations must preserve current `api_tokens` and existing stdio clients. The HTTP entry point must refuse startup if configured with `TAN_STUDIO_API_TOKEN` as a global hosted backend credential or if the expected audience/internal auth endpoint is missing.
 
 ## 9. Acceptance tests and release gates
 
-1. **Architecture:** Boundary checks prove the MCP controller cannot import SQLite, storage, USB or raw HTTP implementations. Hosted bundle/composition cannot instantiate `attachLocalFile`. No copied notebook SQL/business rules.
+1. **Architecture:** Boundary checks prove the MCP controller cannot import SQLite, storage, USB or raw HTTP implementations. Hosted bundle/composition cannot import the local-file gateway or register `tan_attach_file`. No copied notebook SQL/business rules.
 2. **Protocol:** Official SDK clients for both target revisions discover, list tools/resources and read fixtures. Test initialization compatibility, modern header/body mismatch, unsupported versions, malformed JSON, batch rejection, Accept/content type, 405 handling, cancellation and clean shutdown.
 3. **Identity isolation:** Parallel agents with different grants and deliberately reused JSON-RPC IDs cannot share principals, results or credentials. Legacy session reuse across principals is rejected if sessions exist.
 4. **Audience:** API, LAN, Google and delegation tokens fail at MCP. MCP tokens fail at ordinary REST endpoints. Invalid signatures, wrong issuer/audience, expired grants and revoked/version-mismatched parents fail downstream. The internal auth socket is unreachable through public Caddy routes and inaccessible to unrelated local users.

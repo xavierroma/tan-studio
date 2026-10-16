@@ -1,5 +1,9 @@
 # The Tan Bridge transport is LAN-only plaintext TCP
 
+**Superseded for hosted operation by [ADR-0008](./0008-hosted-bridge-websocket.md).**
+The private raw TCP listener remains the headless/LAN Adapter described here;
+hosted mode now uses a separate authenticated WSS Adapter on the HTTPS service.
+
 Tan Bridge reaches the canonical backend by dialling **out over plaintext TCP** to the service's bridge listener (default port 8081). One newline-delimited JSON handshake carries either a single-use claim token or a durable device token; after that, a 3-byte-header length-prefixed frame protocol tunnels SASSI bytes in both directions (`apps/service/src/lan_bridge.rs`). Enrolment mints a claim that is good for ten minutes and stored only as a SHA-256 digest, exchanged on first connection for a device token (`bridge_claims` and `tan_bridges` in `apps/companion/migrations/0009_tan_bridge.sql`).
 
 This is LAN-only by construction: the accept loop drops any peer whose source address is not private, loopback, or link-local before the handshake is even read (`accept_bridge_connections` in `lan_bridge.rs`). `firmware/tan-bridge-setup/README.md` scopes the unencrypted transport to a trusted-LAN milestone deliberately.

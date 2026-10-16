@@ -474,6 +474,16 @@ export async function listBridges(signal?: AbortSignal) {
   ).items
 }
 
+export async function revokeBridge(id: number) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/bridges/{id}/revoke", {
+      params: { path: { id } },
+      body: {},
+    })
+  )
+}
+
 export async function listApiTokens(signal?: AbortSignal) {
   requireCompanion()
   return unwrapResponse(

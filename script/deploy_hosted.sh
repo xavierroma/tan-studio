@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOSTED_SSH="${TAN_STUDIO_HOSTED_SSH:-xavi@136.67.36.35}"
-SSH_KEY="${TAN_STUDIO_HOSTED_SSH_KEY:-$HOME/.ssh/google_compute_engine}"
+SSH_KEY="${TAN_STUDIO_HOSTED_SSH_KEY:-$HOME/.ssh/id_ed25519_tan_studio}"
 ENV_FILE="${TAN_STUDIO_ENV_FILE:-$ROOT_DIRECTORY/.env}"
 GCP_PROJECT="${TAN_STUDIO_GCP_PROJECT:-tan-coffee}"
 COMMIT="$(git -C "$ROOT_DIRECTORY" rev-parse --short=12 HEAD)"

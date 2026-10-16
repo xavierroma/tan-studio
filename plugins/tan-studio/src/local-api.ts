@@ -1,9 +1,9 @@
 import { basename, isAbsolute } from "node:path"
 import { OpenApiTanStudioGateway } from "./api"
-import type { AttachmentFileInput, Attachment } from "./gateway"
+import type { AttachmentUploadInput, Attachment } from "./gateway"
 
 export class LocalFileTanStudioGateway extends OpenApiTanStudioGateway {
-  async attachLocalFile(input: AttachmentFileInput): Promise<Attachment> {
+  async attachFile(input: AttachmentUploadInput): Promise<Attachment> {
     if (!isAbsolute(input.filePath)) {
       throw new Error("filePath must be absolute")
     }

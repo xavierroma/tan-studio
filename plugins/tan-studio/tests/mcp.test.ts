@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import type {
   Attachment,
-  AttachmentFileInput,
+  AttachmentUploadInput,
   BrewCreate,
   BrewPatch,
   CoffeeCreate,
@@ -70,8 +70,8 @@ describe("Tan Studio MCP contract", () => {
             items: [
               {
                 bridgeId: "abcdefghijklmnopqrstuvwxyz",
-                firmwareVersion: "0.2.1-local",
-                buildId: "local-lan-v2",
+                firmwareVersion: "0.2.1-test",
+                buildId: "test-bridge-v2",
                 state: "connected",
               } as never,
             ],
@@ -89,8 +89,8 @@ describe("Tan Studio MCP contract", () => {
         bridges: {
           items: [
             {
-              firmwareVersion: "0.2.1-local",
-              buildId: "local-lan-v2",
+              firmwareVersion: "0.2.1-test",
+              buildId: "test-bridge-v2",
               state: "connected",
             },
           ],
@@ -313,12 +313,12 @@ describe("Tan Studio MCP contract", () => {
     })
   })
 
-  test("delegates local attachment storage through the gateway port", async () => {
+  test("delegates selected attachment storage through the gateway port", async () => {
     const filePath = "/tmp/beans.jpg"
-    let received: AttachmentFileInput | undefined
+    let received: AttachmentUploadInput | undefined
     const { client } = await connect(
       fakeApi({
-        attachLocalFile: async (input) => {
+        attachFile: async (input) => {
           received = input
           return { id: 9, revision: 2 } as Attachment
         },
@@ -427,7 +427,7 @@ function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
     createNote: async () => ({ id: 1 }),
     createLabel: async () => ({ id: 1, roastId: 1 }),
     listAttachments: async () => ({ items: [] }),
-    attachLocalFile: async () => ({ id: 1, revision: 1 }) as Attachment,
+    attachFile: async () => ({ id: 1, revision: 1 }) as Attachment,
     setProfileImage: async () => undefined,
     device: async () => ({}),
     synchronizeDevice: async () => ({}),

@@ -6,7 +6,7 @@ import {
   TanStudioGatewayError,
   type Attachment,
   type AttachmentCreate,
-  type AttachmentFileInput,
+  type AttachmentUploadInput,
   type AttachmentPage,
   type Bootstrap,
   type BridgePage,
@@ -300,7 +300,7 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     )
   }
 
-  async attachLocalFile(_input: AttachmentFileInput): Promise<Attachment> {
+  async attachFile(_input: AttachmentUploadInput): Promise<Attachment> {
     throw new Error("Local file uploads are unavailable in this placement")
   }
 

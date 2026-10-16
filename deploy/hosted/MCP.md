@@ -1,5 +1,7 @@
 # Hosted MCP operations
 
+**Obsolete release:** `hosted-mcp-review-20261016`, commits `8e7bd8f`/`fa3ca67`, and both earlier review bundles predate the upstream bridge integration. Do not install them: their migration 15 collides with the bridge migration. Use the integrated schema-16 revision.
+
 This change implements remote MCP. It does not itself deploy or enable it. The current production endpoint must not be described as live until deployment, enablement and a real authenticated check are completed.
 
 ## Architecture and credentials
@@ -25,8 +27,8 @@ Validate Caddy using the deployed Caddy version, with both the absent and presen
 
 ## Deployment and enablement (separate approvals)
 
-1. Obtain approval for the concrete release deployment. Use the existing hosted release installer. It snapshots the notebook, upgrades to schema 15 and preserves any previously explicit MCP enablement; a first deployment leaves MCP disabled.
-2. Confirm the Rust health endpoint and UI remain healthy. Inspect the release artifacts and migration backup. On first rollout, do not point the current symlink back at a schema-14 binary.
+1. Obtain approval for the concrete release deployment. Use the existing hosted release installer. It snapshots the notebook, upgrades to schema 16 and preserves any previously explicit MCP enablement; a first deployment leaves MCP disabled.
+2. Confirm the Rust health endpoint and UI remain healthy. Inspect the release artifacts and migration backup. On first rollout, do not point the current symlink back at a schema-15 binary.
 3. Obtain explicit approval to enable the public authenticated endpoint. On the VM run `sudo /opt/tan-studio/current/enable_mcp.sh --enable-public-mcp`. This provisions the non-login Unix service identity, private socket directory, Rust drop-in, MCP unit and Caddy include. It creates no agent credential.
 4. Verify local `/readyz`, public unauthenticated `/mcp` returns 401 with a bearer challenge, forbidden origins return 403, nested `/mcp/*` and `/internal/*` return 404, and the web UI still works. Confirm service logs contain no bearer values.
 5. With approval for the specific agent's persistent access, use Agent connections to create one read-only credential with a suitable expiry. Select write access only if that agent is authorized to mutate the notebook. Configure and test the actual client/version, then verify revoke and replacement rotation. Do not grant access merely to perform a smoke test without approval.
@@ -66,7 +68,7 @@ Keep the credential outside source control. First exercise a read tool. A stale 
 
 To remove public MCP while retaining the notebook, after approval run `sudo /opt/tan-studio/current/disable_mcp.sh --disable-public-mcp`. It removes optional routing, stops/disables Bun and removes Rust's MCP drop-in. Existing credential rows remain stored and can still be revoked from the operator UI. Disabling alone does not revoke credentials; if re-enabled, unexpired non-revoked credentials work again.
 
-For a code rollback after schema 15, keep a schema-compatible Rust release and disable MCP. An older binary refuses the newer schema. The installer now refuses automatic downgrade when startup migrated the notebook. Restore a pre-deploy snapshot only through a reviewed recovery procedure with the service stopped, after explicitly accounting for writes since the snapshot. Never silently replace the live database.
+For a code rollback after schema 16, keep a schema-compatible Rust release and disable MCP. An older binary refuses the newer schema. The installer now refuses automatic downgrade when startup migrated the notebook. Restore a pre-deploy snapshot only through a reviewed recovery procedure with the service stopped, after explicitly accounting for writes since the snapshot. Never silently replace the live database.
 
 Rotate by creating a replacement, switching the specific agent, verifying a read, then revoking the old credential. Revocation invalidates even previously issued REST delegations at their next authorization check. Rust restart invalidates all short-lived delegations but preserves the long-lived agent credentials.
 
@@ -79,6 +81,6 @@ docker build -f deploy/hosted/Dockerfile.verify -t tan-studio-mcp-verify .
 docker run --rm --pull never --network none tan-studio-mcp-verify
 ```
 
-The image publishes no ports and mounts no host files. Dependencies are fetched at build time; execution has no external network. It runs 31 MCP tests and 103 Rust tests. The integration fixture creates a temporary notebook, two temporary credentials and a private Unix auth socket, then starts the actual bundled `http-server.js` child process. The official client connects over loopback HTTP and checks catalog permissions, writes, reads, attribution, revision conflicts and MCP-versus-REST audience isolation. Readiness and unauthenticated 401 behavior are checked too. Fixture credentials are never production credentials.
+The image publishes no ports and mounts no host files. Dependencies are fetched at build time; execution has no external network. It runs the MCP tests and the complete Rust suites, including hosted bridge tests and the schema-15-to-16 upgrade test. The integration fixture creates a temporary notebook, two temporary credentials and a private Unix auth socket, then starts the actual bundled `http-server.js` child process. The official client connects over loopback HTTP and checks catalog permissions, writes, reads, attribution, revision conflicts and MCP-versus-REST audience isolation. Readiness and unauthenticated 401 behavior are checked too. Fixture credentials are never production credentials.
 
 On Apple Silicon this is native Linux ARM64, not validation of the AMD64 release binary. To validate that target, run the same commands on a non-production native AMD64 host (for example a dedicated Debian 13 test VM with Docker). Do not run the fixed-port bundled fixture directly on a shared host. The default macOS fixture instead chooses ephemeral loopback ports and uses native Bun.

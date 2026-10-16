@@ -4,8 +4,10 @@ use axum::{
     body::Body,
     extract::State,
     http::{header, Request, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
 };
+
+use crate::{config::OperatorAuthConfig, operator_session};
 
 #[derive(Clone)]
 pub struct StaticUi {
@@ -13,6 +15,9 @@ pub struct StaticUi {
     /// `None` in hosted mode: the operator session is a cookie, never a token in the HTML.
     pub token: Option<Arc<str>>,
     pub client_id: Arc<str>,
+    /// Hosted document navigations require this session. Static assets remain public so
+    /// the browser can retain immutable bundles across sign-in boundaries.
+    pub operator_auth: Option<Arc<OperatorAuthConfig>>,
 }
 
 pub async fn serve(State(ui): State<StaticUi>, request: Request<Body>) -> Response {
@@ -36,6 +41,17 @@ pub async fn serve(State(ui): State<StaticUi>, request: Request<Body>) -> Respon
     }
     if !relative.is_empty() && std::path::Path::new(relative).extension().is_some() {
         return StatusCode::NOT_FOUND.into_response();
+    }
+    if ui.operator_auth.as_deref().is_some_and(|auth| {
+        operator_session::operator_from_request(auth, request.headers()).is_none()
+    }) {
+        let mut response = Redirect::temporary("/auth/google").into_response();
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
+        security_headers(&mut response);
+        return response;
     }
     let index = ui.root.join("index.html");
     let Ok(mut html) = std::fs::read_to_string(index) else {

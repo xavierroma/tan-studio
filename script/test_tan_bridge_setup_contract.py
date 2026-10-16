@@ -9,6 +9,7 @@ FIRMWARE = REPO_ROOT / "firmware/tan-bridge-setup/main/setup_main.c"
 CONTRACT = REPO_ROOT / "packages/api-contract/src/tan-bridge-setup.ts"
 BUILD_SCRIPT = REPO_ROOT / "script/build_tan_bridge_setup_firmware.sh"
 UPDATE_SCRIPT = REPO_ROOT / "script/update_tan_bridge_setup_firmware.sh"
+COMPONENT_MANIFEST = REPO_ROOT / "firmware/tan-bridge-setup/main/idf_component.yml"
 
 
 def require(pattern: str, source: str, label: str) -> None:
@@ -21,16 +22,18 @@ def main() -> int:
     contract = CONTRACT.read_text(encoding="utf-8")
     build_script = BUILD_SCRIPT.read_text(encoding="utf-8")
     update_script = UPDATE_SCRIPT.read_text(encoding="utf-8")
+    component_manifest = COMPONENT_MANIFEST.read_text(encoding="utf-8")
 
-    require(r"#define SETUP_SCHEMA_VERSION 1\b", firmware, "firmware schema")
+    require(r"#define SETUP_SCHEMA_VERSION 2\b", firmware, "firmware schema")
+    require(r"#define BRIDGE_PROTOCOL_VERSION 1\b", firmware, "bridge protocol")
     require(r"#define SETUP_LINE_BYTES 4096U\b", firmware, "firmware line limit")
     require(
-        r'#define SETUP_BACKEND_HOST "xrc\.local"',
+        r'#define SETUP_BACKEND_HOST "studio\.tan\.coffee"',
         firmware,
         "firmware backend host",
     )
     require(
-        r"TanBridgeSetupSchemaVersion = 1 as const",
+        r"TanBridgeSetupSchemaVersion = 2 as const",
         contract,
         "browser schema",
     )
@@ -40,19 +43,21 @@ def main() -> int:
         "browser line limit",
     )
     require(
-        r'TanBridgeBackendHost = "xrc\.local"',
+        r'TanBridgeBackendHost = "studio\.tan\.coffee"',
         contract,
         "browser backend host",
     )
-    require(r"#define SETUP_BACKEND_PORT 8081U", firmware, "firmware backend port")
-    require(r"TanBridgeBackendPort = 8_081 as const", contract, "browser backend port")
+    require(r"#define SETUP_BACKEND_PORT 443U", firmware, "firmware backend port")
+    require(r"#define SETUP_BACKEND_PATH \"/device/v1/session\"", firmware, "firmware backend path")
+    require(r"TanBridgeBackendPort = 443 as const", contract, "browser backend port")
+    require(r'TanBridgeBackendPath = "/device/v1/session"', contract, "browser backend path")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.2\.7-local"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.3\.1-hosted"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.2\.7-local"',
+        r'firmware_version="0\.3\.1-hosted"',
         build_script,
         "reproducible build firmware version",
     )
@@ -62,7 +67,7 @@ def main() -> int:
         "pre-network Nano bootstrap buffer",
     )
     require(
-        r"static void set_bridge_socket\(int socket_fd\)[\s\S]*?pending_usb_length[\s\S]*?send_tunnel_frame",
+        r"static void set_bridge_client\(esp_websocket_client_handle_t client\)[\s\S]*?pending_usb_length[\s\S]*?send_tunnel_frame",
         firmware,
         "bootstrap replay after backend authentication",
     )
@@ -112,15 +117,27 @@ def main() -> int:
         "network task core isolation",
     )
     require(
-        r"tan_tunnel_allows_backend_frame\(payload, length\)",
+        r"tan_tunnel_allows_backend_frame\(payload, payload_length\)",
         firmware,
         "host-tested backend-to-Nano safety policy",
     )
+    require(r"esp_websocket_client_send_bin", firmware, "binary WebSocket tunnel")
     require(
-        r"uint8_t \*payload = malloc\(TUNNEL_MAX_PAYLOAD_BYTES\)",
+        r"\(size_t\)sent != hello_length",
         firmware,
-        "bounded heap tunnel payload",
+        "complete WebSocket hello write",
     )
+    require(r"esp_crt_bundle_attach", firmware, "Mozilla CA bundle verification")
+    require(r"\.skip_cert_common_name_check\s*=\s*false", firmware, "TLS hostname verification")
+    require(r"\.ping_interval_sec\s*=\s*20U", firmware, "WebSocket heartbeat")
+    require(r"\.pingpong_timeout_sec\s*=\s*60", firmware, "heartbeat timeout")
+    require(r"\.network_timeout_ms\s*=\s*10000", firmware, "bounded TLS network timeout")
+    require(r"esp_netif_sntp_sync_wait", firmware, "clock synchronization before TLS")
+    require(r"payload_offset", firmware, "fragmented WebSocket message assembly")
+    require(r"payload_len", firmware, "bounded WebSocket message assembly")
+    require(r"espressif/esp_websocket_client:[\s\S]*?version: \"1\.8\.0\"", component_manifest, "pinned managed WebSocket client")
+    if "connect_backend" in firmware or "SOCK_STREAM" in firmware:
+        raise AssertionError("hosted firmware must not retain the raw TCP transport")
     if re.search(r"uint8_t\s+payload\[TUNNEL_MAX_PAYLOAD_BYTES\]", firmware):
         raise AssertionError("tunnel payload must not consume the network task stack")
     require(

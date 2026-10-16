@@ -64,7 +64,11 @@ const MIGRATIONS: &[(i64, &str)] = &[
     ),
     (
         15,
-        include_str!("../../companion/migrations/0015_agent_credentials.sql"),
+        include_str!("../../companion/migrations/0015_bridge_revocation.sql"),
+    ),
+    (
+        16,
+        include_str!("../../companion/migrations/0016_agent_credentials.sql"),
     ),
 ];
 
@@ -274,8 +278,57 @@ mod tests {
     fn applies_the_existing_forward_migrations() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (15, 4));
+        assert_eq!(database.schema_versions().unwrap(), (16, 4));
         assert!(database.quick_check().unwrap());
+    }
+
+    #[test]
+    fn upgrades_bridge_schema_15_to_agent_schema_16_without_losing_revocations() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("existing-bridge.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, sha256 TEXT NOT NULL, applied_at_ms INTEGER NOT NULL) STRICT;").unwrap();
+        for (version, sql) in MIGRATIONS.iter().filter(|(version, _)| *version <= 15) {
+            connection.execute_batch(sql).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO schema_migrations VALUES (?, ?, 1)",
+                    rusqlite::params![version, sha256(sql.as_bytes())],
+                )
+                .unwrap();
+        }
+        connection.execute("INSERT INTO tan_bridges(bridge_id,device_token_sha256,created_at_ms,updated_at_ms,revoked_at_ms) VALUES (?, ?, 1, 2, 2)", rusqlite::params!["a".repeat(26), "0".repeat(64)]).unwrap();
+        drop(connection);
+        let database = Database::open(&path).unwrap();
+        assert_eq!(database.schema_versions().unwrap(), (16, 4));
+        let connection = database.connection();
+        let bridge: (String, i64) = connection
+            .query_row(
+                "SELECT bridge_id,revoked_at_ms FROM tan_bridges",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(bridge, ("a".repeat(26), 2));
+        let agents: i64 = connection
+            .query_row("SELECT count(*) FROM agent_credentials", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(agents, 0);
+        let bridge_hash: String = connection
+            .query_row(
+                "SELECT sha256 FROM schema_migrations WHERE version=15",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            bridge_hash,
+            sha256(
+                include_str!("../../companion/migrations/0015_bridge_revocation.sql").as_bytes()
+            )
+        );
     }
 
     #[test]
@@ -308,7 +361,7 @@ mod tests {
 
         let database = Database::open(&path).unwrap();
 
-        assert_eq!(database.schema_versions().unwrap(), (15, 4));
+        assert_eq!(database.schema_versions().unwrap(), (16, 4));
         let connection = database.connection();
         assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
         let applied: i64 = connection
@@ -316,7 +369,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 15);
+        assert_eq!(applied, 16);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

@@ -510,7 +510,7 @@ device:sync:read
 
 There is no destructive device scope in the first release. Profile/device mutation, firmware installation, roast stop, filesystem delete/format, or network credential changes are separate future capabilities with physical/human confirmation.
 
-The current headless service has one broad LAN bearer token. The plugin uses it only for the curated operations above. Issuing revocable per-agent tokens with these scopes is a backend hardening milestone, not a capability the v0 plugin claims to provide.
+The current hosted backend accepts broad bearer tokens for API clients. The plugin uses its token only for the curated operations above. Issuing revocable per-agent tokens with enforced scopes is a backend hardening milestone, not a capability the v0 plugin claims to provide.
 
 ## 9. Implementation sequence
 

@@ -1,7 +1,7 @@
-# Tan Bridge local-LAN image
+# Tan Bridge hosted image
 
-This is the single AtomS3 Lite image used for local Tan Studio operation. The
-same USB-C port is used first with a computer for setup and then with the Nano.
+This is the AtomS3 Lite image used with the hosted Tan Studio service. The same
+USB-C port is used first with a computer for setup and then with the Nano.
 
 Implemented setup protocol operations:
 
@@ -16,12 +16,17 @@ The transport is strict UTF-8 JSON Lines over USB CDC at a nominal 115,200
 baud. Lines are capped at 4,096 bytes, unknown properties are rejected, and
 the last eight request identifiers cannot be reused.
 
-After setup it resolves `xrc.local`, authenticates outbound on TCP port `8081`,
+After setup it opens
+`wss://studio.tan.coffee/device/v1/session`, verifies the public TLS certificate
+and hostname, authenticates with the one-time claim or retained device token,
 and forwards USB byte chunks into the Rust service. Backend-to-Nano frames are
-accepted only for the five already verified read-only SASSI message types 1,
-3, 5, 7, and 13. Wi-Fi credentials never leave the Atom. This unencrypted TCP
-transport is deliberately scoped to the trusted local-LAN milestone; the
-production remote design remains authenticated TLS/WSS.
+accepted only for the five verified read-only SASSI message types 1, 3, 5, 7,
+and 13. Wi-Fi credentials never leave the Atom.
+
+The setup protocol is schema v2. The backend endpoint is compiled into the
+firmware; setup stores only the selected Wi-Fi credential and one-time claim.
+WebSocket ping/pong, bounded timeouts, and jittered reconnects keep the tunnel
+alive without exposing a raw bridge port.
 
 The Atom retains a bounded 8 KiB bootstrap buffer while Wi-Fi is associating.
 This preserves the Nano's spontaneous SASSI capability frame, which normally
@@ -55,10 +60,10 @@ contract with:
 uv run script/verify_tan_bridge_setup.py /dev/cu.usbmodem...
 ```
 
-For an already-provisioned bridge, a reviewed application-only update can keep
-the NVS identity, Wi-Fi credential, and issued device token intact. Put the
-Atom in ROM download mode with the Nano disconnected, then use the separate
-guarded updater:
+For an already-provisioned `0.2.x-local` bridge, the application-only update
+keeps the NVS identity, Wi-Fi credential, and issued device token intact. Put
+the Atom in ROM download mode with the Nano disconnected, then use the guarded
+updater:
 
 ```sh
 ./script/update_tan_bridge_setup_firmware.sh /dev/cu.usbmodem...
@@ -67,3 +72,10 @@ guarded updater:
 The updater writes only the factory application partition at `0x10000`; it
 does not run `erase-flash` and does not touch the NVS partition. The original
 flash script remains the recovery path when configuration must be erased.
+
+After the update, reconnect the Atom to the computer and run the verifier. It
+must report firmware `0.3.1-hosted`, transport `wss`, host
+`studio.tan.coffee`, port `443`, and path `/device/v1/session`. Then reconnect
+the Atom to the Nano. If the retained identity has been revoked or the bridge
+was never provisioned, use Tan Studio's Tan Bridge setup panel to issue a new
+claim.

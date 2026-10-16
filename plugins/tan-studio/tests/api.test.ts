@@ -117,7 +117,7 @@ describe("generated OpenAPI transport", () => {
     expect(synchronizationSignal).toBeDefined()
   })
 
-  test("creates metadata then streams local attachment bytes", async () => {
+  test("creates metadata then streams selected attachment bytes", async () => {
     const directory = await mkdtemp(join(tmpdir(), "tan-studio-api-"))
     temporaryDirectories.push(directory)
     const filePath = join(directory, "provider.pdf")
@@ -159,7 +159,7 @@ describe("generated OpenAPI transport", () => {
       })
     })
 
-    const result = await api.attachLocalFile({
+    const result = await api.attachFile({
       filePath,
       title: "Provider print sheet",
       sourceUrl: "https://example.test/coffee",

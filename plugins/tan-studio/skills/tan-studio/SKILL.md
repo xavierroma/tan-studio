@@ -1,6 +1,6 @@
 ---
 name: tan-studio
-description: Inspect and manage the user's Tan Studio coffee data through its local API. Use when the user asks about green coffees, roasting profiles, roast history or telemetry, rested pantry coffee, brews, tasting notes, roast labels, or the connected Kaffeelogic Nano.
+description: Inspect and manage the user's Tan Studio coffee data through its hosted API. Use when the user asks about green coffees, roasting profiles, roast history or telemetry, rested pantry coffee, brews, tasting notes, roast labels, or the connected Kaffeelogic Nano.
 ---
 
 # Tan Studio
@@ -29,7 +29,7 @@ Treat the user's stated measurements and sensory observations as facts. Keep sug
 - Link a tasting note to the brew and roast when both are known.
 - Preserve the user's wording in unstructured notes; do not manufacture flavor notes, scores, measurements, or inventory amounts.
 - Report the persisted numeric ID after a successful write.
-- Use `tan_attach_file` after saving a provider PDF, brew photo, or roast photo/video locally. Link it to every known relevant resource; use `tan_list_attachments` to verify the relationship.
+- Use `tan_attach_file` only for a provider PDF, brew photo, or roast photo/video the user explicitly selected. Link it to every known relevant resource; use `tan_list_attachments` to verify the relationship.
 
 Read [references/tool-contract.md](references/tool-contract.md) before a write or telemetry request if field semantics or units are unclear.
 

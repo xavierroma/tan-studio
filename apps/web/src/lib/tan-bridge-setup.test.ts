@@ -63,7 +63,7 @@ function responseEnvelope(
   result: Record<string, unknown>
 ) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     requestId: request.requestId,
     result,
   }
@@ -73,14 +73,17 @@ describe("Tan Bridge Web Serial client", () => {
   it("opens deterministic CDC settings and validates a split status frame", async () => {
     const port = new FakeSerialPort((request) =>
       responseEnvelope(request, {
-        protocolVersion: 1,
+        protocolVersion: 2,
         bridgeId: "abcdefghijklmnopqrstuvwxyz",
         firmware: { version: "0.1.0-dev", build: "setup-v1" },
         lifecycle: "unprovisioned",
         wifi: { state: "disabled" },
         backend: {
           state: "offline",
-          host: "bridge.tanstudio.xroma.dev",
+          transport: "wss",
+          host: "studio.tan.coffee",
+          port: 443,
+          path: "/device/v1/session",
         },
         claim: { state: "unclaimed" },
         diagnostics: {
@@ -144,7 +147,7 @@ describe("Tan Bridge Web Serial client", () => {
 
   it("surfaces typed firmware errors", async () => {
     const port = new FakeSerialPort((request) => ({
-      schemaVersion: 1,
+      schemaVersion: 2,
       requestId: request.requestId,
       error: {
         code: "wifi_scan_failed",
