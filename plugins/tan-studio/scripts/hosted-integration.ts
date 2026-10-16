@@ -20,32 +20,70 @@ options.gateway = (p, signal, correlationId) =>
   )
 options.log = () => {}
 const handle = createHostedHandler(options)
+// The bundled fixed-port mode is used only inside the isolated Docker test.
+const bundled = process.env.TAN_TEST_BUNDLED_MCP === "1"
+if (bundled && baseUrl !== "http://127.0.0.1:8080")
+  throw new Error("bundled fixture requires isolated port 8080")
+const server = bundled
+  ? undefined
+  : Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) => handle(request, "isolated-loopback-client"),
+    })
+const child = bundled
+  ? Bun.spawn([process.execPath, "plugins/tan-studio/dist/http-server.js"], {
+      env: {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        TAN_STUDIO_MCP_ENABLED: "1",
+        TAN_STUDIO_MCP_AUTH_SOCKET: socket,
+      },
+      stdout: "inherit",
+      stderr: "inherit",
+    })
+  : undefined
+const mcpOrigin = `http://127.0.0.1:${bundled ? 8082 : server!.port}`
 async function connect(token: string) {
   const c = new Client(
     { name: "hosted-fixture", version: "1" },
     { versionNegotiation: { mode: { pin: "2026-07-28" } } }
   )
   await c.connect(
-    new StreamableHTTPClientTransport(
-      new URL("https://studio.tan.coffee/mcp"),
-      {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
-        fetch: async (input, init) => {
-          const r = new Request(input, init)
-          r.headers.set("Host", "studio.tan.coffee")
-          return handle(
-            r,
-            token === process.env.TAN_TEST_READ_TOKEN ? "read" : "write"
-          )
-        },
-      }
-    )
+    new StreamableHTTPClientTransport(new URL(`${mcpOrigin}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      fetch: async (input, init) => {
+        const r = new Request(input, init)
+        r.headers.set("Host", "studio.tan.coffee")
+        return fetch(r)
+      },
+    })
   )
   return c
 }
-const reader = await connect(process.env.TAN_TEST_READ_TOKEN!),
-  writer = await connect(process.env.TAN_TEST_WRITE_TOKEN!)
+let reader: Client | undefined, writer: Client | undefined
 try {
+  if (bundled) {
+    let ready = false
+    for (let n = 0; n < 50; n++) {
+      try {
+        ready = (await fetch(`${mcpOrigin}/readyz`)).ok
+      } catch {}
+      if (ready) break
+      await Bun.sleep(100)
+    }
+    assert.equal(ready, true, "bundled listener becomes ready")
+    assert.equal(
+      (
+        await fetch(`${mcpOrigin}/mcp`, {
+          method: "POST",
+          headers: { Host: "studio.tan.coffee" },
+        })
+      ).status,
+      401
+    )
+  }
+  reader = await connect(process.env.TAN_TEST_READ_TOKEN!)
+  writer = await connect(process.env.TAN_TEST_WRITE_TOKEN!)
   assert.equal((await reader.listTools()).tools.length, 8)
   assert.equal((await writer.listTools()).tools.length, 16)
   const created = await writer.callTool({
@@ -103,6 +141,11 @@ try {
     "Hosted MCP → Unix auth → Rust REST: read/write, attribution, revision conflict, audience isolation passed"
   )
 } finally {
-  await reader.close()
-  await writer.close()
+  await reader?.close()
+  await writer?.close()
+  await server?.stop(true)
+  if (child) {
+    child.kill()
+    await child.exited
+  }
 }

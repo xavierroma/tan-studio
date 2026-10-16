@@ -843,7 +843,13 @@ mod tests {
         let socket = authority.socket.clone();
         state.agent_auth = Some(Arc::new(authority));
         let auth_task = start(state.clone()).await.unwrap().unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        // Fixed ports are reserved for the no-network Docker fixture, never production.
+        let bind = if std::env::var("TAN_TEST_BUNDLED_MCP").as_deref() == Ok("1") {
+            "127.0.0.1:8080"
+        } else {
+            "127.0.0.1:0"
+        };
+        let listener = tokio::net::TcpListener::bind(bind).await.unwrap();
         let address = listener.local_addr().unwrap();
         let api_task = tokio::spawn(async move {
             axum::serve(listener, crate::build_router(state))

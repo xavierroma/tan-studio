@@ -69,3 +69,16 @@ To remove public MCP while retaining the notebook, after approval run `sudo /opt
 For a code rollback after schema 15, keep a schema-compatible Rust release and disable MCP. An older binary refuses the newer schema. The installer now refuses automatic downgrade when startup migrated the notebook. Restore a pre-deploy snapshot only through a reviewed recovery procedure with the service stopped, after explicitly accounting for writes since the snapshot. Never silently replace the live database.
 
 Rotate by creating a replacement, switching the specific agent, verifying a read, then revoking the old credential. Revocation invalidates even previously issued REST delegations at their next authorization check. Rust restart invalidates all short-lived delegations but preserves the long-lived agent credentials.
+
+## Isolated native runtime verification
+
+Build and run the dedicated verification image on the host's native Linux architecture:
+
+```sh
+docker build -f deploy/hosted/Dockerfile.verify -t tan-studio-mcp-verify .
+docker run --rm --pull never --network none tan-studio-mcp-verify
+```
+
+The image publishes no ports and mounts no host files. Dependencies are fetched at build time; execution has no external network. It runs 31 MCP tests and 103 Rust tests. The integration fixture creates a temporary notebook, two temporary credentials and a private Unix auth socket, then starts the actual bundled `http-server.js` child process. The official client connects over loopback HTTP and checks catalog permissions, writes, reads, attribution, revision conflicts and MCP-versus-REST audience isolation. Readiness and unauthenticated 401 behavior are checked too. Fixture credentials are never production credentials.
+
+On Apple Silicon this is native Linux ARM64, not validation of the AMD64 release binary. To validate that target, run the same commands on a non-production native AMD64 host (for example a dedicated Debian 13 test VM with Docker). Do not run the fixed-port bundled fixture directly on a shared host. The default macOS fixture instead chooses ephemeral loopback ports and uses native Bun.

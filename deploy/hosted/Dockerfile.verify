@@ -1,0 +1,13 @@
+# Isolated native-platform verification. No published ports or production secrets.
+# docker build -f deploy/hosted/Dockerfile.verify -t tan-studio-mcp-verify .
+# docker run --rm --pull never --network none tan-studio-mcp-verify
+FROM oven/bun:1.4.2 AS bun-runtime
+FROM rust:1.97-bookworm
+COPY --from=bun-runtime /usr/local/bin/bun /usr/local/bin/bun
+WORKDIR /workspace
+COPY . .
+RUN bun install --frozen-lockfile \
+  && bun run --cwd plugins/tan-studio build \
+  && cargo test --locked --manifest-path apps/service/Cargo.toml --no-run
+ENV TAN_TEST_BUNDLED_MCP=1
+CMD ["bash", "deploy/hosted/verify-mcp-runtime.sh"]
