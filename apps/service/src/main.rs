@@ -109,6 +109,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let state = ApiState::new(config.clone(), database, device.clone())?;
     state.spawn_attachment_replication();
+    #[cfg(unix)]
+    let agent_auth_task = tan_studio_service::agent_auth::start(state.clone()).await?;
     let router = build_router(state);
     let listener = TcpListener::bind((config.bind_host.as_str(), config.port)).await?;
     let local = listener.local_addr()?;
@@ -141,6 +143,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             shutdown_device.stop();
         })
         .await;
+    #[cfg(unix)]
+    if let Some(task) = agent_auth_task {
+        task.abort();
+    }
     if let Some(task) = bridge_task {
         task.abort();
     }

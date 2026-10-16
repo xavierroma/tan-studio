@@ -200,6 +200,14 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
       > "$SOURCE_DIRECTORY/system/tan-studio.service"
   fi
 
+  mkdir -p "$SOURCE_DIRECTORY/mcp"
+  cp "$SOURCE_DIRECTORY/bin/tan-studio-service" "$SOURCE_DIRECTORY/bin/bun"
+  printf '// fixture bundle\n' > "$SOURCE_DIRECTORY/mcp/http-server.js"
+  cp "$HOSTED_DIRECTORY/tan-studio-mcp.service" "$SOURCE_DIRECTORY/system/tan-studio-mcp.service"
+  cp "$HOSTED_DIRECTORY/mcp.caddy" "$SOURCE_DIRECTORY/system/mcp.caddy"
+  cp "$HOSTED_DIRECTORY/enable_mcp.sh" "$SOURCE_DIRECTORY/enable_mcp.sh"
+  cp "$HOSTED_DIRECTORY/disable_mcp.sh" "$SOURCE_DIRECTORY/disable_mcp.sh"
+
   INSTALL_ROOT="$TEST_ROOT/root"
   if TAN_STUDIO_INSTALL_ROOT="$INSTALL_ROOT" "$INSTALLER" "$SOURCE_DIRECTORY" "test-version-1" \
     >/dev/null 2>"$TEST_ROOT/first-missing.log"; then
@@ -406,6 +414,17 @@ if [[ -x "$INSTALLER" || -f "$INSTALLER" ]]; then
     fi
   fi
 
+if [[ -f "$INSTALL_ROOT/opt/tan-studio/current/mcp/http-server.js" && -x "$INSTALL_ROOT/opt/tan-studio/current/bin/bun" ]]; then
+  pass 'installer preserves the MCP release artifacts'
+else
+  fail 'installer omitted MCP release artifacts'
+fi
+if [[ ! -f "$INSTALL_ROOT/etc/caddy/tan-studio-mcp-enabled.caddy" ]]; then
+  pass 'fresh installation keeps public MCP disabled'
+else
+  fail 'fresh installation enabled public MCP'
+fi
+
   trap - EXIT
   cleanup_test_root
 fi
@@ -509,6 +528,13 @@ fi
 
 trap - EXIT
 cleanup_backup_root
+
+require_match "$DOCKERFILE" 'oven/bun:1.4.2' 'hosted Bun runtime is pinned'
+require_match "$HOSTED_DIRECTORY/tan-studio-mcp.service" '^User=tan-studio-mcp$' 'MCP uses a separate Unix identity'
+forbid_match "$HOSTED_DIRECTORY/tan-studio-mcp.service" 'EnvironmentFile|LoadCredential|SupplementaryGroups=tan-studio$' 'MCP receives no operator or GCS secrets'
+require_match "$HOSTED_DIRECTORY/mcp.caddy" 'handle /mcp' 'MCP route is explicit'
+require_match "$HOSTED_DIRECTORY/enable_mcp.sh" 'enable-public-mcp' 'public enablement requires an explicit operator command'
+forbid_match "$INSTALLER" 'systemctl enable tan-studio-mcp' 'ordinary deployment does not enable MCP'
 
 if [[ "$FAILS" -ne 0 ]]; then
   printf '%s hosted deploy check(s) failed\n' "$FAILS" >&2

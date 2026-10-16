@@ -1,0 +1,18 @@
+# Installed as /etc/caddy/tan-studio-mcp-enabled.caddy ONLY after enablement approval.
+handle /mcp {
+    request_body {
+        max_size 256KB
+    }
+    reverse_proxy 127.0.0.1:8082 {
+        header_up Host studio.tan.coffee
+        header_up X-Tan-Client-IP {remote_host}
+        header_up -X-Tan-Agent-Id
+        header_up -X-Tan-Principal
+        header_up -X-Tan-Studio-Client
+        flush_interval -1
+    }
+}
+@mcp_rejected path /mcp/* /internal/*
+handle @mcp_rejected {
+    respond 404
+}

@@ -1209,3 +1209,78 @@ async fn sign_out_refuses_a_get() {
     .await;
     assert_eq!(status, StatusCode::OK, "{}", json_body(&body));
 }
+
+#[tokio::test]
+async fn mcp_management_requires_operator_session_and_disabled_deployments_cannot_mint() {
+    let issuer = FakeIssuer::start(OPERATOR_EMAIL).await;
+    let hosted = hosted_app(&issuer.base_url);
+    let mut jar = HashMap::new();
+    let (status, headers, _) = complete_google_login(&hosted.app, &issuer, &mut jar).await;
+    assert_eq!(status, StatusCode::FOUND);
+    apply_cookies(&mut jar, &headers);
+    let cookie = cookie_header(&jar);
+    let (status, _, body) = send_json(
+        &hosted.app,
+        Method::POST,
+        "/api/v1/agent-credentials",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie.as_deref(),
+        HOSTED_CLIENT,
+        json!({"label":"Fixture agent"}),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        json_body(&body)
+    );
+    let (status, _, body) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/agent-credentials",
+        STUDIO_HOST,
+        Some(STUDIO_ORIGIN),
+        cookie.as_deref(),
+        HOSTED_CLIENT,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json_body(&body)["enabled"], false);
+    assert_eq!(json_body(&body)["items"], json!([]));
+    let (api_secret, _) = mint_api_token(&hosted.app, &issuer, "REST fixture").await;
+    let bearer = format!("Bearer {api_secret}");
+    let client = &[
+        ("authorization", bearer.as_str()),
+        ("x-tan-studio-client", API_CLIENT_ID),
+    ];
+    for (path, body) in [
+        ("/api/v1/agent-credentials", json!({"label":"Unauthorized"})),
+        ("/api/v1/agent-credentials/1/revoke", json!({})),
+    ] {
+        let (status, _, _) = send_json(
+            &hosted.app,
+            Method::POST,
+            path,
+            STUDIO_HOST,
+            None,
+            None,
+            client,
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+    let (status, _, _) = send(
+        &hosted.app,
+        Method::GET,
+        "/api/v1/agent-credentials",
+        STUDIO_HOST,
+        None,
+        None,
+        client,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}

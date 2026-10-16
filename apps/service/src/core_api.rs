@@ -846,8 +846,16 @@ pub async fn notes_list(
 #[utoipa::path(post, path = "/api/v1/notes", tag = "notes", operation_id = "createNote", request_body = NoteCreate, responses((status = 201, body = NoteResource), (status = 422, body = ProblemDetails)))]
 pub async fn notes_create(
     State(state): State<ApiState>,
-    Json(input): Json<NoteCreate>,
+    axum::Extension(credential): axum::Extension<crate::api::Credential>,
+    Json(mut input): Json<NoteCreate>,
 ) -> ApiResult<(StatusCode, Json<NoteResource>)> {
+    if let crate::api::Credential::Agent(id) = credential {
+        input.source = "agent".into();
+        if !input.attributes.is_object() {
+            input.attributes = serde_json::json!({});
+        }
+        input.attributes["agent"] = serde_json::json!(format!("mcp-agent:{id}"));
+    }
     validate_note(
         &input.kind,
         &input.body,

@@ -10,6 +10,85 @@
     "version": "1.1.0"
   },
   "paths": {
+    "/api/v1/agent-credentials": {
+      "get": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredentialPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCredentialCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedAgentCredential"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-credentials/{id}/revoke": {
+      "post": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredential"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/api-tokens": {
       "get": {
         "tags": [
@@ -2829,6 +2908,100 @@
           }
         }
       },
+      "AgentCredential": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "audience",
+          "write",
+          "createdAtMs",
+          "expiresAtMs",
+          "version"
+        ],
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "lastUsedAtMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revokedAtMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AgentCredentialCreate": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "expiresInDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCredentialPage": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "endpoint",
+          "items"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentCredential"
+            }
+          }
+        }
+      },
       "ApiTokenCreate": {
         "type": "object",
         "required": [
@@ -4264,6 +4437,21 @@
               "null"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "MintedAgentCredential": {
+        "type": "object",
+        "required": [
+          "credential",
+          "secret"
+        ],
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/AgentCredential"
+          },
+          "secret": {
+            "type": "string"
           }
         }
       },

@@ -1,11 +1,8 @@
-import {
-  McpServer,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js"
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server"
 import { z } from "zod"
 
 import type { TanStudioGateway } from "./gateway"
-import { protect, success } from "./results"
+import { protect, success as toolSuccess, hostedSuccess } from "./results"
 import {
   celsiusToMilliCelsius,
   gramsToMilligrams,
@@ -69,7 +66,14 @@ const writeAnnotations = {
   openWorldHint: false,
 } as const
 
-export function createTanStudioServer(api: TanStudioGateway): McpServer {
+export function createTanStudioServer(
+  api: TanStudioGateway,
+  options: { hosted?: boolean; write?: boolean } = {}
+): McpServer {
+  const success = options.hosted ? hostedSuccess : toolSuccess
+  const writeSuccess = options.hosted
+    ? (summary: string, data: unknown) => hostedSuccess(summary, data, true)
+    : toolSuccess
   const server = new McpServer({ name: "tan-studio", version: "0.1.0" })
 
   server.registerTool(
@@ -115,7 +119,10 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
     async ({ query, coffeeId, roastId, limit }) =>
       protect(async () => {
         const page = await api.searchProfiles({ q: query, coffeeId, roastId })
-        return success("Matching roasting profiles", boundedPage(page, limit))
+        return success(
+          "Matching roasting profiles",
+          boundedPage(page, limit)
+        )
       })
   )
 
@@ -176,89 +183,93 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
       })
   )
 
-  server.registerTool(
-    "tan_create_coffee",
-    {
-      title: "Create green coffee",
-      description:
-        "Create a flat green-coffee catalog record from provider research or user-provided facts. Preserve provenance in providerUrl and metadata; never invent unknown details.",
-      inputSchema: {
-        name: z.string().trim().min(1).max(200),
-        ...coffeeFields,
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_create_coffee",
+      {
+        title: "Create green coffee",
+        description:
+          "Create a flat green-coffee catalog record from provider research or user-provided facts. Preserve provenance in providerUrl and metadata; never invent unknown details.",
+        inputSchema: {
+          name: z.string().trim().min(1).max(200),
+          ...coffeeFields,
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({
-      name,
-      purchasedGrams,
-      remainingGrams,
-      altitudeMinMeters,
-      altitudeMaxMeters,
-      ...input
-    }) =>
-      protect(async () => {
-        const coffee = await api.createCoffee({
-          name,
-          ...withoutUndefined(input),
-          ...(purchasedGrams !== undefined
-            ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
-            : {}),
-          ...(remainingGrams !== undefined
-            ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
-            : {}),
-          ...(altitudeMinMeters !== undefined
-            ? { altitudeMinM: altitudeMinMeters }
-            : {}),
-          ...(altitudeMaxMeters !== undefined
-            ? { altitudeMaxM: altitudeMaxMeters }
-            : {}),
+      async ({
+        name,
+        purchasedGrams,
+        remainingGrams,
+        altitudeMinMeters,
+        altitudeMaxMeters,
+        ...input
+      }) =>
+        protect(async () => {
+          const coffee = await api.createCoffee({
+            name,
+            ...withoutUndefined(input),
+            ...(purchasedGrams !== undefined
+              ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
+              : {}),
+            ...(remainingGrams !== undefined
+              ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
+              : {}),
+            ...(altitudeMinMeters !== undefined
+              ? { altitudeMinM: altitudeMinMeters }
+              : {}),
+            ...(altitudeMaxMeters !== undefined
+              ? { altitudeMaxM: altitudeMaxMeters }
+              : {}),
+          })
+          return writeSuccess(`Created coffee ${coffee.id}`, coffee)
         })
-        return success(`Created coffee ${coffee.id}`, coffee)
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_update_coffee",
-    {
-      title: "Update green coffee",
-      description:
-        "Update a green-coffee record using its current revision from tan_search_coffees. Only supplied fields change.",
-      inputSchema: {
-        coffeeId: shortId,
-        revision: z.number().int().positive(),
-        name: z.string().trim().min(1).max(200).optional(),
-        ...coffeeFields,
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_update_coffee",
+      {
+        title: "Update green coffee",
+        description:
+          "Update a green-coffee record using its current revision from tan_search_coffees. Only supplied fields change.",
+        inputSchema: {
+          coffeeId: shortId,
+          revision: z.number().int().positive(),
+          name: z.string().trim().min(1).max(200).optional(),
+          ...coffeeFields,
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({
-      coffeeId,
-      revision,
-      purchasedGrams,
-      remainingGrams,
-      altitudeMinMeters,
-      altitudeMaxMeters,
-      ...input
-    }) =>
-      protect(async () => {
-        const coffee = await api.updateCoffee(coffeeId, revision, {
-          ...withoutUndefined(input),
-          ...(purchasedGrams !== undefined
-            ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
-            : {}),
-          ...(remainingGrams !== undefined
-            ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
-            : {}),
-          ...(altitudeMinMeters !== undefined
-            ? { altitudeMinM: altitudeMinMeters }
-            : {}),
-          ...(altitudeMaxMeters !== undefined
-            ? { altitudeMaxM: altitudeMaxMeters }
-            : {}),
+      async ({
+        coffeeId,
+        revision,
+        purchasedGrams,
+        remainingGrams,
+        altitudeMinMeters,
+        altitudeMaxMeters,
+        ...input
+      }) =>
+        protect(async () => {
+          const coffee = await api.updateCoffee(coffeeId, revision, {
+            ...withoutUndefined(input),
+            ...(purchasedGrams !== undefined
+              ? { purchasedMassMg: gramsToMilligrams(purchasedGrams) }
+              : {}),
+            ...(remainingGrams !== undefined
+              ? { remainingMassMg: gramsToMilligrams(remainingGrams) }
+              : {}),
+            ...(altitudeMinMeters !== undefined
+              ? { altitudeMinM: altitudeMinMeters }
+              : {}),
+            ...(altitudeMaxMeters !== undefined
+              ? { altitudeMaxM: altitudeMaxMeters }
+              : {}),
+          })
+          return writeSuccess(`Updated coffee ${coffee.id}`, coffee)
         })
-        return success(`Updated coffee ${coffee.id}`, coffee)
-      })
-  )
+    )
+  }
 
   server.registerTool(
     "tan_get_context",
@@ -303,289 +314,307 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
       )
   )
 
-  server.registerTool(
-    "tan_update_roast",
-    {
-      title: "Update roast",
-      description:
-        "Revision-update supplied roast results or settings, including roasted yield, timing, temperature, cooling, a user first-crack marker, and global archive state. Green input mass is never changed by this tool.",
-      inputSchema: {
-        roastId: shortId,
-        revision: z.number().int().positive(),
-        roastedYieldGrams: z.number().positive().max(10_000).optional(),
-        firstCrackSeconds: z.number().nonnegative().max(86_400).optional(),
-        firstCrackTemperatureCelsius: z.number().min(-100).max(500).optional(),
-        clearFirstCrack: z.boolean().optional(),
-        status: z.enum(["planned", "completed", "interrupted"]).optional(),
-        result: z.enum(["success", "aborted", "fault", "unknown"]).optional(),
-        level: z.number().min(0).max(10).optional(),
-        developmentPercent: z.number().min(0).max(100).optional(),
-        durationSeconds: z.number().nonnegative().max(86_400).optional(),
-        coolingSeconds: z.number().nonnegative().max(86_400).optional(),
-        endTemperatureCelsius: z.number().min(-100).max(500).optional(),
-        endReason: z.string().trim().max(200).optional(),
-        archived: z
-          .boolean()
-          .optional()
-          .describe(
-            "True hides the roast from normal lists and pantry; false restores it"
-          ),
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_update_roast",
+      {
+        title: "Update roast",
+        description:
+          "Revision-update supplied roast results or settings, including roasted yield, timing, temperature, cooling, a user first-crack marker, and global archive state. Green input mass is never changed by this tool.",
+        inputSchema: {
+          roastId: shortId,
+          revision: z.number().int().positive(),
+          roastedYieldGrams: z.number().positive().max(10_000).optional(),
+          firstCrackSeconds: z.number().nonnegative().max(86_400).optional(),
+          firstCrackTemperatureCelsius: z
+            .number()
+            .min(-100)
+            .max(500)
+            .optional(),
+          clearFirstCrack: z.boolean().optional(),
+          status: z.enum(["planned", "completed", "interrupted"]).optional(),
+          result: z.enum(["success", "aborted", "fault", "unknown"]).optional(),
+          level: z.number().min(0).max(10).optional(),
+          developmentPercent: z.number().min(0).max(100).optional(),
+          durationSeconds: z.number().nonnegative().max(86_400).optional(),
+          coolingSeconds: z.number().nonnegative().max(86_400).optional(),
+          endTemperatureCelsius: z.number().min(-100).max(500).optional(),
+          endReason: z.string().trim().max(200).optional(),
+          archived: z
+            .boolean()
+            .optional()
+            .describe(
+              "True hides the roast from normal lists and pantry; false restores it"
+            ),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({
-      roastId,
-      revision,
-      roastedYieldGrams,
-      firstCrackSeconds,
-      firstCrackTemperatureCelsius,
-      clearFirstCrack,
-      status,
-      result,
-      level,
-      developmentPercent,
-      durationSeconds,
-      coolingSeconds,
-      endTemperatureCelsius,
-      endReason,
-      archived,
-    }) =>
-      protect(async () => {
-        if (
-          firstCrackTemperatureCelsius !== undefined &&
-          firstCrackSeconds === undefined
-        ) {
-          throw new Error(
-            "firstCrackSeconds is required with firstCrackTemperatureCelsius"
-          )
-        }
-        if (coolingSeconds !== undefined && durationSeconds === undefined) {
-          throw new Error("durationSeconds is required with coolingSeconds")
-        }
-        const input = withoutUndefined({
-          ...(roastedYieldGrams === undefined
-            ? {}
-            : { roastedYieldMassMg: gramsToMilligrams(roastedYieldGrams) }),
-          ...(clearFirstCrack
-            ? { firstCrack: null }
-            : firstCrackSeconds === undefined
+      async ({
+        roastId,
+        revision,
+        roastedYieldGrams,
+        firstCrackSeconds,
+        firstCrackTemperatureCelsius,
+        clearFirstCrack,
+        status,
+        result,
+        level,
+        developmentPercent,
+        durationSeconds,
+        coolingSeconds,
+        endTemperatureCelsius,
+        endReason,
+        archived,
+      }) =>
+        protect(async () => {
+          if (
+            firstCrackTemperatureCelsius !== undefined &&
+            firstCrackSeconds === undefined
+          ) {
+            throw new Error(
+              "firstCrackSeconds is required with firstCrackTemperatureCelsius"
+            )
+          }
+          if (coolingSeconds !== undefined && durationSeconds === undefined) {
+            throw new Error("durationSeconds is required with coolingSeconds")
+          }
+          const input = withoutUndefined({
+            ...(roastedYieldGrams === undefined
+              ? {}
+              : { roastedYieldMassMg: gramsToMilligrams(roastedYieldGrams) }),
+            ...(clearFirstCrack
+              ? { firstCrack: null }
+              : firstCrackSeconds === undefined
+                ? {}
+                : {
+                    firstCrack: {
+                      elapsedMs: Math.round(firstCrackSeconds * 1_000),
+                      temperatureMilliC:
+                        firstCrackTemperatureCelsius === undefined
+                          ? null
+                          : celsiusToMilliCelsius(firstCrackTemperatureCelsius),
+                    },
+                  }),
+            status,
+            result,
+            ...(level === undefined
+              ? {}
+              : { levelThousandths: Math.round(level * 1_000) }),
+            ...(developmentPercent === undefined
               ? {}
               : {
-                  firstCrack: {
-                    elapsedMs: Math.round(firstCrackSeconds * 1_000),
-                    temperatureMilliC:
-                      firstCrackTemperatureCelsius === undefined
-                        ? null
-                        : celsiusToMilliCelsius(firstCrackTemperatureCelsius),
-                  },
+                  developmentBasisPoints:
+                    percentToBasisPoints(developmentPercent),
                 }),
-          status,
-          result,
-          ...(level === undefined
-            ? {}
-            : { levelThousandths: Math.round(level * 1_000) }),
-          ...(developmentPercent === undefined
-            ? {}
-            : {
-                developmentBasisPoints:
-                  percentToBasisPoints(developmentPercent),
-              }),
-          ...(durationSeconds === undefined
-            ? {}
-            : { durationMs: Math.round(durationSeconds * 1_000) }),
-          ...(coolingSeconds === undefined
-            ? {}
-            : {
-                cooldownEndMs: Math.round(
-                  (durationSeconds! + coolingSeconds) * 1_000
-                ),
-              }),
-          ...(endTemperatureCelsius === undefined
-            ? {}
-            : {
-                endTemperatureMilliC: celsiusToMilliCelsius(
-                  endTemperatureCelsius
-                ),
-              }),
-          endReason,
-          archived,
+            ...(durationSeconds === undefined
+              ? {}
+              : { durationMs: Math.round(durationSeconds * 1_000) }),
+            ...(coolingSeconds === undefined
+              ? {}
+              : {
+                  cooldownEndMs: Math.round(
+                    (durationSeconds! + coolingSeconds) * 1_000
+                  ),
+                }),
+            ...(endTemperatureCelsius === undefined
+              ? {}
+              : {
+                  endTemperatureMilliC: celsiusToMilliCelsius(
+                    endTemperatureCelsius
+                  ),
+                }),
+            endReason,
+            archived,
+          })
+          if (Object.keys(input).length === 0) {
+            throw new Error("At least one roast field is required")
+          }
+          const roast = await api.updateRoast(roastId, revision, input)
+          return writeSuccess(`Updated roast ${roast.id}`, roast)
         })
-        if (Object.keys(input).length === 0) {
-          throw new Error("At least one roast field is required")
-        }
-        const roast = await api.updateRoast(roastId, revision, input)
-        return success(`Updated roast ${roast.id}`, roast)
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_record_brew",
-    {
-      title: "Record brew",
-      description:
-        "Persist a brew linked to a roast. Omitted grinder, kettle, water, method, ratio, and temperature fields use Tan Studio's backend defaults.",
-      inputSchema: {
-        roastId: shortId,
-        brewedAt: z.iso.datetime({ offset: true }).optional(),
-        coffeeGrams: z.number().positive().max(500).optional(),
-        waterGrams: z.number().positive().max(10_000).optional(),
-        waterTemperatureCelsius: z.number().min(0).max(110).optional(),
-        method: z.string().trim().min(1).max(100).optional(),
-        grinder: z.string().trim().min(1).max(200).optional(),
-        grinderSetting: z.string().trim().min(1).max(100).optional(),
-        kettle: z.string().trim().min(1).max(200).optional(),
-        water: z.string().trim().min(1).max(200).optional(),
-        note: z.string().trim().min(1).max(10_000).optional(),
-        ratingPercent: z.number().min(0).max(100).optional(),
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_record_brew",
+      {
+        title: "Record brew",
+        description:
+          "Persist a brew linked to a roast. Omitted grinder, kettle, water, method, ratio, and temperature fields use Tan Studio's backend defaults.",
+        inputSchema: {
+          roastId: shortId,
+          brewedAt: z.iso.datetime({ offset: true }).optional(),
+          coffeeGrams: z.number().positive().max(500).optional(),
+          waterGrams: z.number().positive().max(10_000).optional(),
+          waterTemperatureCelsius: z.number().min(0).max(110).optional(),
+          method: z.string().trim().min(1).max(100).optional(),
+          grinder: z.string().trim().min(1).max(200).optional(),
+          grinderSetting: z.string().trim().min(1).max(100).optional(),
+          kettle: z.string().trim().min(1).max(200).optional(),
+          water: z.string().trim().min(1).max(200).optional(),
+          note: z.string().trim().min(1).max(10_000).optional(),
+          ratingPercent: z.number().min(0).max(100).optional(),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async (input) =>
-      protect(async () => {
-        const brew = await api.createBrew({
-          roastId: input.roastId,
-          ...(input.brewedAt !== undefined ? { brewedAt: input.brewedAt } : {}),
-          ...(input.coffeeGrams !== undefined
-            ? { coffeeMassMg: gramsToMilligrams(input.coffeeGrams) }
-            : {}),
-          ...(input.waterGrams !== undefined
-            ? { waterMassMg: gramsToMilligrams(input.waterGrams) }
-            : {}),
-          ...(input.waterTemperatureCelsius !== undefined
-            ? {
-                waterTemperatureMilliC: celsiusToMilliCelsius(
-                  input.waterTemperatureCelsius
-                ),
-              }
-            : {}),
-          ...(input.method !== undefined ? { method: input.method } : {}),
-          ...(input.grinder !== undefined ? { grinder: input.grinder } : {}),
-          ...(input.grinderSetting !== undefined
-            ? { grinderSetting: input.grinderSetting }
-            : {}),
-          ...(input.kettle !== undefined ? { kettle: input.kettle } : {}),
-          ...(input.water !== undefined ? { water: input.water } : {}),
-          ...(input.note !== undefined ? { note: input.note } : {}),
-          ...(input.ratingPercent !== undefined
-            ? { ratingBasisPoints: percentToBasisPoints(input.ratingPercent) }
-            : {}),
+      async (input) =>
+        protect(async () => {
+          const brew = await api.createBrew({
+            roastId: input.roastId,
+            ...(input.brewedAt !== undefined
+              ? { brewedAt: input.brewedAt }
+              : {}),
+            ...(input.coffeeGrams !== undefined
+              ? { coffeeMassMg: gramsToMilligrams(input.coffeeGrams) }
+              : {}),
+            ...(input.waterGrams !== undefined
+              ? { waterMassMg: gramsToMilligrams(input.waterGrams) }
+              : {}),
+            ...(input.waterTemperatureCelsius !== undefined
+              ? {
+                  waterTemperatureMilliC: celsiusToMilliCelsius(
+                    input.waterTemperatureCelsius
+                  ),
+                }
+              : {}),
+            ...(input.method !== undefined ? { method: input.method } : {}),
+            ...(input.grinder !== undefined ? { grinder: input.grinder } : {}),
+            ...(input.grinderSetting !== undefined
+              ? { grinderSetting: input.grinderSetting }
+              : {}),
+            ...(input.kettle !== undefined ? { kettle: input.kettle } : {}),
+            ...(input.water !== undefined ? { water: input.water } : {}),
+            ...(input.note !== undefined ? { note: input.note } : {}),
+            ...(input.ratingPercent !== undefined
+              ? { ratingBasisPoints: percentToBasisPoints(input.ratingPercent) }
+              : {}),
+          })
+          return writeSuccess(
+            `Recorded brew ${brew.id} for roast ${brew.roastId}`,
+            brew
+          )
         })
-        return success(
-          `Recorded brew ${brew.id} for roast ${brew.roastId}`,
-          brew
-        )
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_update_brew",
-    {
-      title: "Update brew",
-      description:
-        "Update supplied details on an existing brew. Use the current revision returned by tan_get_context so concurrent changes are never overwritten.",
-      inputSchema: {
-        brewId: shortId,
-        revision: z.number().int().positive(),
-        roastId: shortId.optional(),
-        brewedAt: z.iso.datetime({ offset: true }).optional(),
-        sourceTimezone: z.string().trim().min(1).max(200).optional(),
-        coffeeGrams: z.number().positive().max(500).optional(),
-        waterGrams: z.number().positive().max(10_000).optional(),
-        waterTemperatureCelsius: z
-          .number()
-          .min(0)
-          .max(100)
-          .nullable()
-          .optional(),
-        method: z.string().trim().min(1).max(100).optional(),
-        grinder: z.string().trim().max(200).optional(),
-        grinderSetting: z.string().trim().max(100).optional(),
-        kettle: z.string().trim().max(200).optional(),
-        water: z.string().trim().max(200).optional(),
-        technique: z.string().trim().max(10_000).optional(),
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_update_brew",
+      {
+        title: "Update brew",
+        description:
+          "Update supplied details on an existing brew. Use the current revision returned by tan_get_context so concurrent changes are never overwritten.",
+        inputSchema: {
+          brewId: shortId,
+          revision: z.number().int().positive(),
+          roastId: shortId.optional(),
+          brewedAt: z.iso.datetime({ offset: true }).optional(),
+          sourceTimezone: z.string().trim().min(1).max(200).optional(),
+          coffeeGrams: z.number().positive().max(500).optional(),
+          waterGrams: z.number().positive().max(10_000).optional(),
+          waterTemperatureCelsius: z
+            .number()
+            .min(0)
+            .max(100)
+            .nullable()
+            .optional(),
+          method: z.string().trim().min(1).max(100).optional(),
+          grinder: z.string().trim().max(200).optional(),
+          grinderSetting: z.string().trim().max(100).optional(),
+          kettle: z.string().trim().max(200).optional(),
+          water: z.string().trim().max(200).optional(),
+          technique: z.string().trim().max(10_000).optional(),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async (input) =>
-      protect(async () => {
-        const current =
-          input.technique === undefined
-            ? undefined
-            : await api.context("brew", input.brewId)
-        const currentRecipe =
-          current && "recipe" in current && current.recipe ? current.recipe : {}
-        const brew = await api.updateBrew(input.brewId, input.revision, {
-          ...(input.roastId !== undefined ? { roastId: input.roastId } : {}),
-          ...(input.brewedAt !== undefined ? { brewedAt: input.brewedAt } : {}),
-          ...(input.sourceTimezone !== undefined
-            ? { sourceTimezone: input.sourceTimezone }
-            : {}),
-          ...(input.coffeeGrams !== undefined
-            ? { coffeeMassMg: gramsToMilligrams(input.coffeeGrams) }
-            : {}),
-          ...(input.waterGrams !== undefined
-            ? { waterMassMg: gramsToMilligrams(input.waterGrams) }
-            : {}),
-          ...(input.waterTemperatureCelsius !== undefined
-            ? {
-                waterTemperatureMilliC:
-                  input.waterTemperatureCelsius === null
-                    ? null
-                    : celsiusToMilliCelsius(input.waterTemperatureCelsius),
-              }
-            : {}),
-          ...(input.method !== undefined ? { method: input.method } : {}),
-          ...(input.grinder !== undefined ? { grinder: input.grinder } : {}),
-          ...(input.grinderSetting !== undefined
-            ? { grinderSetting: input.grinderSetting }
-            : {}),
-          ...(input.kettle !== undefined ? { kettle: input.kettle } : {}),
-          ...(input.water !== undefined ? { water: input.water } : {}),
-          ...(input.technique !== undefined
-            ? {
-                recipe: {
-                  ...(typeof currentRecipe === "object" &&
-                  !Array.isArray(currentRecipe)
-                    ? currentRecipe
-                    : {}),
-                  technique: input.technique,
-                },
-              }
-            : {}),
+      async (input) =>
+        protect(async () => {
+          const current =
+            input.technique === undefined
+              ? undefined
+              : await api.context("brew", input.brewId)
+          const currentRecipe =
+            current && "recipe" in current && current.recipe
+              ? current.recipe
+              : {}
+          const brew = await api.updateBrew(input.brewId, input.revision, {
+            ...(input.roastId !== undefined ? { roastId: input.roastId } : {}),
+            ...(input.brewedAt !== undefined
+              ? { brewedAt: input.brewedAt }
+              : {}),
+            ...(input.sourceTimezone !== undefined
+              ? { sourceTimezone: input.sourceTimezone }
+              : {}),
+            ...(input.coffeeGrams !== undefined
+              ? { coffeeMassMg: gramsToMilligrams(input.coffeeGrams) }
+              : {}),
+            ...(input.waterGrams !== undefined
+              ? { waterMassMg: gramsToMilligrams(input.waterGrams) }
+              : {}),
+            ...(input.waterTemperatureCelsius !== undefined
+              ? {
+                  waterTemperatureMilliC:
+                    input.waterTemperatureCelsius === null
+                      ? null
+                      : celsiusToMilliCelsius(input.waterTemperatureCelsius),
+                }
+              : {}),
+            ...(input.method !== undefined ? { method: input.method } : {}),
+            ...(input.grinder !== undefined ? { grinder: input.grinder } : {}),
+            ...(input.grinderSetting !== undefined
+              ? { grinderSetting: input.grinderSetting }
+              : {}),
+            ...(input.kettle !== undefined ? { kettle: input.kettle } : {}),
+            ...(input.water !== undefined ? { water: input.water } : {}),
+            ...(input.technique !== undefined
+              ? {
+                  recipe: {
+                    ...(typeof currentRecipe === "object" &&
+                    !Array.isArray(currentRecipe)
+                      ? currentRecipe
+                      : {}),
+                    technique: input.technique,
+                  },
+                }
+              : {}),
+          })
+          return writeSuccess(`Updated brew ${brew.id}`, brew)
         })
-        return success(`Updated brew ${brew.id}`, brew)
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_add_note",
-    {
-      title: "Add note",
-      description:
-        "Persist one note and link it atomically to one or more profiles, coffees, roasts, or brews. Use for observations and tasting feedback.",
-      inputSchema: {
-        body: z.string().trim().min(1).max(10_000),
-        kind: noteKind.default("observation"),
-        ratingPercent: z.number().min(0).max(100).optional(),
-        links: z.array(resourceLink).min(1).max(10),
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_add_note",
+      {
+        title: "Add note",
+        description:
+          "Persist one note and link it atomically to one or more profiles, coffees, roasts, or brews. Use for observations and tasting feedback.",
+        inputSchema: {
+          body: z.string().trim().min(1).max(10_000),
+          kind: noteKind.default("observation"),
+          ratingPercent: z.number().min(0).max(100).optional(),
+          links: z.array(resourceLink).min(1).max(10),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({ body, kind, ratingPercent, links }) =>
-      protect(async () => {
-        const note = await api.createNote({
-          body,
-          kind,
-          links,
-          source: "agent",
-          attributes: { agent: "codex" },
-          ...(ratingPercent !== undefined
-            ? { ratingBasisPoints: percentToBasisPoints(ratingPercent) }
-            : {}),
+      async ({ body, kind, ratingPercent, links }) =>
+        protect(async () => {
+          const note = await api.createNote({
+            body,
+            kind,
+            links,
+            source: "agent",
+            attributes: { agent: "codex" },
+            ...(ratingPercent !== undefined
+              ? { ratingBasisPoints: percentToBasisPoints(ratingPercent) }
+              : {}),
+          })
+          return writeSuccess(`Recorded note ${note.id}`, note)
         })
-        return success(`Recorded note ${note.id}`, note)
-      })
-  )
+    )
+  }
 
   server.registerTool(
     "tan_list_attachments",
@@ -608,127 +637,144 @@ export function createTanStudioServer(api: TanStudioGateway): McpServer {
       )
   )
 
-  server.registerTool(
-    "tan_attach_file",
-    {
-      title: "Attach local file",
-      description:
-        "Upload one local photo, video, PDF, or document to Tan Studio and link it to one or more profiles, coffees, roasts, or brews.",
-      inputSchema: {
-        filePath: z.string().trim().min(1).max(4_096),
-        title: z.string().trim().min(1).max(300).optional(),
-        mediaType: z.string().trim().min(3).max(200).optional(),
-        sourceUrl: z.url().optional(),
-        description: z.string().trim().max(10_000).optional(),
-        capturedAt: z.iso.datetime({ offset: true }).optional(),
-        links: z.array(attachmentLink).min(1).max(20),
+  if (!options.hosted) {
+    server.registerTool(
+      "tan_attach_file",
+      {
+        title: "Attach local file",
+        description:
+          "Upload one local photo, video, PDF, or document to Tan Studio and link it to one or more profiles, coffees, roasts, or brews.",
+        inputSchema: {
+          filePath: z.string().trim().min(1).max(4_096),
+          title: z.string().trim().min(1).max(300).optional(),
+          mediaType: z.string().trim().min(3).max(200).optional(),
+          sourceUrl: z.url().optional(),
+          description: z.string().trim().max(10_000).optional(),
+          capturedAt: z.iso.datetime({ offset: true }).optional(),
+          links: z.array(attachmentLink).min(1).max(20),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({
-      filePath,
-      title,
-      mediaType,
-      sourceUrl,
-      description,
-      capturedAt,
-      links,
-    }) =>
-      protect(async () => {
-        const stored = await api.attachLocalFile({
-          filePath,
-          ...(title !== undefined ? { title } : {}),
-          ...(mediaType !== undefined ? { mediaType } : {}),
-          ...(sourceUrl !== undefined ? { sourceUrl } : {}),
-          ...(description !== undefined ? { description } : {}),
-          ...(capturedAt !== undefined ? { capturedAt } : {}),
-          links,
+      async ({
+        filePath,
+        title,
+        mediaType,
+        sourceUrl,
+        description,
+        capturedAt,
+        links,
+      }) =>
+        protect(async () => {
+          const stored = await api.attachLocalFile({
+            filePath,
+            ...(title !== undefined ? { title } : {}),
+            ...(mediaType !== undefined ? { mediaType } : {}),
+            ...(sourceUrl !== undefined ? { sourceUrl } : {}),
+            ...(description !== undefined ? { description } : {}),
+            ...(capturedAt !== undefined ? { capturedAt } : {}),
+            links,
+          })
+          return writeSuccess(`Attached file ${stored.id}`, stored)
         })
-        return success(`Attached file ${stored.id}`, stored)
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_set_profile_image",
-    {
-      title: "Set entity profile image",
-      description:
-        "Choose one already-attached image as the prominent profile image for a profile, coffee, roast, or brew. Pass null to clear it.",
-      inputSchema: {
-        resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
-        resourceId: shortId,
-        attachmentId: shortId.nullable(),
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_set_profile_image",
+      {
+        title: "Set entity profile image",
+        description:
+          "Choose one already-attached image as the prominent profile image for a profile, coffee, roast, or brew. Pass null to clear it.",
+        inputSchema: {
+          resourceType: z.enum(["profile", "coffee", "roast", "brew"]),
+          resourceId: shortId,
+          attachmentId: shortId.nullable(),
+        },
+        annotations: writeAnnotations,
       },
-      annotations: writeAnnotations,
-    },
-    async ({ resourceType, resourceId, attachmentId }) =>
-      protect(async () => {
-        await api.setProfileImage(resourceType, resourceId, attachmentId)
-        return success(
-          attachmentId == null
-            ? `Cleared ${resourceType} ${resourceId} profile image`
-            : `Set attachment ${attachmentId} as ${resourceType} ${resourceId} profile image`,
-          { resourceType, resourceId, attachmentId }
-        )
-      })
-  )
-
-  server.registerTool(
-    "tan_create_label",
-    {
-      title: "Create roast label",
-      description:
-        "Create a label artifact linked to a roast. This records a label request; it never claims physical printing unless the backend reports confirmation.",
-      inputSchema: {
-        roastId: shortId,
-        copies: z.number().int().min(1).max(100).default(1),
-        printer: z.string().trim().min(1).max(200).optional(),
-        widthMillimeters: z.number().positive().max(1_000).optional(),
-        heightMillimeters: z.number().positive().max(1_000).optional(),
-      },
-      annotations: writeAnnotations,
-    },
-    async ({ roastId, copies, printer, widthMillimeters, heightMillimeters }) =>
-      protect(async () => {
-        const label = await api.createLabel({
-          roastId,
-          copies,
-          ...(printer !== undefined ? { printer } : {}),
-          ...(widthMillimeters !== undefined
-            ? { widthMicrometers: millimetersToMicrometers(widthMillimeters) }
-            : {}),
-          ...(heightMillimeters !== undefined
-            ? { heightMicrometers: millimetersToMicrometers(heightMillimeters) }
-            : {}),
+      async ({ resourceType, resourceId, attachmentId }) =>
+        protect(async () => {
+          await api.setProfileImage(resourceType, resourceId, attachmentId)
+          return writeSuccess(
+            attachmentId == null
+              ? `Cleared ${resourceType} ${resourceId} profile image`
+              : `Set attachment ${attachmentId} as ${resourceType} ${resourceId} profile image`,
+            { resourceType, resourceId, attachmentId }
+          )
         })
-        return success(
-          `Created label ${label.id} for roast ${label.roastId}`,
-          label
-        )
-      })
-  )
+    )
+  }
 
-  server.registerTool(
-    "tan_sync_device",
-    {
-      title: "Synchronize Kaffeelogic",
-      description:
-        "Import logs and profiles from the connected Kaffeelogic into Tan Studio. The current synchronization is read-only toward the roaster and sends no speculative write commands.",
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
+  if (!options.hosted || options.write) {
+    server.registerTool(
+      "tan_create_label",
+      {
+        title: "Create roast label",
+        description:
+          "Create a label artifact linked to a roast. This records a label request; it never claims physical printing unless the backend reports confirmation.",
+        inputSchema: {
+          roastId: shortId,
+          copies: z.number().int().min(1).max(100).default(1),
+          printer: z.string().trim().min(1).max(200).optional(),
+          widthMillimeters: z.number().positive().max(1_000).optional(),
+          heightMillimeters: z.number().positive().max(1_000).optional(),
+        },
+        annotations: writeAnnotations,
       },
-    },
-    async () =>
-      protect(async () =>
-        success(
-          "Kaffeelogic synchronization result",
-          await api.synchronizeDevice()
+      async ({
+        roastId,
+        copies,
+        printer,
+        widthMillimeters,
+        heightMillimeters,
+      }) =>
+        protect(async () => {
+          const label = await api.createLabel({
+            roastId,
+            copies,
+            ...(printer !== undefined ? { printer } : {}),
+            ...(widthMillimeters !== undefined
+              ? { widthMicrometers: millimetersToMicrometers(widthMillimeters) }
+              : {}),
+            ...(heightMillimeters !== undefined
+              ? {
+                  heightMicrometers:
+                    millimetersToMicrometers(heightMillimeters),
+                }
+              : {}),
+          })
+          return writeSuccess(
+            `Created label ${label.id} for roast ${label.roastId}`,
+            label
+          )
+        })
+    )
+  }
+
+  if (!options.hosted) {
+    server.registerTool(
+      "tan_sync_device",
+      {
+        title: "Synchronize Kaffeelogic",
+        description:
+          "Import logs and profiles from the connected Kaffeelogic into Tan Studio. The current synchronization is read-only toward the roaster and sends no speculative write commands.",
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () =>
+        protect(async () =>
+          success(
+            "Kaffeelogic synchronization result",
+            await api.synchronizeDevice()
+          )
         )
-      )
-  )
+    )
+  }
 
   registerResources(server, api)
   return server

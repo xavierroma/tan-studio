@@ -1,0 +1,32 @@
+[Unit]
+Description=Tan Studio hosted MCP adapter
+After=network-online.target tan-studio.service
+Requires=tan-studio.service
+
+[Service]
+Type=simple
+User=tan-studio-mcp
+Group=tan-studio-mcp
+WorkingDirectory=/opt/tan-studio/current
+Environment=TAN_STUDIO_MCP_ENABLED=1
+Environment=TAN_STUDIO_MCP_AUTH_SOCKET=/run/tan-studio-mcp-auth/auth.sock
+ExecStart=/opt/tan-studio/current/bin/bun /opt/tan-studio/current/mcp/http-server.js
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=25s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

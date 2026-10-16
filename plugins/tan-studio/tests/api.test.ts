@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { OpenApiTanStudioGateway } from "../src/api"
+import { LocalFileTanStudioGateway as OpenApiTanStudioGateway } from "../src/local-api"
 import { TanStudioGatewayError } from "../src/gateway"
 
 const config = {

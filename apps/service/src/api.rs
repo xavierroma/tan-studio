@@ -49,6 +49,7 @@ pub struct ApiState {
     pub(crate) cursor_key: Arc<[u8]>,
     pub(crate) object_store: ObjectStore,
     pub(crate) http: reqwest::Client,
+    pub(crate) agent_auth: Option<Arc<crate::agent_auth::AgentAuthority>>,
 }
 
 impl ApiState {
@@ -102,7 +103,9 @@ impl ApiState {
                     "Tan Studio could not initialize its outbound HTTP client.",
                 )
             })?;
+        let agent_auth = crate::agent_auth::AgentAuthority::from_environment(&config)?;
         Ok(Self {
+            agent_auth,
             config: Arc::new(config),
             database,
             device,
@@ -170,6 +173,14 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/device/sync-runs", get(device_sync_runs))
         .route("/bridges", get(bridges_list))
         .route("/bridges/claims", post(bridge_claim_create))
+        .route(
+            "/agent-credentials",
+            get(crate::agent_auth::list).post(crate::agent_auth::create),
+        )
+        .route(
+            "/agent-credentials/{id}/revoke",
+            post(crate::agent_auth::revoke),
+        )
         .route("/api-tokens", get(api_tokens_list).post(api_tokens_create))
         .route("/api-tokens/{id}/revoke", post(api_tokens_revoke))
         .route(
@@ -401,7 +412,25 @@ async fn api_security(
         );
         return response;
     }
-    let Some(credential) = authenticated_for_api(&state, &request) else {
+    let delegated =
+        if let Some(token) = presented_bearer(&request).filter(|t| t.starts_with("tsapi_")) {
+            match state
+                .agent_auth
+                .as_ref()
+                .filter(|_| recognized_client(&state, &request))
+            {
+                Some(authority) => {
+                    match authority.authorize(&state.database, token, request.method(), &path) {
+                        Ok(id) => Some(Credential::Agent(id)),
+                        Err(error) => return error.with_request(path, correlation).into_response(),
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+    let Some(credential) = delegated.or_else(|| authenticated_for_api(&state, &request)) else {
         return ApiError::new(
             StatusCode::UNAUTHORIZED,
             "unauthenticated",
@@ -412,6 +441,11 @@ async fn api_security(
         .into_response();
     };
     request.extensions_mut().insert(credential);
+    let agent_id = if let Credential::Agent(id) = credential {
+        Some(id)
+    } else {
+        None
+    };
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -436,6 +470,9 @@ async fn api_security(
         .into_response();
     }
     let mut response = next.run(request).await;
+    if let Some(agent_id) = agent_id {
+        tracing::info!(event="agent_api_request", agent_id, path=%path, correlation_id=%correlation, status=response.status().as_u16());
+    }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("no-store"),
@@ -463,6 +500,8 @@ async fn api_security(
 pub enum Credential {
     /// The browser session of the one operator, established by Sign in with Google.
     OperatorSession,
+    /// A request-bound, scoped delegation from hosted MCP.
+    Agent(i64),
     /// A hosted API token, by its row id.
     ApiToken(i64),
     /// The launch token of a desktop or LAN placement.

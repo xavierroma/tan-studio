@@ -5,6 +5,7 @@ node_modules/
 dist/
 !plugins/tan-studio/dist/
 !plugins/tan-studio/dist/server.js
+!plugins/tan-studio/dist/http-server.js
 .turbo/
 coverage/
 __pycache__/

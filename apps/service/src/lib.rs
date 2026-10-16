@@ -1,3 +1,4 @@
+pub mod agent_auth;
 pub mod api;
 pub mod api_token;
 pub mod config;

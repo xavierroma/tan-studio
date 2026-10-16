@@ -11,7 +11,13 @@ fi
 if [[ ! -x "$SOURCE_DIRECTORY/bin/tan-studio-service" ]] ||
   [[ ! -f "$SOURCE_DIRECTORY/web/index.html" ]] ||
   [[ ! -f "$SOURCE_DIRECTORY/system/tan-studio.service" ]] ||
-  [[ ! -f "$SOURCE_DIRECTORY/system/Caddyfile" ]]; then
+  [[ ! -f "$SOURCE_DIRECTORY/system/Caddyfile" ]] ||
+  [[ ! -x "$SOURCE_DIRECTORY/bin/bun" ]] ||
+  [[ ! -f "$SOURCE_DIRECTORY/mcp/http-server.js" ]] ||
+  [[ ! -f "$SOURCE_DIRECTORY/system/tan-studio-mcp.service" ]] ||
+  [[ ! -f "$SOURCE_DIRECTORY/system/mcp.caddy" ]] ||
+  [[ ! -f "$SOURCE_DIRECTORY/enable_mcp.sh" ]] ||
+  [[ ! -f "$SOURCE_DIRECTORY/disable_mcp.sh" ]]; then
   echo "The Tan Studio hosted release is incomplete" >&2
   exit 2
 fi
@@ -44,6 +50,7 @@ STATE_DATABASE="$STATE_DIRECTORY/tan-studio.sqlite"
 SNAPSHOT_KEEP="${TAN_STUDIO_SNAPSHOT_KEEP:-3}"
 UNIT_DIRECTORY="$(prefixed /etc/systemd/system)"
 PREVIOUS_RELEASE=""
+PREVIOUS_SCHEMA=0
 # Attachment bytes are replicated into the same bucket Litestream uses for the
 # notebook, under a sibling prefix. Distinct prefixes, on purpose: the two write
 # on completely different schedules and neither may disturb the other.
@@ -181,6 +188,12 @@ else
   install -m 0755 "$SOURCE_DIRECTORY/bin/tan-studio-service" \
     "$STAGING_DIRECTORY/bin/tan-studio-service"
   cp -R "$SOURCE_DIRECTORY/web/." "$STAGING_DIRECTORY/web/"
+  install -m 0755 "$SOURCE_DIRECTORY/bin/bun" "$STAGING_DIRECTORY/bin/bun"
+  install -d -m 0755 "$STAGING_DIRECTORY/mcp" "$STAGING_DIRECTORY/system"
+  install -m 0644 "$SOURCE_DIRECTORY/mcp/http-server.js" "$STAGING_DIRECTORY/mcp/http-server.js"
+  cp -R "$SOURCE_DIRECTORY/system/." "$STAGING_DIRECTORY/system/"
+  install -m 0755 "$SOURCE_DIRECTORY/enable_mcp.sh" "$STAGING_DIRECTORY/enable_mcp.sh"
+  install -m 0755 "$SOURCE_DIRECTORY/disable_mcp.sh" "$STAGING_DIRECTORY/disable_mcp.sh"
   install -m 0644 "$SOURCE_DIRECTORY/VERSION" "$STAGING_DIRECTORY/VERSION"
   if [[ "$LIVE" == "1" ]]; then
     chown -R root:root "$STAGING_DIRECTORY"
@@ -285,6 +298,11 @@ if [[ -f "$STATE_DATABASE" ]]; then
     done
 fi
 
+# Only revert the binary automatically when this start did not migrate the DB.
+# Older releases deliberately reject schemas they do not understand.
+if [[ "$LIVE" == "1" && -f "$STATE_DATABASE" ]]; then
+  PREVIOUS_SCHEMA="$(sqlite3 "$STATE_DATABASE" 'SELECT coalesce(max(version),0) FROM schema_migrations;')"
+fi
 ln -sfn "$RELEASE_DIRECTORY" "$CURRENT_LINK"
 
 if [[ "$LIVE" != "1" ]]; then
@@ -298,6 +316,15 @@ systemctl enable caddy.service >/dev/null
 systemctl enable tan-studio.service >/dev/null
 systemctl restart tan-studio.service
 systemctl restart caddy.service
+# Preserve prior explicit enablement, but never enable new external access.
+if systemctl is-enabled --quiet tan-studio-mcp.service; then
+  install -m 0644 "$SOURCE_DIRECTORY/system/tan-studio-mcp.service" "$UNIT_DIRECTORY/tan-studio-mcp.service"
+  install -m 0644 "$SOURCE_DIRECTORY/system/mcp.caddy" "$CADDY_DIRECTORY/tan-studio-mcp-enabled.caddy"
+  caddy validate --config /etc/caddy/Caddyfile >/dev/null
+  systemctl reload caddy.service
+  systemctl daemon-reload
+  systemctl restart tan-studio-mcp.service
+fi
 
 HEALTHY=0
 for _ in {1..30}; do
@@ -311,9 +338,12 @@ done
 
 if [[ "$HEALTHY" != "1" ]]; then
   systemctl stop tan-studio.service || true
-  if [[ -n "$PREVIOUS_RELEASE" && -d "$PREVIOUS_RELEASE" ]]; then
+  CURRENT_SCHEMA="$(sqlite3 "$STATE_DATABASE" 'SELECT coalesce(max(version),0) FROM schema_migrations;' 2>/dev/null || printf unknown)"
+  if [[ "$CURRENT_SCHEMA" == "$PREVIOUS_SCHEMA" && -n "$PREVIOUS_RELEASE" && -d "$PREVIOUS_RELEASE" ]]; then
     ln -sfn "$PREVIOUS_RELEASE" "$CURRENT_LINK"
     systemctl restart tan-studio.service || true
+  else
+    echo 'Schema changed: automatic binary downgrade refused. Retain a compatible service; inspect the pre-deploy snapshot before any restore.' >&2
   fi
   echo "Tan Studio failed its post-deployment health check" >&2
   journalctl -u tan-studio.service --no-pager -n 40 >&2 || true

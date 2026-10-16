@@ -1,5 +1,4 @@
 import createClient from "openapi-fetch"
-import { basename, isAbsolute } from "node:path"
 
 import type { paths } from "./generated/api"
 import type { TanStudioConfig } from "./config"
@@ -55,7 +54,12 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
 
   constructor(
     config: TanStudioConfig,
-    fetchImplementation: FetchLike = globalThis.fetch
+    fetchImplementation: FetchLike = globalThis.fetch,
+    requestContext: {
+      signal?: AbortSignal
+      correlationId?: string
+      host?: string
+    } = {}
   ) {
     this.client = createClient<paths>({
       baseUrl: config.baseUrl,
@@ -66,10 +70,34 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
             ? Math.max(config.timeoutMs, DEVICE_SYNCHRONIZATION_TIMEOUT_MS)
             : config.timeoutMs
         return fetchImplementation(request, {
-          signal: AbortSignal.timeout(timeoutMs),
+          signal: requestContext.signal
+            ? AbortSignal.any([
+                requestContext.signal,
+                AbortSignal.timeout(timeoutMs),
+              ])
+            : AbortSignal.timeout(timeoutMs),
+          redirect: "error",
+        }).catch((error: unknown) => {
+          if (
+            requestContext.signal &&
+            !["GET", "HEAD"].includes(request.method)
+          )
+            throw new TanStudioGatewayError({
+              code: "write_outcome_unknown",
+              message:
+                "The connection ended before the write was confirmed. Reconcile the resource before retrying.",
+              status: 504,
+              retryable: false,
+              correlationId: requestContext.correlationId,
+            })
+          throw error
         })
       },
       headers: {
+        ...(requestContext.correlationId
+          ? { "X-Correlation-Id": requestContext.correlationId }
+          : {}),
+        ...(requestContext.host ? { Host: requestContext.host } : {}),
         Accept: "application/json",
         Authorization: `Bearer ${config.token}`,
         "Content-Type": "application/json",
@@ -272,25 +300,8 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     )
   }
 
-  async attachLocalFile(input: AttachmentFileInput): Promise<Attachment> {
-    if (!isAbsolute(input.filePath)) {
-      throw new Error("filePath must be absolute")
-    }
-    const file = Bun.file(input.filePath)
-    if (!(await file.exists())) throw new Error("Attachment file not found")
-    if (file.size < 1 || file.size > 512 * 1024 * 1024) {
-      throw new Error("Attachment must be between 1 byte and 512 MiB")
-    }
-    const attachment = await this.createAttachment({
-      title: input.title ?? basename(input.filePath),
-      filename: basename(input.filePath),
-      mediaType: input.mediaType ?? (file.type || "application/octet-stream"),
-      sourceUrl: input.sourceUrl ?? null,
-      description: input.description ?? "",
-      capturedAt: input.capturedAt ?? null,
-      links: input.links,
-    })
-    return this.putAttachmentContent(attachment, file)
+  async attachLocalFile(_input: AttachmentFileInput): Promise<Attachment> {
+    throw new Error("Local file uploads are unavailable in this placement")
   }
 
   async setProfileImage(
@@ -314,13 +325,15 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     )
   }
 
-  private async createAttachment(input: AttachmentCreate): Promise<Attachment> {
+  protected async createAttachment(
+    input: AttachmentCreate
+  ): Promise<Attachment> {
     return unwrap(
       await this.client.POST("/api/v1/attachments", { body: input })
     )
   }
 
-  private async putAttachmentContent(
+  protected async putAttachmentContent(
     attachment: Attachment,
     content: Blob
   ): Promise<Attachment> {

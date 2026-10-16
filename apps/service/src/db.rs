@@ -62,6 +62,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         14,
         include_str!("../../companion/migrations/0014_hosted_api_tokens.sql"),
     ),
+    (
+        15,
+        include_str!("../../companion/migrations/0015_agent_credentials.sql"),
+    ),
 ];
 
 #[derive(Clone)]
@@ -270,7 +274,7 @@ mod tests {
     fn applies_the_existing_forward_migrations() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (14, 4));
+        assert_eq!(database.schema_versions().unwrap(), (15, 4));
         assert!(database.quick_check().unwrap());
     }
 
@@ -304,7 +308,7 @@ mod tests {
 
         let database = Database::open(&path).unwrap();
 
-        assert_eq!(database.schema_versions().unwrap(), (14, 4));
+        assert_eq!(database.schema_versions().unwrap(), (15, 4));
         let connection = database.connection();
         assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
         let applied: i64 = connection
@@ -312,7 +316,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 14);
+        assert_eq!(applied, 15);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

@@ -523,3 +523,30 @@ export const queryKeys = {
   bridges: () => ["bridges"] as const,
   apiTokens: () => ["api-tokens"] as const,
 }
+
+export type AgentCredential = components["schemas"]["AgentCredential"]
+export async function listAgentCredentials(signal?: AbortSignal) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.GET(
+      "/api/v1/agent-credentials",
+      signal ? { signal } : {}
+    )
+  )
+}
+export async function mintAgentCredential(
+  body: components["schemas"]["AgentCredentialCreate"]
+) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/agent-credentials", { body })
+  )
+}
+export async function revokeAgentCredential(id: number) {
+  requireCompanion()
+  return unwrapResponse(
+    await companionClient.POST("/api/v1/agent-credentials/{id}/revoke", {
+      params: { path: { id } },
+    })
+  )
+}

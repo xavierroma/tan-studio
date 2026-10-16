@@ -63,7 +63,7 @@ const pluginControllerFiles = [
   "plugins/tan-studio/src/units.ts",
 ]
 const pluginControllerImports = new Set([
-  "@modelcontextprotocol/sdk/server/mcp.js",
+  "@modelcontextprotocol/server",
   "@modelcontextprotocol/sdk/types.js",
   "./gateway",
   "./results",
@@ -91,3 +91,13 @@ if (violations.length > 0) {
 console.info(
   `Architecture boundaries verified across ${rules.length} inward layers and the MCP controller port.`
 )
+
+for (const file of [
+  "plugins/tan-studio/src/http-server.ts",
+  "plugins/tan-studio/src/http.ts",
+  "plugins/tan-studio/src/api.ts",
+]) {
+  const source = await Bun.file(file).text()
+  if (/local-api|Bun\.file|node:fs|node:path/.test(source))
+    throw new Error(`${file}: hosted adapter must not read local files`)
+}

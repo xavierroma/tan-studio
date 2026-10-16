@@ -68,7 +68,8 @@ use crate::error::{FieldError, ProblemDetails};
         crate::core_api::ui_preferences_patch,
         crate::api::api_tokens_list,
         crate::api::api_tokens_create,
-        crate::api::api_tokens_revoke
+        crate::api::api_tokens_revoke,
+        crate::agent_auth::list, crate::agent_auth::create, crate::agent_auth::revoke
     ),
     components(schemas(
         FieldError, ProblemDetails, BridgeClaimResource, BridgeResource, BridgePage,
@@ -85,7 +86,9 @@ use crate::error::{FieldError, ProblemDetails};
         SettingsResource, SettingsPatch,
         UiPreferencesResource, UiPreferencesPatch,
         SyncRunResource, SyncRunPage,
-        ApiTokenResource, ApiTokenPage, ApiTokenCreate, MintedApiTokenResource
+        ApiTokenResource, ApiTokenPage, ApiTokenCreate, MintedApiTokenResource,
+        crate::agent_auth::AgentCredential, crate::agent_auth::AgentCredentialCreate,
+        crate::agent_auth::AgentCredentialPage, crate::agent_auth::MintedAgentCredential
     )),
     tags(
         (name = "system"), (name = "device"), (name = "bridges"), (name = "profiles"),

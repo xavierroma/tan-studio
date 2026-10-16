@@ -27,3 +27,5 @@ mockups
 **/.*.bun-build
 .DS_Store
 *.log
+
+.bun-cache

@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+    "/api/v1/agent-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post: operations["create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agent-credentials/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/api-tokens": {
         parameters: {
             query?: never;
@@ -621,6 +653,34 @@ export interface components {
             printing: components["schemas"]["SimpleAdapter"];
             usb: components["schemas"]["DeviceSnapshot"];
         };
+        AgentCredential: {
+            audience: string;
+            /** Format: int64 */
+            createdAtMs: number;
+            /** Format: int64 */
+            expiresAtMs: number;
+            /** Format: int64 */
+            id: number;
+            label: string;
+            /** Format: int64 */
+            lastUsedAtMs?: number | null;
+            /** Format: int64 */
+            revokedAtMs?: number | null;
+            /** Format: int64 */
+            version: number;
+            write: boolean;
+        };
+        AgentCredentialCreate: {
+            /** Format: int64 */
+            expiresInDays?: number;
+            label: string;
+            write?: boolean;
+        };
+        AgentCredentialPage: {
+            enabled: boolean;
+            endpoint: string;
+            items: components["schemas"]["AgentCredential"][];
+        };
         ApiTokenCreate: {
             /** @description Which client will hold this token, so a token can be revoked by name. */
             label: string;
@@ -986,6 +1046,10 @@ export interface components {
             updatedAt: string;
             /** Format: int64 */
             widthMicrometers?: number | null;
+        };
+        MintedAgentCredential: {
+            credential: components["schemas"]["AgentCredential"];
+            secret: string;
         };
         /**
          * @description The mint response, and the only time the secret is knowable. Copy it now; the
@@ -1427,6 +1491,69 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCredentialPage"];
+                };
+            };
+        };
+    };
+    create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentCredentialCreate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MintedAgentCredential"];
+                };
+            };
+        };
+    };
+    revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCredential"];
+                };
+            };
+        };
+    };
     api_tokens_list: {
         parameters: {
             query?: never;

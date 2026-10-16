@@ -7,6 +7,7 @@ import {
 } from "@tan-studio/ui/components/tabs"
 import { CableIcon, CupSodaIcon, KeyRoundIcon } from "lucide-react"
 
+import { AgentCredentialSettings } from "@/components/agent-credential-settings"
 import { ApiTokenSettings } from "@/components/api-token-settings"
 import { BrewDefaultsSettings } from "@/components/brew-defaults-settings"
 import { PageHeader } from "@/components/page-header"
@@ -59,6 +60,7 @@ export function SettingsScreen() {
           </TabsContent>
           <TabsContent value="access" className="pt-6">
             <ApiTokenSettings />
+            <AgentCredentialSettings />
           </TabsContent>
         </Tabs>
       </div>

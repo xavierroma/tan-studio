@@ -9,6 +9,8 @@ http://studio.tan.coffee {
 }
 
 studio.tan.coffee {
+	# Empty glob until the operator explicitly enables remote MCP.
+	import /etc/caddy/tan-studio-mcp-enabled*.caddy
 	handle {
 		reverse_proxy 127.0.0.1:8080
 	}

@@ -1,12 +1,12 @@
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio"
 
-import { OpenApiTanStudioGateway } from "./api"
+import { LocalFileTanStudioGateway } from "./local-api"
 import { loadConfig } from "./config"
 import { createTanStudioServer } from "./mcp"
 
 async function main(): Promise<void> {
   const config = await loadConfig()
-  const server = createTanStudioServer(new OpenApiTanStudioGateway(config))
+  const server = createTanStudioServer(new LocalFileTanStudioGateway(config))
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }

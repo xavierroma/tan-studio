@@ -29,6 +29,8 @@ if [[ -e "$OUTPUT_DIRECTORY" ]]; then
   if [[ -x "$OUTPUT_DIRECTORY/bin/tan-studio-service" ]] &&
     [[ -f "$OUTPUT_DIRECTORY/web/index.html" ]] &&
     [[ -f "$OUTPUT_DIRECTORY/install.sh" ]] &&
+    [[ -x "$OUTPUT_DIRECTORY/bin/bun" ]] &&
+    [[ -f "$OUTPUT_DIRECTORY/mcp/http-server.js" ]] &&
     [[ "$(tr -d '\n' < "$OUTPUT_DIRECTORY/VERSION")" == "$VERSION" ]]; then
     printf '%s\n' "$OUTPUT_DIRECTORY"
     exit 0
