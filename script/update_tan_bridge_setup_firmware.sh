@@ -16,6 +16,18 @@ if [[ ! -f "${application}" ]]; then
   exit 1
 fi
 
+python3 - "${application}" "${repo_root}" <<'PY'
+import hashlib, json, pathlib, subprocess, sys
+application = pathlib.Path(sys.argv[1])
+manifest = json.loads((application.parent / "tan-bridge-build.json").read_text())
+assert not manifest["sourceDirty"], "Refusing a firmware build from uncommitted source"
+head = subprocess.check_output(["git", "-C", sys.argv[2], "rev-parse", "HEAD"], text=True).strip()
+assert manifest["sourceCommit"] == head, "Firmware source commit does not match checkout"
+assert manifest["applicationOffset"] == "0x10000"
+assert hashlib.sha256(application.read_bytes()).hexdigest() == manifest["artifacts"][application.name]["sha256"], "Firmware checksum mismatch"
+print("Verified application:", manifest["firmwareVersion"], manifest["buildId"], head)
+PY
+
 echo "This updates the Tan Bridge application at ${setup_port}."
 echo "The existing NVS identity, Wi-Fi configuration, and device token are preserved."
 read -r -p "Confirm the Kaffelogic Nano is disconnected and type UPDATE: " confirmation

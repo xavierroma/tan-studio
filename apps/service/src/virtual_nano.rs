@@ -76,6 +76,7 @@ pub enum VirtualNanoFault {
     None,
     BusyFilesystem,
     CorruptFirstTransferCrc,
+    CorruptOldLogCrc,
     OutOfOrderFirstTransfer,
     DisconnectDuringFirstFile,
     StallFirstTransfer,
@@ -370,7 +371,7 @@ impl VirtualNanoTransport {
         let combined = if final_chunk { "128" } else { "0" };
         let sequence_text = sequence.to_string();
         let encoded = BASE64.encode(bytes);
-        let frame = encode_frame(
+        let mut frame = encode_frame(
             transfer.frame_type,
             self.elapsed_ms(),
             &[&transfer.path, combined, "", &sequence_text, &encoded],
@@ -378,6 +379,13 @@ impl VirtualNanoTransport {
             MAXIMUM_PACKET_BYTES,
         )
         .map_err(codec_error)?;
+        if self.scenario.fault == VirtualNanoFault::CorruptOldLogCrc
+            && transfer.path.ends_with("/log0001.klog")
+            && sequence == 2
+        {
+            let index = frame.len() - 3;
+            frame[index] = if frame[index] == b'0' { b'1' } else { b'0' };
+        }
         transfer.next_sequence = transfer.next_sequence.saturating_add(1);
         if !final_chunk {
             self.pending = Some(transfer);

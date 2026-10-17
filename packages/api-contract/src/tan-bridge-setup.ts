@@ -114,6 +114,12 @@ export const TanBridgeSetupStatusSchema = z
         host: z.literal(TanBridgeBackendHost),
         port: z.literal(TanBridgeBackendPort),
         path: z.literal(TanBridgeBackendPath),
+        lastErrorType: z.number().int().optional(),
+        lastHttpStatus: z.number().int().optional(),
+        lastEspError: z.number().int().optional(),
+        lastTlsError: z.number().int().optional(),
+        lastVerifyFlags: z.number().int().optional(),
+        lastSocketErrno: z.number().int().optional(),
       })
       .strict(),
     claim: z
@@ -136,6 +142,18 @@ export const TanBridgeSetupStatusSchema = z
         persisted: z.boolean(),
         networkStartDelayMs: z.literal(2_500),
         wifiMaxTxPowerQuarterDbm: z.literal(44),
+        forwarding: z
+          .object({
+            receivedBytes: z.number().int().nonnegative(),
+            forwardedBytes: z.number().int().nonnegative(),
+            discardedBytes: z.number().int().nonnegative(),
+            overflows: z.number().int().nonnegative(),
+            sessionFailures: z.number().int().nonnegative(),
+            usbRecoveries: z.number().int().nonnegative(),
+            highWaterBytes: z.number().int().min(0).max(32768),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   })

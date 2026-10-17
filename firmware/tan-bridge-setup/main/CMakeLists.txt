@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "setup_main.c" "tunnel_policy.c"
+  SRCS "setup_main.c" "tunnel_policy.c" "forwarding.c"
   INCLUDE_DIRS "."
   REQUIRES
     esp_event

@@ -5,7 +5,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 idf_image="espressif/idf:v5.5.5"
 expected_digest="espressif/idf@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2"
 build_volume="tan-studio-esp-idf-5-5-5"
-firmware_version="0.3.1-hosted"
+firmware_version="0.3.3-hosted"
 clean_build=false
 if [[ "${1:-}" == "--clean" ]]; then
   clean_build=true
@@ -40,8 +40,11 @@ docker run --rm \
     cp /idf-cache/build/partition_table/partition-table.bin build/partition_table/partition-table.bin && \
     cp /idf-cache/build/tan_bridge_setup.bin build/tan_bridge_setup.bin && \
     cp /idf-cache/build/tan_bridge_setup.elf build/tan_bridge_setup.elf && \
-    cp /idf-cache/build/flasher_args.json build/flasher_args.json"
+    cp /idf-cache/build/flasher_args.json build/flasher_args.json && \
+    cp /idf-cache/build/project_description.json build/project_description.json && \
+    cp /idf-cache/build/tan_bridge_setup.map build/tan_bridge_setup.map"
 
 python3 "${repo_root}/script/test_tan_bridge_setup_contract.py"
 "${repo_root}/script/test_tan_bridge_setup_host.sh"
+python3 "${repo_root}/script/write_tan_bridge_build_manifest.py"
 echo "Setup image: ${repo_root}/firmware/tan-bridge-setup/build/tan_bridge_setup.bin"

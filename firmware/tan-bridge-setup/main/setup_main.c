@@ -18,7 +18,8 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
-#include "freertos/queue.h"
+#include "tusb.h"
+#include "forwarding.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "nvs.h"
@@ -39,8 +40,8 @@
 #define SETUP_BACKEND_PORT 443U
 #define SETUP_BACKEND_PATH "/device/v1/session"
 #define SETUP_BACKEND_URI "wss://studio.tan.coffee/device/v1/session"
-#define SETUP_FIRMWARE_VERSION "0.3.1-hosted"
-#define SETUP_BUILD_ID "hosted-wss-v2"
+#define SETUP_FIRMWARE_VERSION "0.3.3-hosted"
+#define SETUP_BUILD_ID "hosted-wss-v4"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
 #define SETUP_NETWORK_TASK_CORE 0
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
@@ -83,7 +84,9 @@ typedef struct {
     uint8_t bytes[SETUP_RX_CHUNK_BYTES];
 } setup_rx_event_t;
 
-static QueueHandle_t rx_queue;
+static tan_forwarder_t forwarder;
+static portMUX_TYPE forwarding_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool usb_reconnect_requested;
 static char line_buffer[SETUP_LINE_BYTES];
 static size_t line_length;
 static bool discarding_oversized_line;
@@ -100,9 +103,7 @@ static volatile bool setup_protocol_active;
 static SemaphoreHandle_t bridge_mutex;
 static EventGroupHandle_t websocket_events;
 static esp_websocket_client_handle_t bridge_client;
-static uint8_t *websocket_message;
-static size_t websocket_message_length;
-static uint8_t websocket_message_opcode;
+static tan_ws_message_t websocket_message;
 static bool websocket_authenticated;
 static int diagnostic_websocket_error_type;
 static int diagnostic_websocket_http_status;
@@ -111,9 +112,7 @@ static int diagnostic_websocket_tls_error;
 static int diagnostic_websocket_verify_flags;
 static int diagnostic_websocket_socket_errno;
 static bool sntp_initialized;
-static uint8_t pending_usb_bytes[TUNNEL_MAX_PAYLOAD_BYTES];
-static size_t pending_usb_length;
-static bool usb_bootstrap_confirmed;
+
 static char configured_ssid[SETUP_SSID_BYTES];
 static char configured_credential[SETUP_CREDENTIAL_BYTES];
 static char claim_token[SETUP_TOKEN_BYTES];
@@ -570,6 +569,21 @@ static void send_status(const char *request_id)
                             SETUP_NETWORK_START_DELAY_MS);
     cJSON_AddNumberToObject(diagnostics, "wifiMaxTxPowerQuarterDbm",
                             SETUP_WIFI_MAX_TX_POWER_QDBM);
+    tan_forward_stats_t forwarding_stats;
+    portENTER_CRITICAL(&forwarding_mux);
+    forwarding_stats = forwarder.stats;
+    portEXIT_CRITICAL(&forwarding_mux);
+    cJSON *forwarding = cJSON_CreateObject();
+    if (forwarding != NULL) {
+        cJSON_AddNumberToObject(forwarding, "receivedBytes", forwarding_stats.received);
+        cJSON_AddNumberToObject(forwarding, "forwardedBytes", forwarding_stats.forwarded);
+        cJSON_AddNumberToObject(forwarding, "discardedBytes", forwarding_stats.discarded);
+        cJSON_AddNumberToObject(forwarding, "overflows", forwarding_stats.overflows);
+        cJSON_AddNumberToObject(forwarding, "sessionFailures", forwarding_stats.failures);
+        cJSON_AddNumberToObject(forwarding, "usbRecoveries", forwarding_stats.recoveries);
+        cJSON_AddNumberToObject(forwarding, "highWaterBytes", forwarding_stats.high_water);
+        cJSON_AddItemToObject(diagnostics, "forwarding", forwarding);
+    }
     cJSON_AddItemToObject(result, "diagnostics", diagnostics);
     cJSON_AddItemToObject(response, "result", result);
     send_json(response);
@@ -954,59 +968,90 @@ static bool send_tunnel_frame(esp_websocket_client_handle_t client,
     return sent == (int)record_length;
 }
 
+static void fail_forwarding(void)
+{
+    portENTER_CRITICAL(&forwarding_mux);
+    tan_forward_fail(&forwarder);
+    portEXIT_CRITICAL(&forwarding_mux);
+    signal_websocket_failure();
+}
+
 static void set_bridge_client(esp_websocket_client_handle_t client)
 {
-    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        bridge_client = client;
-        if (pending_usb_length > 0U) {
-            set_usb_stage(DIAGNOSTIC_USB_REPLAYING);
-            if (!send_tunnel_frame(client, pending_usb_bytes,
-                                   pending_usb_length)) {
-                signal_websocket_failure();
-            }
-            set_usb_stage(DIAGNOSTIC_USB_IDLE);
-        }
-        xSemaphoreGive(bridge_mutex);
-    }
+    /* A live handle is never destroyed while the USB consumer is using it. */
+    xSemaphoreTake(bridge_mutex, portMAX_DELAY);
+    bridge_client = client;
+    portENTER_CRITICAL(&forwarding_mux);
+    usb_reconnect_requested = tan_forward_begin(&forwarder);
+    portEXIT_CRITICAL(&forwarding_mux);
+    xSemaphoreGive(bridge_mutex);
 }
 
 static void clear_bridge_client(esp_websocket_client_handle_t client)
 {
-    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        if (bridge_client == client) {
-            bridge_client = NULL;
-        }
-        xSemaphoreGive(bridge_mutex);
-    }
+    xSemaphoreTake(bridge_mutex, portMAX_DELAY);
+    if (bridge_client == client) bridge_client = NULL;
+    portENTER_CRITICAL(&forwarding_mux);
+    tan_forward_fail(&forwarder);
+    portEXIT_CRITICAL(&forwarding_mux);
+    xSemaphoreGive(bridge_mutex);
 }
 
-static void bridge_send_usb(const uint8_t *bytes, size_t length)
+static void bridge_send_usb(const uint8_t *bytes, size_t length,
+                            uint32_t generation)
 {
+    if (!length) return;
     set_usb_stage(DIAGNOSTIC_USB_BUFFERING);
-    if (length == 0U || length > UINT16_MAX ||
-        xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        portENTER_CRITICAL(&forwarding_mux);
+        forwarder.stats.discarded += length;
+        portEXIT_CRITICAL(&forwarding_mux);
+        fail_forwarding();
         set_usb_stage(DIAGNOSTIC_USB_IDLE);
         return;
     }
-    esp_websocket_client_handle_t client = bridge_client;
-    if (!usb_bootstrap_confirmed &&
-        length <= sizeof(pending_usb_bytes) - pending_usb_length) {
-        memcpy(pending_usb_bytes + pending_usb_length, bytes, length);
-        pending_usb_length += length;
-    }
-    if (client != NULL && !send_tunnel_frame(client, bytes, length)) {
-        signal_websocket_failure();
+    portENTER_CRITICAL(&forwarding_mux);
+    bool current = tan_forward_current(&forwarder, generation);
+    portEXIT_CRITICAL(&forwarding_mux);
+    if (bridge_client != NULL && current) {
+        set_usb_stage(DIAGNOSTIC_USB_TRANSMITTING);
+        if (!send_tunnel_frame(bridge_client, bytes, length)) {
+            portENTER_CRITICAL(&forwarding_mux);
+            forwarder.stats.discarded += length;
+            portEXIT_CRITICAL(&forwarding_mux);
+            fail_forwarding();
+        } else {
+            portENTER_CRITICAL(&forwarding_mux);
+            forwarder.stats.forwarded += length;
+            portEXIT_CRITICAL(&forwarding_mux);
+        }
+    } else {
+        portENTER_CRITICAL(&forwarding_mux);
+        forwarder.stats.discarded += length;
+        portEXIT_CRITICAL(&forwarding_mux);
     }
     xSemaphoreGive(bridge_mutex);
     set_usb_stage(DIAGNOSTIC_USB_IDLE);
 }
 
-static void confirm_usb_session_started(void)
+static void recover_usb_session(void)
 {
-    if (xSemaphoreTake(bridge_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
-        usb_bootstrap_confirmed = true;
-        xSemaphoreGive(bridge_mutex);
+    if (!usb_reconnect_requested) return;
+    usb_reconnect_requested = false;
+    /* Only a peer which emitted KL* is cycled. Never reset the Nano itself,
+     * write its filesystem, reboot this Atom, or disturb computer setup. */
+    tud_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(250));
+    uint8_t stale[SETUP_RX_CHUNK_BYTES];
+    size_t length = 0;
+    for (unsigned i = 0; i < 16; i++) {
+        if (tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, stale, sizeof(stale),
+                               &length) != ESP_OK || length == 0) break;
     }
+    portENTER_CRITICAL(&forwarding_mux);
+    tan_forward_recovered(&forwarder);
+    portEXIT_CRITICAL(&forwarding_mux);
+    tud_connect();
 }
 
 static bool associate_wifi(void)
@@ -1157,81 +1202,57 @@ static bool deliver_backend_record(const uint8_t *record, size_t length)
         !tan_tunnel_allows_backend_frame(payload, payload_length)) {
         return false;
     }
-    if (!setup_protocol_active &&
-        write_line((const char *)payload, payload_length)) {
-        confirm_usb_session_started();
-    }
-    return true;
+    portENTER_CRITICAL(&forwarding_mux);
+    bool available = !forwarder.failed && !forwarder.recovering;
+    portEXIT_CRITICAL(&forwarding_mux);
+    if (!setup_protocol_active && available &&
+        write_line((const char *)payload, payload_length)) return true;
+    fail_forwarding();
+    return false;
 }
 
 static void reset_websocket_message(void)
 {
-    free(websocket_message);
-    websocket_message = NULL;
-    websocket_message_length = 0U;
-    websocket_message_opcode = 0U;
+    memset(&websocket_message, 0, sizeof(websocket_message));
 }
 
 static void receive_websocket_data(const esp_websocket_event_data_t *event)
 {
     if (event != NULL &&
         (event->op_code == 0x8U || event->op_code == 0x9U ||
-         event->op_code == 0xaU)) {
+         event->op_code == 0xaU)) return;
+    if (event == NULL || event->data_len < 0 || event->payload_len < 0 ||
+        event->payload_offset < 0) {
+        fail_forwarding();
         return;
     }
-    if (event == NULL || event->data_len < 0 || event->payload_len <= 0 ||
-        event->payload_offset < 0 ||
-        event->payload_len > (int)WEBSOCKET_MESSAGE_BYTES ||
-        event->payload_offset + event->data_len > event->payload_len ||
-        (event->data_len > 0 && event->data_ptr == NULL)) {
-        signal_websocket_failure();
-        return;
-    }
-    if (event->payload_offset == 0) {
+    tan_ws_result_t result = tan_ws_feed(
+        &websocket_message, event->op_code, event->fin,
+        (size_t)event->payload_len, (size_t)event->payload_offset,
+        (const uint8_t *)event->data_ptr, (size_t)event->data_len);
+    if (result == TAN_WS_MORE) return;
+    if (result == TAN_WS_ERROR) {
         reset_websocket_message();
-        if (event->op_code != 0x1U && event->op_code != 0x2U) {
-            return;
-        }
-        websocket_message = malloc((size_t)event->payload_len + 1U);
-        if (websocket_message == NULL) {
-            signal_websocket_failure();
-            return;
-        }
-        websocket_message_length = (size_t)event->payload_len;
-        websocket_message_opcode = event->op_code;
-    }
-    if (websocket_message == NULL ||
-        websocket_message_length != (size_t)event->payload_len) {
-        signal_websocket_failure();
+        fail_forwarding();
         return;
     }
-    memcpy(websocket_message + event->payload_offset, event->data_ptr,
-           (size_t)event->data_len);
-    if (event->payload_offset + event->data_len != event->payload_len) {
-        return;
-    }
-    websocket_message[websocket_message_length] = '\0';
     bool valid = false;
-    if (websocket_message_opcode == 0x1U && !websocket_authenticated) {
-        valid = authenticate_backend_message(websocket_message,
-                                             websocket_message_length);
+    if (websocket_message.opcode == 0x1U && !websocket_authenticated) {
+        valid = authenticate_backend_message(websocket_message.bytes,
+                                             websocket_message.length);
         if (valid) {
             websocket_authenticated = true;
             backend_state = "online";
             lifecycle_state = "operational";
             set_network_stage(DIAGNOSTIC_NETWORK_TUNNEL);
-            xEventGroupSetBits(websocket_events,
-                               WEBSOCKET_AUTHENTICATED_BIT);
+            xEventGroupSetBits(websocket_events, WEBSOCKET_AUTHENTICATED_BIT);
         }
-    } else if (websocket_message_opcode == 0x2U &&
-               websocket_authenticated) {
-        valid = deliver_backend_record(websocket_message,
-                                       websocket_message_length);
+    } else if (websocket_message.opcode == 0x2U && websocket_authenticated) {
+        valid = deliver_backend_record(websocket_message.bytes,
+                                       websocket_message.length);
     }
     reset_websocket_message();
-    if (!valid) {
-        signal_websocket_failure();
-    }
+    if (!valid) fail_forwarding();
 }
 
 static void websocket_event_handler(void *handler_args,
@@ -1395,7 +1416,11 @@ static void cdc_rx_callback(int interface, cdcacm_event_t *event)
     if (tinyusb_cdcacm_read(interface, message.bytes, sizeof(message.bytes),
                             &message.length) == ESP_OK &&
         message.length > 0U) {
-        (void)xQueueSend(rx_queue, &message, 0);
+        portENTER_CRITICAL(&forwarding_mux);
+        (void)tan_forward_push(&forwarder, message.bytes, message.length);
+        bool failed = forwarder.failed;
+        portEXIT_CRITICAL(&forwarding_mux);
+        if (failed) signal_websocket_failure();
     }
     set_usb_stage(DIAGNOSTIC_USB_IDLE);
 }
@@ -1488,19 +1513,13 @@ static void initialize_identity(void)
 void app_main(void)
 {
     esp_err_t nvs_result = nvs_flash_init();
-    if (nvs_result == ESP_ERR_NVS_NO_FREE_PAGES ||
-        nvs_result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        nvs_result = nvs_flash_init();
-    }
     ESP_ERROR_CHECK(nvs_result);
     initialize_diagnostics();
     initialize_identity();
 
-    rx_queue = xQueueCreate(16U, sizeof(setup_rx_event_t));
     bridge_mutex = xSemaphoreCreateMutex();
     websocket_events = xEventGroupCreate();
-    if (rx_queue == NULL || bridge_mutex == NULL ||
+    if (bridge_mutex == NULL ||
         websocket_events == NULL) {
         abort();
     }
@@ -1528,17 +1547,35 @@ void app_main(void)
     }
 
     setup_rx_event_t event;
+    unsigned drain_batch = 0;
     while (true) {
-        if (xQueueReceive(rx_queue, &event, portMAX_DELAY) == pdTRUE) {
-            bool setup_bytes = setup_protocol_active || event.bytes[0] == '{';
+        recover_usb_session();
+        uint32_t generation;
+        portENTER_CRITICAL(&forwarding_mux);
+        event.length = tan_forward_pop(&forwarder, event.bytes,
+                                       sizeof(event.bytes), &generation);
+        portEXIT_CRITICAL(&forwarding_mux);
+        if (event.length > 0) {
+            portENTER_CRITICAL(&forwarding_mux);
+            bool setup_bytes = setup_protocol_active || forwarder.peer == TAN_PEER_SETUP;
+            portEXIT_CRITICAL(&forwarding_mux);
             if (setup_bytes) {
                 set_usb_stage(DIAGNOSTIC_USB_SETUP);
                 setup_protocol_active = true;
                 consume_bytes(event.bytes, event.length);
                 set_usb_stage(DIAGNOSTIC_USB_IDLE);
             } else {
-                bridge_send_usb(event.bytes, event.length);
+                bridge_send_usb(event.bytes, event.length, generation);
             }
+            /* Even an endlessly readable USB peer cannot starve the idle
+             * task/watchdog. Socket waits also yield through FreeRTOS. */
+            if (++drain_batch == 8U) {
+                drain_batch = 0;
+                vTaskDelay(1);
+            }
+        } else {
+            drain_batch = 0;
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }

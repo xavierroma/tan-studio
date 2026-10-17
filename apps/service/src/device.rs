@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io::{self, Read, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -697,7 +697,7 @@ fn synchronize(
         current.profile_warning_count = 0;
         current.quarantined_profile_count = 0;
     }
-    let result = synchronize_run(session, snapshot, log_importer, profile_importer);
+    let result = synchronize_run(session, snapshot, log_importer, profile_importer, database);
     if let Err(reason) = &result {
         let waiting = sync_failure_keeps_session(reason);
         let mut current = snapshot.write();
@@ -759,6 +759,7 @@ fn synchronize_run(
     snapshot: &RwLock<DeviceSnapshot>,
     log_importer: &KlogImporter,
     profile_importer: &KproImporter,
+    database: &Database,
 ) -> Result<(), String> {
     if session.phase != Phase::Ready {
         return Err("device_session_negotiating".into());
@@ -810,54 +811,85 @@ fn synchronize_run(
     let mut imported_profiles = 0;
     let mut profile_warnings = 0;
     let mut quarantined_profiles = 0;
-    for entry in profiles {
+    // Refresh every file, but read previously unseen paths before revisiting
+    // old ones. An old transfer failure must not starve new roast evidence.
+    // This is scheduling only: no metadata shortcut, CRC bypass or partial import.
+    let known_paths: HashSet<String> = {
+        let connection = database.connection();
+        let mut statement = connection
+            .prepare("SELECT DISTINCT device_path FROM native_files WHERE kind IN ('klog','kpro')")
+            .map_err(|_| "sync_inventory_failed".to_owned())?;
+        let paths = statement
+            .query_map([], |row| row.get(0))
+            .map_err(|_| "sync_inventory_failed".to_owned())?
+            .collect::<Result<_, _>>()
+            .map_err(|_| "sync_inventory_failed".to_owned())?;
+        paths
+    };
+    let mut files: Vec<_> = profiles
+        .into_iter()
+        .map(|entry| (true, entry))
+        .chain(logs.into_iter().map(|entry| (false, entry)))
+        .collect();
+    files.sort_by(|(left_profile, left), (right_profile, right)| {
+        (known_paths.contains(&left.path), !left_profile, &left.name).cmp(&(
+            known_paths.contains(&right.path),
+            !right_profile,
+            &right.name,
+        ))
+    });
+    for (is_profile, entry) in files {
         let result = request_transfer(
             session,
             |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
             TransferKind::File,
             &entry.path,
         )?;
-        match profile_importer.import(KproImportInput {
-            bytes: result,
-            device_path: entry.path,
-            filename: entry.name,
-            source_modified_at: entry.modified_at,
-        }) {
-            Ok(result) => {
-                imported_profiles += u32::from(result.imported);
-                profile_warnings += result.warning_count as u32;
+        if is_profile {
+            match profile_importer.import(KproImportInput {
+                bytes: result,
+                device_path: entry.path,
+                filename: entry.name,
+                source_modified_at: entry.modified_at,
+            }) {
+                Ok(result) => {
+                    imported_profiles += u32::from(result.imported);
+                    profile_warnings += result.warning_count as u32;
+                }
+                Err(KproError::Database(_)) => return Err("profile_database_failed".into()),
+                Err(_) => {
+                    profile_warnings += 1;
+                    quarantined_profiles += 1;
+                }
             }
-            Err(KproError::Database(_)) => return Err("profile_database_failed".into()),
-            Err(_) => {
-                profile_warnings += 1;
-                quarantined_profiles += 1;
-            }
-        }
-    }
-    for entry in logs {
-        let result = request_transfer(
-            session,
-            |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
-            TransferKind::File,
-            &entry.path,
-        )?;
-        match log_importer.import(KlogImportInput {
-            bytes: result,
-            device_path: entry.path,
-            filename: entry.name,
-            source_modified_at: entry.modified_at,
-        }) {
-            Ok(result) => {
-                imported += u32::from(result.imported);
-                updated += u32::from(result.updated);
-                warnings += result.warning_count as u32;
-            }
-            Err(KlogError::Database(_)) => return Err("log_database_failed".into()),
-            Err(_) => {
-                quarantined += 1;
-                warnings += 1;
+        } else {
+            match log_importer.import(KlogImportInput {
+                bytes: result,
+                device_path: entry.path,
+                filename: entry.name,
+                source_modified_at: entry.modified_at,
+            }) {
+                Ok(result) => {
+                    imported += u32::from(result.imported);
+                    updated += u32::from(result.updated);
+                    warnings += result.warning_count as u32;
+                }
+                Err(KlogError::Database(_)) => return Err("log_database_failed".into()),
+                Err(_) => {
+                    quarantined += 1;
+                    warnings += 1;
+                }
             }
         }
+        // Preserve successful complete-file counts even if a later file fails.
+        let mut current = snapshot.write();
+        current.imported_log_count = imported;
+        current.updated_log_count = updated;
+        current.import_warning_count = warnings;
+        current.quarantined_log_count = quarantined;
+        current.imported_profile_count = imported_profiles;
+        current.profile_warning_count = profile_warnings;
+        current.quarantined_profile_count = quarantined_profiles;
     }
     let mut current = snapshot.write();
     current.state = "ready".into();
@@ -1218,6 +1250,103 @@ mod tests {
         assert!(events.iter().any(|event| event.frame_type == Some(5)));
         assert!(events.iter().any(|event| event.frame_type == Some(7)));
         assert!(events.iter().any(|event| event.frame_type == Some(1)));
+    }
+
+    #[test]
+    fn new_log_import_survives_a_later_old_file_crc_failure_and_reconnect() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        let logs = KlogImporter::new(database.clone());
+        let profiles = KproImporter::new(database.clone());
+        let mut initial = VirtualNanoScenario::smoke();
+        initial
+            .files
+            .remove(&format!("{LOG_DIRECTORY}/log0003.klog"));
+        let (mut session, snapshot, _) = negotiate_virtual(initial);
+        synchronize(
+            &mut session,
+            &snapshot,
+            &logs,
+            &profiles,
+            &database,
+            "manual",
+        )
+        .unwrap();
+        let originals: Vec<(String, Vec<u8>)> = database
+            .connection()
+            .prepare("SELECT sha256, original_bytes FROM native_files ORDER BY sha256")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut faulty = VirtualNanoScenario::smoke();
+        faulty.fault = VirtualNanoFault::CorruptOldLogCrc;
+        let (mut session, snapshot, _) = negotiate_virtual(faulty);
+        assert_eq!(
+            synchronize(
+                &mut session,
+                &snapshot,
+                &logs,
+                &profiles,
+                &database,
+                "manual"
+            ),
+            Err("protocol_invalidcrc".into())
+        );
+        assert_eq!(snapshot.read().imported_log_count, 1);
+        assert_eq!(
+            database
+                .connection()
+                .query_row("SELECT count(*) FROM roasts", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        for (hash, bytes) in originals {
+            let stored: Vec<u8> = database
+                .connection()
+                .query_row(
+                    "SELECT original_bytes FROM native_files WHERE sha256=?",
+                    [&hash],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored, bytes);
+        }
+        let (mut session, snapshot, _) = negotiate_virtual(VirtualNanoScenario::smoke());
+        synchronize(
+            &mut session,
+            &snapshot,
+            &logs,
+            &profiles,
+            &database,
+            "manual",
+        )
+        .unwrap();
+        assert_eq!(snapshot.read().imported_log_count, 0);
+        assert_eq!(
+            database
+                .connection()
+                .query_row("SELECT count(*) FROM roasts", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        let runs: Vec<(String, i64)> = database
+            .connection()
+            .prepare("SELECT state, imported_log_count FROM sync_runs ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            runs,
+            vec![
+                ("completed".into(), 2),
+                ("failed".into(), 1),
+                ("completed".into(), 0)
+            ]
+        );
     }
 
     #[test]

@@ -11,3 +11,13 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
   "${repo_root}/firmware/tan-bridge-setup/host-tests/test_tunnel_policy.c" \
   -o "${test_binary}"
 "${test_binary}"
+
+python3 "${repo_root}/script/test_tan_bridge_forwarding_runtime.py"
+
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -I "${repo_root}/firmware/tan-bridge-setup/main" \
+  "${repo_root}/firmware/tan-bridge-setup/main/forwarding.c" \
+  "${repo_root}/firmware/tan-bridge-setup/host-tests/test_forwarding.c" \
+  -o "${test_binary}"
+"${test_binary}"

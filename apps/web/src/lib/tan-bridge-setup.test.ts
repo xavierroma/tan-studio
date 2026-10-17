@@ -70,58 +70,87 @@ function responseEnvelope(
 }
 
 describe("Tan Bridge Web Serial client", () => {
-  it("opens deterministic CDC settings and validates a split status frame", async () => {
-    const port = new FakeSerialPort((request) =>
-      responseEnvelope(request, {
-        protocolVersion: 2,
-        bridgeId: "abcdefghijklmnopqrstuvwxyz",
-        firmware: { version: "0.1.0-dev", build: "setup-v1" },
-        lifecycle: "unprovisioned",
-        wifi: { state: "disabled" },
-        backend: {
-          state: "offline",
-          transport: "wss",
-          host: "studio.tan.coffee",
-          port: 443,
-          path: "/device/v1/session",
-        },
-        claim: { state: "unclaimed" },
-        diagnostics: {
-          bootCount: 1,
-          brownoutCount: 0,
-          watchdogCount: 0,
-          lastResetReason: "powerOn",
-          previousResetReason: "unknown",
-          interruptWatchdogCount: 0,
-          taskWatchdogCount: 0,
-          otherWatchdogCount: 0,
-          watchdogUsbStage: "boot",
-          watchdogNetworkStage: "notStarted",
-          persisted: true,
-          networkStartDelayMs: 2_500,
-          wifiMaxTxPowerQuarterDbm: 44,
-        },
+  it.each([false, true])(
+    "validates split CDC status with forwarding diagnostics=%s",
+    async (withForwarding) => {
+      const port = new FakeSerialPort((request) =>
+        responseEnvelope(request, {
+          protocolVersion: 2,
+          bridgeId: "abcdefghijklmnopqrstuvwxyz",
+          firmware: { version: "0.1.0-dev", build: "setup-v1" },
+          lifecycle: "unprovisioned",
+          wifi: { state: "disabled" },
+          backend: {
+            state: "offline",
+            transport: "wss",
+            host: "studio.tan.coffee",
+            port: 443,
+            path: "/device/v1/session",
+            ...(withForwarding
+              ? {
+                  lastErrorType: 0,
+                  lastHttpStatus: 0,
+                  lastEspError: 0,
+                  lastTlsError: 0,
+                  lastVerifyFlags: 0,
+                  lastSocketErrno: 0,
+                }
+              : {}),
+          },
+          claim: { state: "unclaimed" },
+          diagnostics: {
+            bootCount: 1,
+            brownoutCount: 0,
+            watchdogCount: 0,
+            lastResetReason: "powerOn",
+            previousResetReason: "unknown",
+            interruptWatchdogCount: 0,
+            taskWatchdogCount: 0,
+            otherWatchdogCount: 0,
+            watchdogUsbStage: "boot",
+            watchdogNetworkStage: "notStarted",
+            persisted: true,
+            networkStartDelayMs: 2_500,
+            wifiMaxTxPowerQuarterDbm: 44,
+            ...(withForwarding
+              ? {
+                  forwarding: {
+                    receivedBytes: 1000,
+                    forwardedBytes: 900,
+                    discardedBytes: 100,
+                    overflows: 0,
+                    sessionFailures: 1,
+                    usbRecoveries: 1,
+                    highWaterBytes: 512,
+                  },
+                }
+              : {}),
+          },
+        })
+      )
+
+      const client = await TanBridgeSetupClient.connect(fakeSerial(port))
+      const status = await client.getStatus()
+
+      expect(port.openOptions).toEqual({
+        baudRate: 115_200,
+        dataBits: 8,
+        stopBits: 1,
+        parity: "none",
+        flowControl: "none",
       })
-    )
-
-    const client = await TanBridgeSetupClient.connect(fakeSerial(port))
-    const status = await client.getStatus()
-
-    expect(port.openOptions).toEqual({
-      baudRate: 115_200,
-      dataBits: 8,
-      stopBits: 1,
-      parity: "none",
-      flowControl: "none",
-    })
-    expect(port.signals).toEqual({
-      dataTerminalReady: true,
-      requestToSend: false,
-    })
-    expect(status.bridgeId).toBe("abcdefghijklmnopqrstuvwxyz")
-    await client.close()
-    expect(port.closed).toBe(true)
-  })
+      expect(port.signals).toEqual({
+        dataTerminalReady: true,
+        requestToSend: false,
+      })
+      expect(status.bridgeId).toBe("abcdefghijklmnopqrstuvwxyz")
+      expect(status.diagnostics.forwarding?.highWaterBytes).toBe(
+        withForwarding ? 512 : undefined
+      )
+      await client.close()
+      expect(port.closed).toBe(true)
+    }
+  )
 
   it("validates a bounded Wi-Fi scan", async () => {
     const port = new FakeSerialPort((request) =>

@@ -28,11 +28,25 @@ firmware; setup stores only the selected Wi-Fi credential and one-time claim.
 WebSocket ping/pong, bounded timeouts, and jittered reconnects keep the tunnel
 alive without exposing a raw bridge port.
 
-The Atom retains a bounded 8 KiB bootstrap buffer while Wi-Fi is associating.
-This preserves the Nano's spontaneous SASSI capability frame, which normally
-arrives before the bridge can authenticate. Capture freezes after the backend's
-first validated read-only SASSI response is delivered to the Nano, but the
-bootstrap stays available for replay after a later backend reconnect.
+Version `0.3.3-hosted` / `hosted-wss-v4` uses a 32 KiB byte ring. USB callbacks
+perform bounded memory copies only; socket I/O never runs under its critical
+section. Overflow, socket/USB write failure or mutex timeout invalidates the
+whole stream and closes the session. Bytes from an earlier connection generation
+cannot enter a later one. WebSocket callback fragments must be contiguous.
+
+After authentication, a peer positively observed sending `KL*` is disconnected
+and reconnected at the USB data level (250 ms). This requests a fresh Nano SASSI
+handshake instead of replaying stale seeds after a network interruption. It does
+not reset the Nano, switch its power, reboot the Atom or erase configuration.
+Computer setup peers are not re-enumerated. There is no durable offline spool;
+the next sync reads the Nano's original files again.
+
+`setup.getStatus` adds optional `diagnostics.forwarding` counters: received,
+forwarded and discarded bytes; overflows; session failures; USB recoveries; ring
+high-water bytes. Counters are per boot. Discards include expected offline and
+recovery bytes, so an increasing discard count alone does not prove overflow.
+Wi-Fi/backend status and persistent watchdog counters remain available. NVS
+initialization errors now fail without erasing provisioning.
 
 Build and contract-check with:
 
@@ -43,7 +57,7 @@ Build and contract-check with:
 This uses a digest-pinned ESP-IDF container because no host IDF toolchain is
 required. The generated object cache and linker output stay in the named Docker
 volume `tan-studio-esp-idf-5-5-5`, avoiding the severe random-I/O cost of
-linking on a macOS bind mount; only the three flash binaries and flash manifest
+linking on a macOS bind mount; the binaries, ELF, linker map, flash manifest and project metadata
 are copied back. Use `./script/build_tan_bridge_setup_firmware.sh --clean` only
 when the target or locked dependencies change.
 
@@ -74,7 +88,7 @@ does not run `erase-flash` and does not touch the NVS partition. The original
 flash script remains the recovery path when configuration must be erased.
 
 After the update, reconnect the Atom to the computer and run the verifier. It
-must report firmware `0.3.1-hosted`, transport `wss`, host
+must report firmware `0.3.3-hosted`, transport `wss`, host
 `studio.tan.coffee`, port `443`, and path `/device/v1/session`. Then reconnect
 the Atom to the Nano. If the retained identity has been revoked or the bridge
 was never provisioned, use Tan Studio's Tan Bridge setup panel to issue a new

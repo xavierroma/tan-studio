@@ -52,40 +52,23 @@ def main() -> int:
     require(r"TanBridgeBackendPort = 443 as const", contract, "browser backend port")
     require(r'TanBridgeBackendPath = "/device/v1/session"', contract, "browser backend path")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.3\.1-hosted"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.3\.3-hosted"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.3\.1-hosted"',
+        r'firmware_version="0\.3\.3-hosted"',
         build_script,
         "reproducible build firmware version",
     )
-    require(
-        r"pending_usb_bytes\[TUNNEL_MAX_PAYLOAD_BYTES\]",
-        firmware,
-        "pre-network Nano bootstrap buffer",
-    )
-    require(
-        r"static void set_bridge_client\(esp_websocket_client_handle_t client\)[\s\S]*?pending_usb_length[\s\S]*?send_tunnel_frame",
-        firmware,
-        "bootstrap replay after backend authentication",
-    )
-    require(
-        r"confirm_usb_session_started\(\)",
-        firmware,
-        "bootstrap freeze after backend-to-Nano progress",
-    )
-    require(
-        r"confirm_usb_session_started\(void\)[\s\S]*?usb_bootstrap_confirmed = true",
-        firmware,
-        "bootstrap retained for reconnect replay",
-    )
-    require(
-        r"bool setup_bytes = setup_protocol_active \|\| event\.bytes\[0\] == '\{'",
-        firmware,
-        "payload-selected setup protocol",
-    )
+    require(r"tan_forward_push", firmware, "bounded nonblocking USB capture")
+    require(r"tan_forward_begin", firmware, "generation-scoped stream recovery")
+    require(r"tud_disconnect\(\)", firmware, "USB session recovery")
+    require(r"tud_connect\(\)", firmware, "USB re-enumeration")
+    require(r"tan_ws_feed", firmware, "contiguous WebSocket messages")
+    require(r"forwarder.peer == TAN_PEER_SETUP", firmware, "payload-selected setup")
+    if "nvs_flash_erase" in firmware:
+        raise AssertionError("startup must preserve provisioning on NVS failure")
     if re.search(
         r"setup_protocol_active\s*=\s*event->line_state_changed_data\.dtr",
         firmware,
