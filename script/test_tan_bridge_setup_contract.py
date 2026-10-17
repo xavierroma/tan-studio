@@ -52,12 +52,12 @@ def main() -> int:
     require(r"TanBridgeBackendPort = 443 as const", contract, "browser backend port")
     require(r'TanBridgeBackendPath = "/device/v1/session"', contract, "browser backend path")
     require(
-        r'#define SETUP_FIRMWARE_VERSION "0\.3\.3-hosted"',
+        r'#define SETUP_FIRMWARE_VERSION "0\.3\.4-hosted"',
         firmware,
         "runtime firmware version",
     )
     require(
-        r'firmware_version="0\.3\.3-hosted"',
+        r'firmware_version="0\.3\.4-hosted"',
         build_script,
         "reproducible build firmware version",
     )

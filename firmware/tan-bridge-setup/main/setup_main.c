@@ -40,8 +40,8 @@
 #define SETUP_BACKEND_PORT 443U
 #define SETUP_BACKEND_PATH "/device/v1/session"
 #define SETUP_BACKEND_URI "wss://studio.tan.coffee/device/v1/session"
-#define SETUP_FIRMWARE_VERSION "0.3.3-hosted"
-#define SETUP_BUILD_ID "hosted-wss-v4"
+#define SETUP_FIRMWARE_VERSION "0.3.4-hosted"
+#define SETUP_BUILD_ID "hosted-wss-v5"
 #define SETUP_NETWORK_START_DELAY_MS 2500U
 #define SETUP_NETWORK_TASK_CORE 0
 #define SETUP_WIFI_MAX_TX_POWER_QDBM 44
@@ -111,7 +111,7 @@ static int diagnostic_websocket_esp_error;
 static int diagnostic_websocket_tls_error;
 static int diagnostic_websocket_verify_flags;
 static int diagnostic_websocket_socket_errno;
-static bool sntp_initialized;
+static size_t sntp_server_index;
 
 static char configured_ssid[SETUP_SSID_BYTES];
 static char configured_credential[SETUP_CREDENTIAL_BYTES];
@@ -1061,6 +1061,16 @@ static bool associate_wifi(void)
     if (initialize_wifi() != ESP_OK) {
         return false;
     }
+    /* Reconnect the socket without tearing down a healthy Wi-Fi association.
+     * In particular, clock-sync retries must not interrupt their own DNS/NTP. */
+    wifi_ap_record_t current_ap = {0};
+    esp_netif_ip_info_t current_address = {0};
+    if (esp_wifi_sta_get_ap_info(&current_ap) == ESP_OK &&
+        esp_netif_get_ip_info(wifi_netif, &current_address) == ESP_OK &&
+        current_address.ip.addr != 0U) {
+        wifi_state = "online";
+        return true;
+    }
     esp_err_t result = esp_wifi_start();
     if (result != ESP_OK && result != ESP_ERR_WIFI_CONN) {
         return false;
@@ -1103,15 +1113,25 @@ static bool synchronize_clock(void)
     if (now >= 1704067200) {
         return true;
     }
-    if (!sntp_initialized) {
-        esp_sntp_config_t configuration =
-            ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-        if (esp_netif_sntp_init(&configuration) != ESP_OK) {
-            return false;
-        }
-        sntp_initialized = true;
+    static const char *servers[] = {
+        "time.cloudflare.com", "time.google.com", "pool.ntp.org"
+    };
+    esp_sntp_config_t configuration =
+        ESP_NETIF_SNTP_DEFAULT_CONFIG(servers[sntp_server_index]);
+    if (esp_netif_sntp_init(&configuration) != ESP_OK) {
+        return false;
     }
-    return esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15000)) == ESP_OK;
+    bool synchronized =
+        esp_netif_sntp_sync_wait(pdMS_TO_TICKS(15000)) == ESP_OK;
+    if (synchronized && time(NULL) >= 1704067200) {
+        return true; /* Keep periodic synchronization running. */
+    }
+    /* Reinitialize on the next attempt: a failed DNS/NTP exchange must not
+     * leave startup dependent on the library's long background backoff. */
+    esp_netif_sntp_deinit();
+    sntp_server_index = (sntp_server_index + 1U) %
+        (sizeof(servers) / sizeof(servers[0]));
+    return false;
 }
 
 static bool persist_device_token(const char *token)

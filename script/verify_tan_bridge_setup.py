@@ -17,7 +17,7 @@ SETUP_SCHEMA_VERSION = 2
 BACKEND_HOST = "studio.tan.coffee"
 BACKEND_PORT = 443
 BACKEND_PATH = "/device/v1/session"
-FIRMWARE_VERSION = "0.3.3-hosted"
+FIRMWARE_VERSION = "0.3.4-hosted"
 MAX_LINE_BYTES = 4_096
 
 
@@ -138,7 +138,7 @@ def validate_status(status: dict[str, object]) -> None:
     if (
         not isinstance(firmware, dict)
         or firmware.get("version") != FIRMWARE_VERSION
-        or firmware.get("build") != "hosted-wss-v4"
+        or firmware.get("build") != "hosted-wss-v5"
     ):
         raise AssertionError("unexpected firmware image")
     backend = status["backend"]

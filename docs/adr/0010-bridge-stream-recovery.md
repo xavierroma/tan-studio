@@ -1,9 +1,18 @@
 # Bound USB buffering and restart failed bridge streams
 
-Firmware `0.3.3-hosted` / `hosted-wss-v4` replaces the operational 0.3.1
+Firmware `0.3.4-hosted` / `hosted-wss-v5` replaces the operational 0.3.1
 forwarding implementation. The installed 0.3.2 source was unavailable; this
 change is derived from inspected source and reproduced failures, not a claim
 that all differences in that image have been recovered.
+
+During the first hardware startup, 0.3.3 retained identity and Wi-Fi credentials
+but repeatedly remained at the pre-TLS clock synchronization gate. The inherited
+retry loop disconnected and reassociated Wi-Fi on every clock or socket retry.
+Version 0.3.4 reuses an associated interface with an address, and restarts failed
+SNTP attempts across three public servers. Successful SNTP remains active for
+periodic correction. Certificate and hostname verification remain required.
+The production-function host test verifies that failed time synchronization
+does not disconnect Wi-Fi and that a lost association still reconnects.
 
 The former 16-event USB queue ignored enqueue failure and the forwarding mutex
 timeout silently discarded chunks. A network reconnect could also replay an

@@ -28,7 +28,7 @@ firmware; setup stores only the selected Wi-Fi credential and one-time claim.
 WebSocket ping/pong, bounded timeouts, and jittered reconnects keep the tunnel
 alive without exposing a raw bridge port.
 
-Version `0.3.3-hosted` / `hosted-wss-v4` uses a 32 KiB byte ring. USB callbacks
+Version `0.3.4-hosted` / `hosted-wss-v5` uses a 32 KiB byte ring. USB callbacks
 perform bounded memory copies only; socket I/O never runs under its critical
 section. Overflow, socket/USB write failure or mutex timeout invalidates the
 whole stream and closes the session. Bytes from an earlier connection generation
@@ -94,7 +94,7 @@ does not run `erase-flash` and does not touch the NVS partition. The original
 flash script remains the recovery path when configuration must be erased.
 
 After the update, reconnect the Atom to the computer and run the verifier. It
-must report firmware `0.3.3-hosted`, transport `wss`, host
+must report firmware `0.3.4-hosted`, transport `wss`, host
 `studio.tan.coffee`, port `443`, and path `/device/v1/session`. Then reconnect
 the Atom to the Nano. If the retained identity has been revoked or the bridge
 was never provisioned, use Tan Studio's Tan Bridge setup panel to issue a new

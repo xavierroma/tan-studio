@@ -13,6 +13,7 @@ cc -std=c11 -Wall -Wextra -Werror -pedantic \
 "${test_binary}"
 
 python3 "${repo_root}/script/test_tan_bridge_forwarding_runtime.py"
+python3 "${repo_root}/script/test_tan_bridge_network_runtime.py"
 
 cc -std=c11 -Wall -Wextra -Werror -pedantic \
   -fsanitize=address,undefined -fno-omit-frame-pointer \
