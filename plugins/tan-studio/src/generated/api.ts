@@ -688,7 +688,12 @@ export interface components {
         };
         AgentCredentialCreate: {
             /** Format: int64 */
-            expiresInDays?: number;
+            expiresInDays?: number | null;
+            /**
+             * Format: int32
+             * @description Explicit calendar-year term; currently only five years is supported.
+             */
+            expiresInYears?: number | null;
             label: string;
             write?: boolean;
         };

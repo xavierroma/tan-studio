@@ -342,11 +342,25 @@ pub struct AgentCredentialCreate {
     pub label: String,
     #[serde(default)]
     pub write: bool,
-    #[serde(default = "default_days")]
-    pub expires_in_days: i64,
+    #[serde(default)]
+    pub expires_in_days: Option<i64>,
+    /// Explicit calendar-year term; currently only five years is supported.
+    #[serde(default)]
+    pub expires_in_years: Option<u32>,
 }
-fn default_days() -> i64 {
-    30
+fn credential_expiry(input: &AgentCredentialCreate, issued_at: i64) -> ApiResult<i64> {
+    match (input.expires_in_days, input.expires_in_years) {
+        (None, Some(5)) => chrono::DateTime::from_timestamp_millis(issued_at)
+            .and_then(|date| date.checked_add_months(chrono::Months::new(60)))
+            .map(|date| date.timestamp_millis())
+            .ok_or_else(|| ApiError::validation("Invalid calendar expiry.")),
+        (days, None) if (1..=90).contains(&days.unwrap_or(30)) => {
+            Ok(issued_at + days.unwrap_or(30) * 86_400_000)
+        }
+        _ => Err(ApiError::validation(
+            "Choose 1 to 90 days or five calendar years, not both.",
+        )),
+    }
 }
 #[derive(Serialize, ToSchema)]
 pub struct MintedAgentCredential {
@@ -379,16 +393,15 @@ fn find(db: &Database, id: i64) -> ApiResult<Option<AgentCredential>> {
         .optional()?)
 }
 pub fn mint(db: &Database, input: AgentCredentialCreate) -> ApiResult<MintedAgentCredential> {
-    if !crate::api_token::valid_label(&input.label) || !(1..=90).contains(&input.expires_in_days) {
-        return Err(ApiError::validation(
-            "Use a one-line label and expiry from 1 to 90 days.",
-        ));
+    if !crate::api_token::valid_label(&input.label) {
+        return Err(ApiError::validation("Use a one-line label."));
     }
-    let secret = format!("tsmcp_{}", hex::encode(rand::random::<[u8; 32]>()));
     let time = now();
+    let expires_at = credential_expiry(&input, time)?;
+    let secret = format!("tsmcp_{}", hex::encode(rand::random::<[u8; 32]>()));
     let id = {
         let c = db.connection();
-        c.execute("INSERT INTO agent_credentials(label,token_sha256,audience,can_write,created_at_ms,expires_at_ms) VALUES (?,?,?,?,?,?)",params![input.label.trim(),hex::encode(Sha256::digest(secret.as_bytes())),MCP_AUDIENCE,input.write,time,time+input.expires_in_days*86_400_000])?;
+        c.execute("INSERT INTO agent_credentials(label,token_sha256,audience,can_write,created_at_ms,expires_at_ms) VALUES (?,?,?,?,?,?)",params![input.label.trim(),hex::encode(Sha256::digest(secret.as_bytes())),MCP_AUDIENCE,input.write,time,expires_at])?;
         c.last_insert_rowid()
     };
     Ok(MintedAgentCredential {
@@ -550,7 +563,8 @@ mod tests {
             AgentCredentialCreate {
                 label: "test-only agent".into(),
                 write,
-                expires_in_days: 1,
+                expires_in_days: Some(1),
+                expires_in_years: None,
             },
         )
         .unwrap()
@@ -808,10 +822,53 @@ mod tests {
             AgentCredentialCreate {
                 label: "bad".into(),
                 write: false,
-                expires_in_days: 91
+                expires_in_days: Some(91),
+                expires_in_years: None
             }
         )
         .is_err());
+    }
+    #[test]
+    fn five_year_expiry_preserves_calendar_date_and_rejects_ambiguous_terms() {
+        let input = |days, years| AgentCredentialCreate {
+            label: "Calendar fixture".into(),
+            write: true,
+            expires_in_days: days,
+            expires_in_years: years,
+        };
+        let ts = |date: &str| {
+            chrono::DateTime::parse_from_rfc3339(date)
+                .unwrap()
+                .timestamp_millis()
+        };
+        let issued = ts("2026-10-17T17:00:00.123Z");
+        assert_eq!(
+            credential_expiry(&input(None, Some(5)), issued).unwrap(),
+            ts("2031-10-17T17:00:00.123Z")
+        );
+        assert_eq!(
+            credential_expiry(&input(None, Some(5)), ts("2028-02-29T12:00:00Z")).unwrap(),
+            ts("2033-02-28T12:00:00Z")
+        );
+        assert_eq!(
+            credential_expiry(&input(None, None), issued).unwrap(),
+            issued + 30 * 86_400_000
+        );
+        for (days, years) in [
+            (Some(0), None),
+            (Some(91), None),
+            (None, Some(6)),
+            (Some(30), Some(5)),
+        ] {
+            assert!(credential_expiry(&input(days, years), issued).is_err());
+        }
+        let (_dir, db, _auth) = notebook();
+        let minted = mint(&db, input(None, Some(5))).unwrap();
+        assert!(minted.credential.write);
+        assert_eq!(
+            minted.credential.expires_at_ms,
+            credential_expiry(&input(None, Some(5)), minted.credential.created_at_ms).unwrap()
+        );
     }
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

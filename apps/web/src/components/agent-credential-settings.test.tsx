@@ -34,43 +34,57 @@ test("disabled deployment never offers credential creation", async () => {
   ).toBeNull()
   expect(mintAgentCredential).not.toHaveBeenCalled()
 })
-test("creation requires explicit submission, defaults to read only, and dismisses the one-time secret", async () => {
-  vi.mocked(listAgentCredentials).mockResolvedValue({
-    enabled: true,
-    endpoint: "https://studio.tan.coffee/mcp",
-    items: [],
-  })
-  vi.mocked(mintAgentCredential).mockResolvedValue({
-    secret: "fixture-one-time-secret",
-    credential: {
-      id: 1,
-      label: "Fixture",
-      write: false,
-      audience: "https://studio.tan.coffee/mcp",
-      createdAtMs: 1,
-      expiresAtMs: Date.now() + 60000,
-      lastUsedAtMs: null,
-      revokedAtMs: null,
-      version: 1,
-    },
-  })
-  renderSettings()
-  const create = await screen.findByRole("button", {
-    name: "Create agent credential",
-  })
-  expect(mintAgentCredential).not.toHaveBeenCalled()
-  expect(screen.getByLabelText("Access")).toHaveValue("read")
-  fireEvent.change(screen.getByLabelText("Agent name"), {
-    target: { value: "Fixture" },
-  })
-  fireEvent.click(create)
-  await waitFor(() =>
-    expect(mintAgentCredential).toHaveBeenCalledWith(
-      { label: "Fixture", write: false, expiresInDays: 30 },
-      expect.anything()
+test.each([false, true])(
+  "creation requires explicit submission and dismisses the one-time secret (five years: %s)",
+  async (fiveYears) => {
+    vi.mocked(listAgentCredentials).mockResolvedValue({
+      enabled: true,
+      endpoint: "https://studio.tan.coffee/mcp",
+      items: [],
+    })
+    vi.mocked(mintAgentCredential).mockResolvedValue({
+      secret: "fixture-one-time-secret",
+      credential: {
+        id: 1,
+        label: "Fixture",
+        write: false,
+        audience: "https://studio.tan.coffee/mcp",
+        createdAtMs: 1,
+        expiresAtMs: Date.now() + 60000,
+        lastUsedAtMs: null,
+        revokedAtMs: null,
+        version: 1,
+      },
+    })
+    renderSettings()
+    const create = await screen.findByRole("button", {
+      name: "Create agent credential",
+    })
+    expect(mintAgentCredential).not.toHaveBeenCalled()
+    expect(screen.getByLabelText("Access")).toHaveValue("read")
+    fireEvent.change(screen.getByLabelText("Agent name"), {
+      target: { value: "Fixture" },
+    })
+    if (fiveYears) {
+      fireEvent.change(screen.getByLabelText("Credential lifetime"), {
+        target: { value: "five-years" },
+      })
+      fireEvent.change(screen.getByLabelText("Access"), {
+        target: { value: "write" },
+      })
+      expect(screen.queryByLabelText("Expires in days")).toBeNull()
+    }
+    fireEvent.click(create)
+    await waitFor(() =>
+      expect(mintAgentCredential).toHaveBeenCalledWith(
+        fiveYears
+          ? { label: "Fixture", write: true, expiresInYears: 5 }
+          : { label: "Fixture", write: false, expiresInDays: 30 },
+        expect.anything()
+      )
     )
-  )
-  expect(await screen.findByText("fixture-one-time-secret")).toBeVisible()
-  fireEvent.click(screen.getByRole("button", { name: "Done" }))
-  expect(screen.queryByText("fixture-one-time-secret")).toBeNull()
-})
+    expect(await screen.findByText("fixture-one-time-secret")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Done" }))
+    expect(screen.queryByText("fixture-one-time-secret")).toBeNull()
+  }
+)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "tan-studio-hosted",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read and update Xavier’s coffee notebook through the authenticated hosted Tan Studio MCP.",
   "author": {
     "name": "Xavier Roma"
@@ -26,7 +26,9 @@
           "Show my most recent roasts.",
           "Record a brew and tasting notes."
         ],
-        "brandColor": "#A9785B"
+        "brandColor": "#A9785B",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/logo.png"
       }
     }
   }

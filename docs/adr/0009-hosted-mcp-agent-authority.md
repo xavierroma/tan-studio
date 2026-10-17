@@ -1,6 +1,6 @@
 # ADR 0009 — Hosted MCP with per-agent authority
 
-Status: Accepted for implementation; deployment and public enablement pending operator approval.
+Status: Accepted and deployed with operator approval on 2026-10-17.
 
 ## Context
 
@@ -14,7 +14,7 @@ Serve Streamable HTTP at `https://studio.tan.coffee/mcp` through Caddy and a sep
 
 The first milestone uses custom bearer credentials, not OAuth. Clients must support an explicitly configured Authorization header. Official SDK 2.3.1 implements MCP 2026-07-28 and stateless compatibility for 2025-11-25. JSON and finite request-scoped SSE responses are supported; no sessions, resumable streams, background notifications, subscriptions, or GET stream are exposed.
 
-Only an authenticated operator session can create, list, or revoke MCP credentials. Each is audience-bound to the MCP URL, hashed at rest, read-only by default, and expires after 1–90 days (default 30). Write permission enables eight additional notebook tools. ADR 0004 tokens keep their REST behavior; they are not accepted by the hosted MCP service.
+Only an authenticated operator session can create, list, or revoke MCP credentials. Each is audience-bound to the MCP URL, hashed at rest, read-only by default, and expires after 1–90 days (default 30), or an explicitly selected five calendar years. Calendar expiry preserves the UTC time and clamps February 29 to February 28 when needed. The operator approved this longer term on 2026-10-17; request, delegation, rate and concurrency limits remain unchanged. Write permission enables eight additional notebook tools. ADR 0004 tokens keep their REST behavior; they are not accepted by the hosted MCP service.
 
 Rust owns authentication and authorization. A private Unix socket exchanges a validated MCP credential and parsed operation for a delegation valid for at most 60 seconds, addressed to the REST API, and restricted to exact HTTP method/path pairs. Rust REST checks the parent credential and version on every request. Revocation blocks subsequent authorizations immediately; work already authorized may finish. Note attribution comes from the authenticated principal, overriding caller-supplied attribution.
 

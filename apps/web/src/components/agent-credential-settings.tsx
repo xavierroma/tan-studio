@@ -20,6 +20,7 @@ import { usesOperatorSession } from "@/lib/companion-client"
 const key = ["agent-credentials"] as const
 export function AgentCredentialSettings() {
   const cache = useQueryClient()
+  const [term, setTerm] = useState("days")
   const [secret, setSecret] = useState<string | null>(null)
   const credentials = useQuery({
     queryKey: key,
@@ -51,7 +52,9 @@ export function AgentCredentialSettings() {
     mint.mutate({
       label: String(form.get("label") ?? "").trim(),
       write: form.get("permission") === "write",
-      expiresInDays: Number(form.get("days")),
+      ...(term === "five-years"
+        ? { expiresInYears: 5 }
+        : { expiresInDays: Number(form.get("days")) }),
     })
   }
   return (
@@ -99,17 +102,37 @@ export function AgentCredentialSettings() {
                 </select>
               </Field>
               <Field>
-                <FieldLabel htmlFor="agent-days">Expires in days</FieldLabel>
-                <Input
-                  id="agent-days"
-                  name="days"
-                  type="number"
-                  min={1}
-                  max={90}
-                  defaultValue={30}
-                  required
-                />
+                <FieldLabel htmlFor="agent-term">
+                  Credential lifetime
+                </FieldLabel>
+                <select
+                  id="agent-term"
+                  className="rounded-md border p-2 text-sm"
+                  value={term}
+                  onChange={(event) => setTerm(event.target.value)}
+                >
+                  <option value="days">1–90 days</option>
+                  <option value="five-years">Five calendar years</option>
+                </select>
               </Field>
+              {term === "days" ? (
+                <Field>
+                  <FieldLabel htmlFor="agent-days">Expires in days</FieldLabel>
+                  <Input
+                    id="agent-days"
+                    name="days"
+                    type="number"
+                    min={1}
+                    max={90}
+                    defaultValue={30}
+                    required
+                  />
+                </Field>
+              ) : (
+                <p className="text-muted-foreground max-w-xs text-sm">
+                  Expires five years after creation. Revoke it here at any time.
+                </p>
+              )}
               <Button type="submit" disabled={mint.isPending}>
                 Create agent credential
               </Button>

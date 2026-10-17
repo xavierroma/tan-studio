@@ -3030,8 +3030,20 @@
         ],
         "properties": {
           "expiresInDays": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64"
+          },
+          "expiresInYears": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Explicit calendar-year term; currently only five years is supported.",
+            "minimum": 0
           },
           "label": {
             "type": "string"
