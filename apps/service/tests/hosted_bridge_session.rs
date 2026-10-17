@@ -145,3 +145,71 @@ async fn hosted_bridge_session_rejects_an_unknown_device_credential() {
         })
     );
 }
+
+#[tokio::test]
+async fn authenticated_diagnostics_stay_out_of_usb_and_reject_unknown_fields() {
+    use sha2::{Digest, Sha256};
+    let hosted = hosted_bridge().await;
+    let database = Database::open(&hosted._directory.path().join("studio.sqlite")).unwrap();
+    let token = "a".repeat(64);
+    database
+        .connection()
+        .execute(
+            "INSERT INTO tan_bridges (bridge_id, device_token_sha256, firmware_version, build_id,
+         state, last_seen_at_ms, created_at_ms, updated_at_ms)
+         VALUES (?, ?, 'test', 'test', 'offline', 1, 1, 1)",
+            rusqlite::params![
+                "abcdefghijklmnopqrstuvwxyz",
+                hex::encode(Sha256::digest(token.as_bytes()))
+            ],
+        )
+        .unwrap();
+    let (mut socket, _) = connect_async(websocket_request(hosted.address))
+        .await
+        .unwrap();
+    socket
+        .send(Message::Text(
+            json!({"schemaVersion":1,
+        "bridgeId":"abcdefghijklmnopqrstuvwxyz", "firmwareVersion":"0.3.3-hosted",
+        "buildId":"test", "deviceToken":token})
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let accepted = socket.next().await.unwrap().unwrap().into_text().unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&accepted).unwrap()["accepted"],
+        true
+    );
+    let mut diagnostic = json!({"schemaVersion":1,"type":"diagnostics",
+        "uptimeMs":100,"bootCount":1,"watchdogCount":0,"interruptWatchdogCount":0,
+        "brownoutCount":0,"receivedBytes":0,"forwardedBytes":0,"discardedBytes":0,
+        "overflows":0,"sessionFailures":0,"usbRecoveries":0,"highWaterBytes":0});
+    socket
+        .send(Message::Text(diagnostic.to_string().into()))
+        .await
+        .unwrap();
+    socket
+        .send(Message::Ping(vec![1, 2, 3].into()))
+        .await
+        .unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(response, Message::Pong(_)));
+    assert_ne!(hosted.device.snapshot().connection, "connected");
+    diagnostic["unexpected"] = "not allowed".into();
+    socket
+        .send(Message::Text(diagnostic.to_string().into()))
+        .await
+        .unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(response, Message::Close(_)));
+}

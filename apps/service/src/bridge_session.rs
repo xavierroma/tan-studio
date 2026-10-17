@@ -49,6 +49,38 @@ pub(crate) struct BridgeHelloResponse<'a> {
     pub(crate) error: Option<&'a str>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BridgeDiagnostics {
+    schema_version: u8,
+    #[serde(rename = "type")]
+    message_type: String,
+    uptime_ms: u64,
+    boot_count: u32,
+    watchdog_count: u32,
+    interrupt_watchdog_count: u32,
+    brownout_count: u32,
+    received_bytes: u64,
+    forwarded_bytes: u64,
+    discarded_bytes: u64,
+    overflows: u32,
+    session_failures: u32,
+    usb_recoveries: u32,
+    high_water_bytes: u32,
+}
+
+fn parse_diagnostics(encoded: &str) -> Option<BridgeDiagnostics> {
+    if encoded.len() > 2048 {
+        return None;
+    }
+    let message: BridgeDiagnostics = serde_json::from_str(encoded).ok()?;
+    (message.schema_version == 1
+        && message.message_type == "diagnostics"
+        && message.boot_count > 0
+        && message.high_water_bytes <= 32768)
+        .then_some(message)
+}
+
 pub(crate) struct Authentication {
     pub(crate) issued_device_token: Option<String>,
     pub(crate) revision: i64,
@@ -147,7 +179,9 @@ async fn websocket_session(
         accepted.authentication.revision,
     );
     tracing::info!(event = "bridge_connected", bridge_id = %accepted.hello.bridge_id, transport = "websocket");
-    device.attach_bridge(accepted.hello.bridge_id, transport);
+    let bridge_id = accepted.hello.bridge_id;
+    device.attach_bridge(bridge_id.clone(), transport);
+    let mut last_diagnostics: Option<std::time::Instant> = None;
 
     loop {
         tokio::select! {
@@ -172,9 +206,27 @@ async fn websocket_session(
                 }
                 Some(Ok(Message::Pong(_))) => {}
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
-                Some(Ok(Message::Text(_))) => {
-                    let _ = socket.send(Message::Close(None)).await;
-                    return;
+                Some(Ok(Message::Text(encoded))) => {
+                    let Some(diagnostic) = parse_diagnostics(&encoded) else {
+                        let _ = socket.send(Message::Close(None)).await;
+                        return;
+                    };
+                    // Numeric-only, authenticated diagnostics; bound log volume.
+                    if last_diagnostics.is_none_or(|last| last.elapsed() >= Duration::from_secs(5)) {
+                        last_diagnostics = Some(std::time::Instant::now());
+                        tracing::info!(event = "bridge_diagnostics", bridge_id = %bridge_id,
+                            uptime_ms = diagnostic.uptime_ms, boot_count = diagnostic.boot_count,
+                            watchdog_count = diagnostic.watchdog_count,
+                            interrupt_watchdog_count = diagnostic.interrupt_watchdog_count,
+                            brownout_count = diagnostic.brownout_count,
+                            received_bytes = diagnostic.received_bytes,
+                            forwarded_bytes = diagnostic.forwarded_bytes,
+                            discarded_bytes = diagnostic.discarded_bytes,
+                            overflows = diagnostic.overflows,
+                            session_failures = diagnostic.session_failures,
+                            usb_recoveries = diagnostic.usb_recoveries,
+                            high_water_bytes = diagnostic.high_water_bytes);
+                    }
                 }
             },
             record = backend_receiver.recv() => match record {
@@ -460,4 +512,25 @@ pub(crate) fn sha256_hex(value: &str) -> String {
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn diagnostic_contract_is_bounded_numeric_and_strict() {
+        let mut value = serde_json::json!({"schemaVersion":1,"type":"diagnostics",
+            "uptimeMs":1234,"bootCount":2,"watchdogCount":0,"interruptWatchdogCount":0,
+            "brownoutCount":0,"receivedBytes":100,"forwardedBytes":90,"discardedBytes":10,
+            "overflows":0,"sessionFailures":1,"usbRecoveries":1,"highWaterBytes":512});
+        assert!(parse_diagnostics(&value.to_string()).is_some());
+        value["secret"] = "unexpected".into();
+        assert!(parse_diagnostics(&value.to_string()).is_none());
+        value.as_object_mut().unwrap().remove("secret");
+        value["highWaterBytes"] = 32769.into();
+        assert!(parse_diagnostics(&value.to_string()).is_none());
+        value["highWaterBytes"] = (-1).into();
+        assert!(parse_diagnostics(&value.to_string()).is_none());
+        assert!(parse_diagnostics(&" ".repeat(2049)).is_none());
+    }
 }

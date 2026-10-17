@@ -48,6 +48,12 @@ recovery bytes, so an increasing discard count alone does not prove overflow.
 Wi-Fi/backend status and persistent watchdog counters remain available. NVS
 initialization errors now fail without erasing provisioning.
 
+The authenticated WSS session also emits numeric diagnostics on attachment and
+every 30 seconds. The backend validates the strict bounded message and logs at
+most one sample per five seconds. This permits forwarding and watchdog monitoring
+while the Atom stays attached to the Nano; no credentials or roast payloads are
+included. Older firmware may omit these messages.
+
 Build and contract-check with:
 
 ```sh

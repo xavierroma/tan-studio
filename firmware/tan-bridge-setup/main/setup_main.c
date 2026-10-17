@@ -1300,6 +1300,38 @@ static void websocket_event_handler(void *handler_args,
     }
 }
 
+static bool send_forwarding_diagnostics(esp_websocket_client_handle_t client)
+{
+    tan_forward_stats_t stats;
+    portENTER_CRITICAL(&forwarding_mux);
+    stats = forwarder.stats;
+    portEXIT_CRITICAL(&forwarding_mux);
+    cJSON *message = cJSON_CreateObject();
+    if (message == NULL) return false;
+    cJSON_AddNumberToObject(message, "schemaVersion", 1);
+    cJSON_AddStringToObject(message, "type", "diagnostics");
+    cJSON_AddNumberToObject(message, "uptimeMs", (uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS);
+    cJSON_AddNumberToObject(message, "bootCount", diagnostic_boot_count);
+    cJSON_AddNumberToObject(message, "watchdogCount", diagnostic_watchdog_count);
+    cJSON_AddNumberToObject(message, "interruptWatchdogCount", diagnostic_interrupt_watchdog_count);
+    cJSON_AddNumberToObject(message, "brownoutCount", diagnostic_brownout_count);
+    cJSON_AddNumberToObject(message, "receivedBytes", stats.received);
+    cJSON_AddNumberToObject(message, "forwardedBytes", stats.forwarded);
+    cJSON_AddNumberToObject(message, "discardedBytes", stats.discarded);
+    cJSON_AddNumberToObject(message, "overflows", stats.overflows);
+    cJSON_AddNumberToObject(message, "sessionFailures", stats.failures);
+    cJSON_AddNumberToObject(message, "usbRecoveries", stats.recoveries);
+    cJSON_AddNumberToObject(message, "highWaterBytes", stats.high_water);
+    char *encoded = cJSON_PrintUnformatted(message);
+    cJSON_Delete(message);
+    if (encoded == NULL) return false;
+    size_t length = strlen(encoded);
+    int sent = esp_websocket_client_send_text(client, encoded, (int)length,
+                                               pdMS_TO_TICKS(3000));
+    cJSON_free(encoded);
+    return sent >= 0 && (size_t)sent == length;
+}
+
 static void network_task(void *context)
 {
     (void)context;
@@ -1389,9 +1421,16 @@ static void network_task(void *context)
         if ((bits & WEBSOCKET_AUTHENTICATED_BIT) != 0U) {
             reconnect_delay_ms = 1500U;
             set_bridge_client(client);
-            (void)xEventGroupWaitBits(websocket_events,
-                                      WEBSOCKET_FAILED_BIT,
-                                      pdTRUE, pdFALSE, portMAX_DELAY);
+            while (true) {
+                if (!send_forwarding_diagnostics(client)) {
+                    fail_forwarding();
+                    break;
+                }
+                bits = xEventGroupWaitBits(websocket_events,
+                                           WEBSOCKET_FAILED_BIT,
+                                           pdTRUE, pdFALSE, pdMS_TO_TICKS(30000));
+                if ((bits & WEBSOCKET_FAILED_BIT) != 0U) break;
+            }
         }
         clear_bridge_client(client);
         (void)esp_websocket_client_stop(client);

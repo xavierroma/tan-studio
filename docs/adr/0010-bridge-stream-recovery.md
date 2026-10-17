@@ -37,6 +37,14 @@ discard count by itself is not an overflow alarm. Startup never erases NVS on
 initialization errors. The physical updater writes only the application after
 checking a clean source commit and artifact checksum against the build manifest.
 
+Authenticated WSS sessions may send a strict schema-1 text message with type
+`diagnostics`: uptime, boot/watchdog/brownout counts and forwarding counters.
+No other post-authentication text message is accepted. JSON is capped at 2 KiB,
+values are unsigned numbers, unknown fields fail closed, and the backend logs at
+most once per five seconds. Firmware emits on attachment and every 30 seconds.
+This additive contract permits physical acceptance and ongoing observation
+without moving the Atom back to a computer. Existing firmware can omit it.
+
 The canonical backend schedules unseen native-file paths before refreshing
 known ones, retaining profile-before-log ordering within each group. This avoids
 starving new roasts behind a recurring old-file transfer fault. Every selected
