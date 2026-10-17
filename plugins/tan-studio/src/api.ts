@@ -3,6 +3,13 @@ import createClient from "openapi-fetch"
 import type { paths } from "./generated/api"
 import type { TanStudioConfig } from "./config"
 import {
+  operationInput,
+  operationPath,
+  type ApiOperation,
+  type ApiArguments,
+  type JsonValue,
+} from "./operations"
+import {
   TanStudioGatewayError,
   type Attachment,
   type AttachmentCreate,
@@ -51,6 +58,9 @@ const DEVICE_SYNCHRONIZATION_TIMEOUT_MS = 60_000
 
 export class OpenApiTanStudioGateway implements TanStudioGateway {
   private readonly client: ReturnType<typeof createClient<paths>>
+  private readonly fetchApi: (request: Request) => Promise<Response>
+  private readonly baseUrl: string
+  private readonly apiHeaders: Headers
 
   constructor(
     config: TanStudioConfig,
@@ -61,49 +71,96 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
       host?: string
     } = {}
   ) {
+    this.baseUrl = config.baseUrl
+    this.fetchApi = async (request) => {
+      const path = new URL(request.url).pathname
+      const timeoutMs =
+        path === "/api/v1/device/synchronize"
+          ? Math.max(config.timeoutMs, DEVICE_SYNCHRONIZATION_TIMEOUT_MS)
+          : config.timeoutMs
+      return fetchImplementation(request, {
+        signal: requestContext.signal
+          ? AbortSignal.any([
+              requestContext.signal,
+              AbortSignal.timeout(timeoutMs),
+            ])
+          : AbortSignal.timeout(timeoutMs),
+        redirect: "error",
+      }).catch((error: unknown) => {
+        if (requestContext.signal && !["GET", "HEAD"].includes(request.method))
+          throw new TanStudioGatewayError({
+            code: "write_outcome_unknown",
+            message:
+              "The connection ended before the write was confirmed. Reconcile the resource before retrying.",
+            status: 504,
+            retryable: false,
+            correlationId: requestContext.correlationId,
+          })
+        throw error
+      })
+    }
+    this.apiHeaders = new Headers({
+      ...(requestContext.correlationId
+        ? { "X-Correlation-Id": requestContext.correlationId }
+        : {}),
+      ...(requestContext.host ? { Host: requestContext.host } : {}),
+      Accept: "application/json",
+      Authorization: `Bearer ${config.token}`,
+      "Content-Type": "application/json",
+      "X-Tan-Studio-Client": "tan-studio-api-v1",
+    })
     this.client = createClient<paths>({
       baseUrl: config.baseUrl,
-      fetch: async (request) => {
-        const path = new URL(request.url).pathname
-        const timeoutMs =
-          path === "/api/v1/device/synchronize"
-            ? Math.max(config.timeoutMs, DEVICE_SYNCHRONIZATION_TIMEOUT_MS)
-            : config.timeoutMs
-        return fetchImplementation(request, {
-          signal: requestContext.signal
-            ? AbortSignal.any([
-                requestContext.signal,
-                AbortSignal.timeout(timeoutMs),
-              ])
-            : AbortSignal.timeout(timeoutMs),
-          redirect: "error",
-        }).catch((error: unknown) => {
-          if (
-            requestContext.signal &&
-            !["GET", "HEAD"].includes(request.method)
-          )
-            throw new TanStudioGatewayError({
-              code: "write_outcome_unknown",
-              message:
-                "The connection ended before the write was confirmed. Reconcile the resource before retrying.",
-              status: 504,
-              retryable: false,
-              correlationId: requestContext.correlationId,
-            })
-          throw error
-        })
-      },
-      headers: {
-        ...(requestContext.correlationId
-          ? { "X-Correlation-Id": requestContext.correlationId }
-          : {}),
-        ...(requestContext.host ? { Host: requestContext.host } : {}),
-        Accept: "application/json",
-        Authorization: `Bearer ${config.token}`,
-        "Content-Type": "application/json",
-        "X-Tan-Studio-Client": "tan-studio-api-v1",
-      },
+      fetch: this.fetchApi,
+      headers: this.apiHeaders,
     })
+  }
+
+  async executeOperation(
+    operation: ApiOperation,
+    input: ApiArguments
+  ): Promise<JsonValue> {
+    const args = operationInput(operation, input)
+    const url = new URL(operationPath(operation, args), this.baseUrl)
+    for (const [name, value] of Object.entries(args.query ?? {})) {
+      if (value === null) continue
+      for (const item of Array.isArray(value) ? value : [value])
+        url.searchParams.append(
+          name,
+          typeof item === "object" ? JSON.stringify(item) : String(item)
+        )
+    }
+    const headers = new Headers(this.apiHeaders)
+    for (const [name, value] of Object.entries(args.headers ?? {}))
+      headers.set(name, value)
+    const body = operation.binaryRequest
+      ? Buffer.from(args.contentBase64!, "base64")
+      : args.body === undefined
+        ? undefined
+        : JSON.stringify(args.body)
+    if (operation.binaryRequest)
+      headers.set("Content-Type", "application/octet-stream")
+    const response = await this.fetchApi(
+      new Request(url, {
+        method: operation.method,
+        headers,
+        ...(body === undefined ? {} : { body }),
+      })
+    )
+    if (!response.ok) {
+      const error: unknown = await response.json().catch(() => undefined)
+      return unwrap({ response, error })
+    }
+    if (response.status === 204) return null
+    if (operation.binaryResponse)
+      return {
+        contentBase64: Buffer.from(await response.arrayBuffer()).toString(
+          "base64"
+        ),
+        mediaType:
+          response.headers.get("content-type") ?? "application/octet-stream",
+      }
+    return (await response.json()) as JsonValue
   }
 
   async status(): Promise<{

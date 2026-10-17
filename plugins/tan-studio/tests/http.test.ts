@@ -11,6 +11,7 @@ import {
   type Principal,
 } from "../src/http"
 import type { TanStudioGateway } from "../src/gateway"
+import { apiOperations } from "../src/operations"
 
 const readToken = "tsmcp_" + "a".repeat(64),
   writeToken = "tsmcp_" + "b".repeat(64)
@@ -138,7 +139,7 @@ test("official modern and legacy clients list the same hosted tools and resource
         await client.connect(transport)
       else throw new Error("client/transport era mismatch")
       const tools = await client.listTools()
-      expect(tools.tools).toHaveLength(16)
+      expect(tools.tools).toHaveLength(16 + apiOperations.length)
       expect(tools.tools.map((t) => t.name)).not.toContain("tan_attach_file")
       expect(tools.tools.map((t) => t.name)).not.toContain("tan_sync_device")
       expect((await client.listResources()).resources).toHaveLength(2)
@@ -160,7 +161,9 @@ test("read catalog, hidden writes and invalid credentials are enforced before di
   const f = fixture()
   const r = await f.handle(request(modern("tools/list"), modernHeaders))
   expect(r.status).toBe(200)
-  expect(((await r.json()) as any).result.tools).toHaveLength(8)
+  expect(((await r.json()) as any).result.tools).toHaveLength(
+    8 + apiOperations.filter((op) => op.method === "GET").length
+  )
   const write = await f.handle(
     request(
       modern("tools/call", {

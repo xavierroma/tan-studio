@@ -16,8 +16,11 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{path::PathBuf, sync::Arc};
-use utoipa::ToSchema;
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
+use utoipa::{OpenApi, ToSchema};
 
 const ISSUER: &str = "tan-studio-agent-authority";
 const API_AUDIENCE: &str = "https://studio.tan.coffee/api/v1";
@@ -257,6 +260,9 @@ fn operation_routes(
     if method != "tools/call" {
         return Err(forbidden());
     }
+    if let Some(routes) = api_operation_routes(name.ok_or_else(forbidden)?, args) {
+        return routes;
+    }
     let (verb, path) = match name.ok_or_else(forbidden)? {
         "tan_status" => {
             return Ok(["/system/bootstrap", "/device", "/bridges"]
@@ -314,6 +320,88 @@ fn operation_routes(
         _ => return Err(forbidden()),
     };
     Ok(vec![route(verb, &path)])
+}
+
+/// Both the MCP catalog and the authority derive their operations from OpenAPI.
+/// A caller selects a known operation and path parameters, never an arbitrary URL.
+fn api_operation_routes(name: &str, args: &Value) -> Option<ApiResult<Vec<RouteGrant>>> {
+    static CONTRACT: OnceLock<Value> = OnceLock::new();
+    let contract = CONTRACT.get_or_init(|| {
+        serde_json::to_value(crate::core_contract::ApiDoc::openapi()).expect("OpenAPI serializes")
+    });
+    let paths = contract.get("paths")?.as_object()?;
+    for (template, methods) in paths {
+        for verb in ["get", "post", "put", "patch", "delete"] {
+            let Some(operation) = methods.get(verb) else {
+                continue;
+            };
+            let Some(operation_id) = operation.get("operationId").and_then(Value::as_str) else {
+                continue;
+            };
+            if api_tool_name(operation_id) != name {
+                continue;
+            }
+            let mut path = template.clone();
+            if let Some(parameters) = operation.get("parameters").and_then(Value::as_array) {
+                for parameter in parameters {
+                    if parameter.get("in").and_then(Value::as_str) != Some("path") {
+                        continue;
+                    }
+                    let field = parameter
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .expect("named parameter");
+                    let Some(value) = args.get("path").and_then(|p| p.get(field)) else {
+                        return Some(Err(forbidden()));
+                    };
+                    let value = match value {
+                        Value::Number(n) => {
+                            match n.as_i64().filter(|n| *n > 0 && *n <= 9_007_199_254_740_991) {
+                                Some(n) => n.to_string(),
+                                None => return Some(Err(forbidden())),
+                            }
+                        }
+                        Value::String(text)
+                            if !text.is_empty()
+                                && text.bytes().all(|c| {
+                                    c.is_ascii_alphanumeric() || c == b'_' || c == b'-'
+                                }) =>
+                        {
+                            text.clone()
+                        }
+                        _ => return Some(Err(forbidden())),
+                    };
+                    path = path.replace(&format!("{{{field}}}"), &value);
+                }
+            }
+            if path.contains(['{', '}']) {
+                return Some(Err(forbidden()));
+            }
+            let Some(path) = path.strip_prefix("/api/v1") else {
+                return Some(Err(forbidden()));
+            };
+            return Some(Ok(vec![RouteGrant {
+                method: verb.to_uppercase(),
+                path: path.into(),
+            }]));
+        }
+    }
+    None
+}
+
+fn api_tool_name(operation_id: &str) -> String {
+    let mut name = String::from("tan_api_");
+    let mut previous = None;
+    for character in operation_id.chars() {
+        if character.is_ascii_uppercase()
+            && previous.is_some_and(|p: char| p.is_ascii_lowercase() || p.is_ascii_digit())
+        {
+            name.push('_');
+        }
+        name.push(character.to_ascii_lowercase());
+        previous = Some(character);
+    }
+    name
 }
 
 #[derive(Clone, Serialize, ToSchema)]
@@ -569,6 +657,102 @@ mod tests {
         )
         .unwrap()
     }
+    #[test]
+    fn every_openapi_operation_has_an_exact_route_delegation() {
+        let (_dir, db, auth) = notebook();
+        let agent = credential(&db, true);
+        let document = serde_json::to_value(crate::core_contract::ApiDoc::openapi()).unwrap();
+        let mut names = std::collections::HashSet::new();
+        for (template, methods) in document["paths"].as_object().unwrap() {
+            for verb in ["get", "post", "put", "patch", "delete"] {
+                let Some(operation) = methods.get(verb) else {
+                    continue;
+                };
+                let name = api_tool_name(operation["operationId"].as_str().unwrap());
+                assert!(names.insert(name.clone()), "duplicate {name}");
+                let args = json!({"path":{"id":29,"resource_type":"roast","resource_id":29}});
+                let grant = auth
+                    .delegate(&db, input(&agent.secret, &name, args))
+                    .unwrap()
+                    .token
+                    .unwrap();
+                let expected = template
+                    .strip_prefix("/api/v1")
+                    .unwrap()
+                    .replace("{id}", "29")
+                    .replace("{resource_type}", "roast")
+                    .replace("{resource_id}", "29");
+                let method = Method::from_bytes(verb.to_uppercase().as_bytes()).unwrap();
+                assert!(
+                    auth.authorize(&db, &grant, &method, &expected).is_ok(),
+                    "{name}"
+                );
+                assert!(auth.authorize(&db, &grant, &method, "/unrelated").is_err());
+            }
+        }
+        assert!(!names.is_empty());
+    }
+
+    #[test]
+    fn generated_operations_preserve_read_scope_and_reject_path_injection() {
+        let (_dir, db, auth) = notebook();
+        let agent = credential(&db, false);
+        assert!(auth
+            .delegate(
+                &db,
+                input(
+                    &agent.secret,
+                    "tan_api_update_roast",
+                    json!({"path":{"id":29}})
+                )
+            )
+            .is_err());
+        for value in [
+            json!("../api-tokens"),
+            json!("29/notes"),
+            json!("%2e%2e"),
+            json!(0),
+            json!(-1),
+            json!(9_007_199_254_740_992_i64),
+        ] {
+            assert!(auth
+                .delegate(
+                    &db,
+                    input(
+                        &agent.secret,
+                        "tan_api_get_roast",
+                        json!({"path":{"id":value}})
+                    )
+                )
+                .is_err());
+        }
+        let grant = auth
+            .delegate(
+                &db,
+                input(
+                    &agent.secret,
+                    "tan_api_get_roast",
+                    json!({"path":{"id":29}}),
+                ),
+            )
+            .unwrap()
+            .token
+            .unwrap();
+        assert!(auth
+            .authorize(&db, &grant, &Method::GET, "/roasts/29")
+            .is_ok());
+        assert!(auth
+            .authorize(&db, &grant, &Method::GET, "/roasts/28")
+            .is_err());
+        assert!(auth
+            .authorize(&db, &grant, &Method::PATCH, "/roasts/29")
+            .is_err());
+        assert_eq!(
+            api_tool_name("getUiPreferences"),
+            "tan_api_get_ui_preferences"
+        );
+    }
+
     #[test]
     fn credential_and_delegation_audiences_are_disjoint_and_revocation_is_immediate() {
         let (_dir, db, auth) = notebook();
@@ -880,6 +1064,7 @@ mod tests {
         let (directory, db, authority) = notebook();
         let reader = credential(&db, false);
         let writer = credential(&db, true);
+        let parity_writer = credential(&db, true);
         let config = ServiceConfig {
             mode: LaunchMode::Hosted,
             bind_host: "127.0.0.1".into(),
@@ -925,6 +1110,7 @@ mod tests {
                 .env("TAN_TEST_API_URL", format!("http://{address}"))
                 .env("TAN_TEST_READ_TOKEN", reader.secret)
                 .env("TAN_TEST_WRITE_TOKEN", writer.secret)
+                .env("TAN_TEST_PARITY_TOKEN", parity_writer.secret)
                 .output()
         })
         .await

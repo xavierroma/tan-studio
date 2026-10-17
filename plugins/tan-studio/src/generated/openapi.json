@@ -1,0 +1,6121 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tan Studio API",
+    "description": "The local-first, LLM-friendly API for profiles, coffees, roasts, brews, notes, attachments, labels and settings. Short integer IDs are stable user references.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/api/v1/agent-credentials": {
+      "get": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredentialPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCredentialCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedAgentCredential"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agent-credentials/{id}/revoke": {
+      "post": {
+        "tags": [
+          "agent-credentials"
+        ],
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCredential"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-tokens": {
+      "get": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiTokenCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintedApiTokenResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/api-tokens/{id}/revoke": {
+      "post": {
+        "tags": [
+          "api-tokens"
+        ],
+        "operationId": "api_tokens_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "API token id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attachments": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "listAttachments",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "createAttachment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attachments/{id}": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "getAttachment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "updateAttachment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attachments/{id}/content": {
+      "get": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "getAttachmentContent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "putAttachmentContent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attachments/{id}/links": {
+      "put": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "replaceAttachmentLinks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachmentLinksPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brews": {
+      "get": {
+        "tags": [
+          "brews"
+        ],
+        "operationId": "listBrews",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrewPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "brews"
+        ],
+        "operationId": "createBrew",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrewCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrewResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/brews/{id}": {
+      "get": {
+        "tags": [
+          "brews"
+        ],
+        "operationId": "getBrew",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrewResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "brews"
+        ],
+        "operationId": "updateBrew",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrewPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrewResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bridges": {
+      "get": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridges_list",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgePage"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bridges/claims": {
+      "post": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridge_claim_create",
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeClaimResource"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bridges/{id}/revoke": {
+      "post": {
+        "tags": [
+          "bridges"
+        ],
+        "operationId": "bridge_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bridge row id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeResource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "listCoffees",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoffeePage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "createCoffee",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoffeeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoffeeResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees/{id}": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "getCoffee",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoffeeResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "updateCoffee",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CoffeePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoffeeResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees/{id}/context": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "getCoffeeContext",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/coffees/{id}/roasts": {
+      "get": {
+        "tags": [
+          "coffees"
+        ],
+        "operationId": "listCoffeeRoasts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device": {
+      "get": {
+        "tags": [
+          "device"
+        ],
+        "operationId": "device_get",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/refresh": {
+      "post": {
+        "tags": [
+          "device"
+        ],
+        "operationId": "device_refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/sync-runs": {
+      "get": {
+        "tags": [
+          "sync"
+        ],
+        "operationId": "listDeviceSyncRuns",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/device/synchronize": {
+      "post": {
+        "tags": [
+          "device"
+        ],
+        "operationId": "device_synchronize",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSnapshot"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/entity-profile-images/{resource_type}/{resource_id}": {
+      "put": {
+        "tags": [
+          "attachments"
+        ],
+        "operationId": "setEntityProfileImage",
+        "parameters": [
+          {
+            "name": "resource_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityProfileImagePut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/labels": {
+      "get": {
+        "tags": [
+          "labels"
+        ],
+        "operationId": "listLabels",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "labels"
+        ],
+        "operationId": "createLabel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/labels/{id}": {
+      "get": {
+        "tags": [
+          "labels"
+        ],
+        "operationId": "getLabel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "listNotes",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotePage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "createNote",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{id}": {
+      "get": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "getNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "deleteNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "updateNote",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notes/{id}/links": {
+      "put": {
+        "tags": [
+          "notes"
+        ],
+        "operationId": "replaceNoteLinks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteLinksPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "tags": [
+          "contract"
+        ],
+        "operationId": "getOpenApi",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pantry": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "getPantry",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PantryResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "listProfiles",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "createProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "getProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "updateProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/children": {
+      "post": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "createChildProfile",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/context": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "getProfileContext",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profiles/{id}/roasts": {
+      "get": {
+        "tags": [
+          "profiles"
+        ],
+        "operationId": "listProfileRoasts",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "listRoasts",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "profileId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "coffeeId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "roastId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "resourceType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "resourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "createRoast",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoastCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastResource"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts/{id}": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "getRoast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastResource"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "updateRoast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoastPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoastResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts/{id}/context": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "getRoastContext",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextResource"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/roasts/{id}/series": {
+      "get": {
+        "tags": [
+          "roasts"
+        ],
+        "operationId": "getRoastSeries",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "streamVersion",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "fromElapsedMs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "toElapsedMs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "maxPoints",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeriesResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "operationId": "updateSettings",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/bootstrap": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "operationId": "system_bootstrap",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BootstrapResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ui-preferences": {
+      "get": {
+        "tags": [
+          "ui-preferences"
+        ],
+        "operationId": "getUiPreferences",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiPreferencesResource"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "ui-preferences"
+        ],
+        "operationId": "updateUiPreferences",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UiPreferencesPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiPreferencesResource"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdapterSet": {
+        "type": "object",
+        "required": [
+          "database",
+          "usb",
+          "printing"
+        ],
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/SimpleAdapter"
+          },
+          "printing": {
+            "$ref": "#/components/schemas/SimpleAdapter"
+          },
+          "usb": {
+            "$ref": "#/components/schemas/DeviceSnapshot"
+          }
+        }
+      },
+      "AgentCredential": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "audience",
+          "write",
+          "createdAtMs",
+          "expiresAtMs",
+          "version"
+        ],
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expiresAtMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "lastUsedAtMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revokedAtMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AgentCredentialCreate": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "expiresInDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "expiresInYears": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Explicit calendar-year term; currently only five years is supported.",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "write": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentCredentialPage": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "endpoint",
+          "items"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentCredential"
+            }
+          }
+        }
+      },
+      "ApiTokenCreate": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Which client will hold this token, so a token can be revoked by name."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiTokenPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenResource"
+            }
+          }
+        }
+      },
+      "ApiTokenResource": {
+        "type": "object",
+        "description": "One hosted API token as the operator sees it afterwards. The secret is not here:\nit is shown once, at mint time, and only as a digest thereafter.",
+        "required": [
+          "id",
+          "label",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AttachmentCreate": {
+        "type": "object",
+        "required": [
+          "title",
+          "filename",
+          "mediaType",
+          "links"
+        ],
+        "properties": {
+          "capturedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentLink"
+            }
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "sourceUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AttachmentLink": {
+        "type": "object",
+        "required": [
+          "resourceType",
+          "resourceId"
+        ],
+        "properties": {
+          "resourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resourceType": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AttachmentLinksPut": {
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentLink"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AttachmentPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentResource"
+            }
+          }
+        }
+      },
+      "AttachmentPatch": {
+        "type": "object",
+        "properties": {
+          "capturedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mediaType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AttachmentResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "filename",
+          "mediaType",
+          "description",
+          "links",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "byteLength": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "capturedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentLink"
+            }
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "BootstrapResponse": {
+        "type": "object",
+        "required": [
+          "apiVersion",
+          "applicationVersion",
+          "schemaVersion",
+          "projectionVersion",
+          "sessionId",
+          "serverTime",
+          "recoveryState",
+          "userUnits",
+          "features",
+          "adapters"
+        ],
+        "properties": {
+          "adapters": {
+            "$ref": "#/components/schemas/AdapterSet"
+          },
+          "apiVersion": {
+            "type": "string"
+          },
+          "applicationVersion": {
+            "type": "string"
+          },
+          "features": {
+            "$ref": "#/components/schemas/FeatureSet"
+          },
+          "projectionVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recoveryState": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverTime": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "userUnits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BrewCreate": {
+        "type": "object",
+        "required": [
+          "roastId"
+        ],
+        "properties": {
+          "brewedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coffeeMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "grinder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grinderSetting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kettle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recipe": {},
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceTimezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "water": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waterMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "waterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrewPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrewResource"
+            }
+          }
+        }
+      },
+      "BrewPatch": {
+        "type": "object",
+        "properties": {
+          "brewedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coffeeMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "grinder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grinderSetting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kettle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipe": {},
+          "roastId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "sourceTimezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "water": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waterMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "waterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrewResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "roastId",
+          "brewedAt",
+          "sourceTimezone",
+          "method",
+          "grinder",
+          "grinderSetting",
+          "kettle",
+          "water",
+          "coffeeMassMg",
+          "waterMassMg",
+          "recipe",
+          "notes",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "brewedAt": {
+            "type": "string"
+          },
+          "coffeeMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "grinder": {
+            "type": "string"
+          },
+          "grinderSetting": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kettle": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteResource"
+            }
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recipe": {},
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceTimezone": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "water": {
+            "type": "string"
+          },
+          "waterMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "waterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "BridgeClaimResource": {
+        "type": "object",
+        "required": [
+          "claimToken",
+          "expiresAt",
+          "backendHost",
+          "backendPort"
+        ],
+        "properties": {
+          "backendHost": {
+            "type": "string"
+          },
+          "backendPort": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "claimToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        }
+      },
+      "BridgePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BridgeResource"
+            }
+          }
+        }
+      },
+      "BridgeResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "bridgeId",
+          "firmwareVersion",
+          "buildId",
+          "state",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "bridgeId": {
+            "type": "string"
+          },
+          "buildId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "firmwareVersion": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "CoffeeCreate": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "altitudeMaxM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "altitudeMinM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "country": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "farm": {
+            "type": "string"
+          },
+          "harvest": {
+            "type": "string"
+          },
+          "metadata": {},
+          "name": {
+            "type": "string"
+          },
+          "priceMinor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "process": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerProductId": {
+            "type": "string"
+          },
+          "providerUrl": {
+            "type": "string"
+          },
+          "purchaseReference": {
+            "type": "string"
+          },
+          "purchasedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "region": {
+            "type": "string"
+          },
+          "remainingMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storageLocation": {
+            "type": "string"
+          },
+          "variety": {
+            "type": "string"
+          },
+          "washingStation": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoffeePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CoffeeResource"
+            }
+          }
+        }
+      },
+      "CoffeePatch": {
+        "type": "object",
+        "properties": {
+          "altitudeMaxM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "altitudeMinM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currencyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "farm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "harvest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {},
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priceMinor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "process": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "producer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerProductId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchaseReference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remainingMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "storageLocation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "variety": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "washingStation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CoffeeResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "provider",
+          "providerUrl",
+          "providerProductId",
+          "purchaseReference",
+          "purchasedMassMg",
+          "remainingMassMg",
+          "country",
+          "region",
+          "farm",
+          "producer",
+          "washingStation",
+          "process",
+          "variety",
+          "harvest",
+          "storageLocation",
+          "metadata",
+          "roastCount",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "altitudeMaxM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "altitudeMinM": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "country": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "farm": {
+            "type": "string"
+          },
+          "harvest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "metadata": {},
+          "name": {
+            "type": "string"
+          },
+          "priceMinor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "process": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerProductId": {
+            "type": "string"
+          },
+          "providerUrl": {
+            "type": "string"
+          },
+          "purchaseReference": {
+            "type": "string"
+          },
+          "purchasedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "purchasedMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "region": {
+            "type": "string"
+          },
+          "remainingMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "storageLocation": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "variety": {
+            "type": "string"
+          },
+          "washingStation": {
+            "type": "string"
+          }
+        }
+      },
+      "ContextResource": {
+        "type": "object",
+        "required": [
+          "brews",
+          "notes"
+        ],
+        "properties": {
+          "brews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BrewResource"
+            }
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CoffeeResource"
+              }
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteResource"
+            }
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProfileResource"
+              }
+            ]
+          },
+          "rest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RestWindow"
+              }
+            ]
+          },
+          "roast": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoastResource"
+              }
+            ]
+          }
+        }
+      },
+      "DeviceSnapshot": {
+        "type": "object",
+        "required": [
+          "state",
+          "connection",
+          "syncState",
+          "importedLogCount",
+          "updatedLogCount",
+          "importWarningCount",
+          "quarantinedLogCount",
+          "importedProfileCount",
+          "profileWarningCount",
+          "quarantinedProfileCount",
+          "readOnly"
+        ],
+        "properties": {
+          "bridgeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "busy": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "connection": {
+            "type": "string"
+          },
+          "firmware": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "importWarningCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "importedLogCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "importedProfileCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "lastSyncedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "packetLimitBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "profileCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "profileWarningCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quarantinedLogCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "quarantinedProfileCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "syncState": {
+            "type": "string"
+          },
+          "transport": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedLogCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "EntityProfileImagePut": {
+        "type": "object",
+        "properties": {
+          "attachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FeatureSet": {
+        "type": "object",
+        "required": [
+          "catalog",
+          "roastLibrary",
+          "roastDetail",
+          "seriesJson",
+          "deviceConnection",
+          "profileEditing",
+          "printing",
+          "aiProposals",
+          "remoteMonitoring"
+        ],
+        "properties": {
+          "aiProposals": {
+            "type": "boolean"
+          },
+          "catalog": {
+            "type": "boolean"
+          },
+          "deviceConnection": {
+            "type": "boolean"
+          },
+          "printing": {
+            "type": "boolean"
+          },
+          "profileEditing": {
+            "type": "boolean"
+          },
+          "remoteMonitoring": {
+            "type": "boolean"
+          },
+          "roastDetail": {
+            "type": "boolean"
+          },
+          "roastLibrary": {
+            "type": "boolean"
+          },
+          "seriesJson": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FieldError": {
+        "type": "object",
+        "required": [
+          "path",
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "LabelCreate": {
+        "type": "object",
+        "required": [
+          "roastId"
+        ],
+        "properties": {
+          "content": {},
+          "copies": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "heightMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "printer": {
+            "type": "string"
+          },
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "widthMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LabelPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabelResource"
+            }
+          }
+        }
+      },
+      "LabelResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "roastId",
+          "copies",
+          "content",
+          "printer",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "artifactSha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content": {},
+          "copies": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "heightMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "printer": {
+            "type": "string"
+          },
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "widthMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "MintedAgentCredential": {
+        "type": "object",
+        "required": [
+          "credential",
+          "secret"
+        ],
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/AgentCredential"
+          },
+          "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "MintedApiTokenResource": {
+        "type": "object",
+        "description": "The mint response, and the only time the secret is knowable. Copy it now; the\nnotebook keeps nothing but its digest.",
+        "required": [
+          "token",
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "token": {
+            "$ref": "#/components/schemas/ApiTokenResource"
+          }
+        }
+      },
+      "NoteCreate": {
+        "type": "object",
+        "required": [
+          "body",
+          "links"
+        ],
+        "properties": {
+          "attributes": {},
+          "body": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NoteLink": {
+        "type": "object",
+        "required": [
+          "resourceType",
+          "resourceId"
+        ],
+        "properties": {
+          "resourceId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "resourceType": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NoteLinksPut": {
+        "type": "object",
+        "required": [
+          "links"
+        ],
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteResource"
+            }
+          }
+        }
+      },
+      "NotePatch": {
+        "type": "object",
+        "properties": {
+          "attributes": {},
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NoteResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "attributes",
+          "source",
+          "links",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "attributes": {},
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoteLink"
+            }
+          },
+          "ratingBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "PantryResource": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PantryRoast"
+            }
+          }
+        }
+      },
+      "PantryRoast": {
+        "type": "object",
+        "required": [
+          "roast",
+          "estimatedRemainingMassMg",
+          "rest"
+        ],
+        "properties": {
+          "estimatedRemainingMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "latestTasting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rest": {
+            "$ref": "#/components/schemas/RestWindow"
+          },
+          "roast": {
+            "$ref": "#/components/schemas/RoastResource"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "code",
+          "correlationId",
+          "retryable"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "fieldErrors": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FieldError"
+            }
+          },
+          "instance": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileCreate": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "designer": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profile": {},
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfilePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileSummary"
+            }
+          }
+        }
+      },
+      "ProfilePatch": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "designer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profile": {},
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfileResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "designer",
+          "origin",
+          "profile",
+          "roastCount",
+          "childCount",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "childCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "designer": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profile": {},
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sourceHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "origin",
+          "roastCount",
+          "childCount",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "childCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "parentProfileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "recommendedLevelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "referenceLoadMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "ResourceReference": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "RestWindow": {
+        "type": "object",
+        "required": [
+          "restDays",
+          "peakDays",
+          "state"
+        ],
+        "properties": {
+          "ageDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "peakDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "restDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "type": "string"
+          },
+          "suggestedFrom": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "suggestedUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RoastCreate": {
+        "type": "object",
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "adjustments": {},
+          "coffeeId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roasterParameters": {}
+        },
+        "additionalProperties": false
+      },
+      "RoastEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "elapsedMs",
+          "source"
+        ],
+        "properties": {
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "temperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "RoastMilestonePatch": {
+        "type": "object",
+        "required": [
+          "elapsedMs"
+        ],
+        "properties": {
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "temperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoastPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoastSummary"
+            }
+          }
+        }
+      },
+      "RoastPatch": {
+        "type": "object",
+        "properties": {
+          "adjustments": {},
+          "archived": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "coffeeId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "cooldownEndMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "developmentBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "endReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "firstCrack": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RoastMilestonePatch"
+              }
+            ]
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedYieldMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "roasterParameters": {},
+          "sourceTimezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoastResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "roastedAtSource",
+          "sourceTimezone",
+          "status",
+          "result",
+          "endReason",
+          "profileSnapshot",
+          "adjustments",
+          "roasterParameters",
+          "nativeMetadata",
+          "importWarnings",
+          "events",
+          "brewCount",
+          "noteCount",
+          "labelCount",
+          "createdAt",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "adjustments": {},
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brewCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "cooldownEndMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "developmentBasisPoints": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "endReason": {
+            "type": "string"
+          },
+          "endTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoastEvent"
+            }
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importWarnings": {
+            "type": "array",
+            "items": {}
+          },
+          "labelCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "nativeLogNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "nativeMetadata": {},
+          "noteCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileSnapshot": {},
+          "result": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedAtSource": {
+            "type": "string"
+          },
+          "roastedYieldMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "roasterParameters": {},
+          "sampleStream": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SampleStreamResource"
+              }
+            ]
+          },
+          "sourceTimezone": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "RoastSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "roastedAtSource",
+          "status",
+          "result",
+          "brewCount",
+          "noteCount",
+          "labelCount",
+          "revision"
+        ],
+        "properties": {
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brewCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coffee": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "greenInputMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "labelCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "levelThousandths": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "noteCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResourceReference"
+              }
+            ]
+          },
+          "profileImageAttachmentId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "result": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "roastedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roastedAtSource": {
+            "type": "string"
+          },
+          "roastedYieldMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "SampleStreamResource": {
+        "type": "object",
+        "required": [
+          "streamVersion",
+          "rowCount",
+          "firstElapsedMs",
+          "lastElapsedMs",
+          "reconciliationState"
+        ],
+        "properties": {
+          "firstElapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lastElapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reconciliationState": {
+            "type": "string"
+          },
+          "rowCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "streamVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SeriesPoint": {
+        "type": "object",
+        "required": [
+          "sampleSeq",
+          "elapsedMs",
+          "temperatureMilliC",
+          "native"
+        ],
+        "properties": {
+          "actualFanRpm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "desiredRorMilliCPerMin": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "elapsedMs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "meanTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "native": {},
+          "powerMilliKw": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileRorMilliCPerMin": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "profileTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "rorMilliCPerMin": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "sampleSeq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spotTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "temperatureMilliC": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SeriesResponse": {
+        "type": "object",
+        "required": [
+          "roastId",
+          "streamVersion",
+          "points"
+        ],
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            }
+          },
+          "roastId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "streamVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "defaultBrewMethod": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultCoffeeMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultGrinder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultGrinderSetting": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultKettle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultLabelHeightMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultLabelWidthMicrometers": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultPeakDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultRestDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultRoaster": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultWater": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "defaultWaterMassMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "defaultWaterTemperatureMilliC": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettingsResource": {
+        "type": "object",
+        "required": [
+          "defaultRoaster",
+          "defaultGrinder",
+          "defaultGrinderSetting",
+          "defaultKettle",
+          "defaultWater",
+          "defaultBrewMethod",
+          "defaultCoffeeMassMg",
+          "defaultWaterMassMg",
+          "defaultWaterTemperatureMilliC",
+          "defaultRestDays",
+          "defaultPeakDays",
+          "defaultLabelWidthMicrometers",
+          "defaultLabelHeightMicrometers",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "defaultBrewMethod": {
+            "type": "string"
+          },
+          "defaultCoffeeMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultGrinder": {
+            "type": "string"
+          },
+          "defaultGrinderSetting": {
+            "type": "string"
+          },
+          "defaultKettle": {
+            "type": "string"
+          },
+          "defaultLabelHeightMicrometers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultLabelWidthMicrometers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultPeakDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultRestDays": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultRoaster": {
+            "type": "string"
+          },
+          "defaultWater": {
+            "type": "string"
+          },
+          "defaultWaterMassMg": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "defaultWaterTemperatureMilliC": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "SimpleAdapter": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "SyncRunPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SyncRunResource"
+            }
+          }
+        }
+      },
+      "SyncRunResource": {
+        "type": "object",
+        "required": [
+          "id",
+          "trigger",
+          "state",
+          "transport",
+          "deviceModel",
+          "importedLogCount",
+          "updatedLogCount",
+          "importWarningCount",
+          "quarantinedLogCount",
+          "importedProfileCount",
+          "profileWarningCount",
+          "quarantinedProfileCount",
+          "startedAt"
+        ],
+        "properties": {
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deviceModel": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importWarningCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "importedProfileCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "profileWarningCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quarantinedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "quarantinedProfileCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "updatedLogCount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "UiPreferencesPatch": {
+        "type": "object",
+        "properties": {
+          "defaultTableDensity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tablePreferences": {}
+        },
+        "additionalProperties": false
+      },
+      "UiPreferencesResource": {
+        "type": "object",
+        "required": [
+          "defaultTableDensity",
+          "tablePreferences",
+          "updatedAt",
+          "revision"
+        ],
+        "properties": {
+          "defaultTableDensity": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tablePreferences": {},
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "system"
+    },
+    {
+      "name": "device"
+    },
+    {
+      "name": "bridges"
+    },
+    {
+      "name": "profiles"
+    },
+    {
+      "name": "coffees"
+    },
+    {
+      "name": "roasts"
+    },
+    {
+      "name": "brews"
+    },
+    {
+      "name": "notes"
+    },
+    {
+      "name": "attachments"
+    },
+    {
+      "name": "labels"
+    },
+    {
+      "name": "settings"
+    },
+    {
+      "name": "ui-preferences"
+    },
+    {
+      "name": "sync"
+    },
+    {
+      "name": "api-tokens"
+    },
+    {
+      "name": "contract"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server"
 import { z } from "zod"
 
 import type { TanStudioGateway } from "./gateway"
+import { apiOperations, operationInput } from "./operations"
 import { protect, success as toolSuccess, hostedSuccess } from "./results"
 import {
   celsiusToMilliCelsius,
@@ -75,6 +76,35 @@ export function createTanStudioServer(
     ? (summary: string, data: unknown) => hostedSuccess(summary, data, true)
     : toolSuccess
   const server = new McpServer({ name: "tan-studio", version: "0.1.0" })
+
+  for (const operation of apiOperations) {
+    const readOnly = operation.method === "GET"
+    if (options.hosted && !options.write && !readOnly) continue
+    server.registerTool(
+      operation.name,
+      {
+        title: operation.operationId,
+        description: operation.description,
+        inputSchema: z.strictObject(operation.inputSchema),
+        annotations: {
+          ...(readOnly ? readOnlyAnnotations : writeAnnotations),
+          destructiveHint:
+            operation.method === "DELETE" || operation.path.endsWith("/revoke"),
+          idempotentHint: ["GET", "PUT", "DELETE"].includes(operation.method),
+        },
+      },
+      async (input) =>
+        protect(async () =>
+          (readOnly ? success : writeSuccess)(
+            operation.operationId,
+            await api.executeOperation(
+              operation,
+              operationInput(operation, input)
+            )
+          )
+        )
+    )
+  }
 
   server.registerTool(
     "tan_status",
@@ -317,10 +347,12 @@ export function createTanStudioServer(
       {
         title: "Update roast",
         description:
-          "Revision-update supplied roast results or settings, including roasted yield, timing, temperature, cooling, a user first-crack marker, and global archive state. Green input mass is never changed by this tool.",
+          "Revision-update supplied roast fields, including coffee assignment (null clears it), measured green input, results and milestones. Only supplied fields change; existing measurements retain their precision. Use tan_api_update_roast for the complete REST patch schema.",
         inputSchema: {
           roastId: shortId,
           revision: z.number().int().positive(),
+          coffeeId: shortId.nullable().optional(),
+          greenInputGrams: z.number().positive().max(10_000).optional(),
           roastedYieldGrams: z.number().positive().max(10_000).optional(),
           firstCrackSeconds: z.number().nonnegative().max(86_400).optional(),
           firstCrackTemperatureCelsius: z
@@ -349,6 +381,8 @@ export function createTanStudioServer(
       async ({
         roastId,
         revision,
+        coffeeId,
+        greenInputGrams,
         roastedYieldGrams,
         firstCrackSeconds,
         firstCrackTemperatureCelsius,
@@ -376,6 +410,10 @@ export function createTanStudioServer(
             throw new Error("durationSeconds is required with coolingSeconds")
           }
           const input = withoutUndefined({
+            coffeeId,
+            ...(greenInputGrams === undefined
+              ? {}
+              : { greenInputMassMg: gramsToMilligrams(greenInputGrams) }),
             ...(roastedYieldGrams === undefined
               ? {}
               : { roastedYieldMassMg: gramsToMilligrams(roastedYieldGrams) }),

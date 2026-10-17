@@ -17,7 +17,7 @@ Read tools: `tan_status`, `tan_list_pantry`, `tan_search_profiles`, `tan_search_
 
 Write permission adds: `tan_create_coffee`, `tan_update_coffee`, `tan_update_roast`, `tan_record_brew`, `tan_update_brew`, `tan_add_note`, `tan_set_profile_image`, `tan_create_label`.
 
-Resources: `tan://pantry`, `tan://device`, and `tan://profiles/{id}`, `tan://coffees/{id}`, `tan://roasts/{id}`, `tan://brews/{id}`. The local stdio service keeps all 18 tools, including file upload and device synchronization.
+Resources: `tan://pantry`, `tan://device`, and `tan://profiles/{id}`, `tan://coffees/{id}`, `tan://roasts/{id}`, `tan://brews/{id}`. Both placements also expose one `tan_api_*` tool per versioned OpenAPI operation. These tools use complete REST schemas and exact storage units. Read-only grants expose only GET operations. The API still checks operator-session permissions for credential and bridge administration. The local stdio service keeps its file-upload and device-sync helpers.
 
 ## Build and review (no production changes)
 
@@ -52,12 +52,18 @@ This is a generic descriptor, not a promise of a particular client's configurati
 With the pinned official TypeScript client:
 
 ```ts
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client"
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client"
 const client = new Client({ name: "my-agent", version: "1" })
-await client.connect(new StreamableHTTPClientTransport(
-  new URL("https://studio.tan.coffee/mcp"),
-  { requestInit: { headers: { Authorization: `Bearer ${process.env.TAN_MCP_TOKEN}` } } }
-))
+await client.connect(
+  new StreamableHTTPClientTransport(new URL("https://studio.tan.coffee/mcp"), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${process.env.TAN_MCP_TOKEN}` },
+    },
+  })
+)
 const tools = await client.listTools()
 await client.close()
 ```
@@ -81,6 +87,6 @@ docker build -f deploy/hosted/Dockerfile.verify -t tan-studio-mcp-verify .
 docker run --rm --pull never --network none tan-studio-mcp-verify
 ```
 
-The image publishes no ports and mounts no host files. Dependencies are fetched at build time; execution has no external network. It runs the MCP tests and the complete Rust suites, including hosted bridge tests and the schema-15-to-16 upgrade test. The integration fixture creates a temporary notebook, two temporary credentials and a private Unix auth socket, then starts the actual bundled `http-server.js` child process. The official client connects over loopback HTTP and checks catalog permissions, writes, reads, attribution, revision conflicts and MCP-versus-REST audience isolation. Readiness and unauthenticated 401 behavior are checked too. Fixture credentials are never production credentials.
+The image publishes no ports and mounts no host files. Dependencies are fetched at build time; execution has no external network. It runs the MCP tests and the complete Rust suites, including hosted bridge tests and the schema-15-to-16 upgrade test. The integration fixture creates a temporary notebook, three temporary credentials and a private Unix auth socket, then starts the actual bundled `http-server.js` child process. The official client connects over loopback HTTP and checks catalog permissions, writes, reads, attribution, revision conflicts and MCP-versus-REST audience isolation. Readiness and unauthenticated 401 behavior are checked too. Fixture credentials are never production credentials.
 
 On Apple Silicon this is native Linux ARM64, not validation of the AMD64 release binary. To validate that target, run the same commands on a non-production native AMD64 host (for example a dedicated Debian 13 test VM with Docker). Do not run the fixed-port bundled fixture directly on a shared host. The default macOS fixture instead chooses ephemeral loopback ports and uses native Bun.

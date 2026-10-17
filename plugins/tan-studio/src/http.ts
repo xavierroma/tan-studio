@@ -2,10 +2,12 @@ import { createMcpHandler } from "@modelcontextprotocol/server"
 import { OpenApiTanStudioGateway } from "./api"
 import { createTanStudioServer } from "./mcp"
 import type { TanStudioGateway } from "./gateway"
+import { apiOperations } from "./operations"
 
 export const BODY_LIMIT = 256 * 1024
 const RESPONSE_LIMIT = 1024 * 1024
 const READ_TOOLS = new Set([
+  ...apiOperations.filter((op) => op.method === "GET").map((op) => op.name),
   "tan_status",
   "tan_list_pantry",
   "tan_search_profiles",
@@ -16,6 +18,7 @@ const READ_TOOLS = new Set([
   "tan_list_attachments",
 ])
 const WRITE_TOOLS = new Set([
+  ...apiOperations.filter((op) => op.method !== "GET").map((op) => op.name),
   "tan_create_coffee",
   "tan_update_coffee",
   "tan_update_roast",

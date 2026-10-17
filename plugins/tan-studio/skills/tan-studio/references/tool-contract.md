@@ -11,25 +11,25 @@
 | `tan_search_roasts`    | Find 1–200 lightweight roast summaries without telemetry.                        |
 | `tan_get_context`      | Fetch a profile, coffee, roast, or brew with its available related records.      |
 | `tan_get_roast`        | Fetch roast detail and, when requested, 50–2,000 downsampled telemetry points.   |
-| `tan_list_attachments` | List attachments linked to one core resource.                                     |
+| `tan_list_attachments` | List attachments linked to one core resource.                                    |
 
 MCP resources mirror common reads at `tan://pantry`, `tan://device`, `tan://profiles/{id}`, `tan://coffees/{id}`, `tan://roasts/{id}`, and `tan://brews/{id}`.
 
 ## Write tools
 
-| Tool                | Effect                                                                                                           |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `tan_create_coffee` | Creates one flat green-coffee record from known provider or user facts.                                          |
-| `tan_update_coffee` | Optimistically updates supplied fields on an existing coffee record.                                             |
-| `tan_record_brew`   | Creates one brew linked to an existing roast. Omitted values use backend defaults.                               |
-| `tan_update_brew`   | Revision-guarded update of supplied brew details through the same OpenAPI operation as the web UI.               |
-| `tan_update_roast`  | Revision-guarded update of roast yield, duration, cooling time, end temperature, first crack, result, archive state, or supported settings without changing green input. Archived roasts leave normal searches and pantry but remain recoverable with an archived search. |
-| `tan_add_note`      | Creates one note and atomically links it to 1–10 resources. Source is `agent`; metadata identifies Codex.        |
-| `tan_attach_file`   | Streams one user-selected file from the MCP host into the content-addressed store and links it to 1–20 resources. |
-| `tan_create_label`  | Creates one roast-linked label request/artifact; it does not imply physical printing.                            |
-| `tan_sync_device`   | Imports Kaffeelogic profiles/logs into Tan Studio and does not write to the roaster.                             |
+| Tool                | Effect                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tan_create_coffee` | Creates one flat green-coffee record from known provider or user facts.                                                                                                                                                                                                                                                                    |
+| `tan_update_coffee` | Optimistically updates supplied fields on an existing coffee record.                                                                                                                                                                                                                                                                       |
+| `tan_record_brew`   | Creates one brew linked to an existing roast. Omitted values use backend defaults.                                                                                                                                                                                                                                                         |
+| `tan_update_brew`   | Revision-guarded update of supplied brew details through the same OpenAPI operation as the web UI.                                                                                                                                                                                                                                         |
+| `tan_update_roast`  | Revision-guarded update of roast yield, duration, cooling time, end temperature, first crack, result, archive state, or supported settings including `coffeeId` assignment and `greenInputGrams` correction. Only supplied fields change. Archived roasts leave normal searches and pantry but remain recoverable with an archived search. |
+| `tan_add_note`      | Creates one note and atomically links it to 1–10 resources. Source is `agent`; metadata identifies Codex.                                                                                                                                                                                                                                  |
+| `tan_attach_file`   | Streams one user-selected file from the MCP host into the content-addressed store and links it to 1–20 resources.                                                                                                                                                                                                                          |
+| `tan_create_label`  | Creates one roast-linked label request/artifact; it does not imply physical printing.                                                                                                                                                                                                                                                      |
+| `tan_sync_device`   | Imports Kaffeelogic profiles/logs into Tan Studio and does not write to the roaster.                                                                                                                                                                                                                                                       |
 
-There is deliberately no generic HTTP tool, SQL tool, raw serial tool, or device-write tool.
+Each OpenAPI operation also has a `tan_api_*` tool with its full REST schema. These tools take declared path, query, header and body fields, retain exact REST units and revisions, and support binary attachment content as base64. Use them for functionality absent from convenience tools. `If-Match` is an exact header such as `"revision:2"`. The operation fixes the HTTP method and route; caller URLs and authorization headers are not accepted. API permissions and physical-device read-only behavior remain in force.
 
 ## Units and identifiers
 

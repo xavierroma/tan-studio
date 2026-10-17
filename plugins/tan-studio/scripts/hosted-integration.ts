@@ -6,6 +6,8 @@ import {
 import { createHostedHandler, productionOptions } from "../src/http"
 import { OpenApiTanStudioGateway } from "../src/api"
 import { strict as assert } from "node:assert"
+import { z } from "zod"
+import { apiOperations } from "../src/operations"
 
 const socket = process.env.TAN_TEST_SOCKET!,
   baseUrl = process.env.TAN_TEST_API_URL!
@@ -60,7 +62,9 @@ async function connect(token: string) {
   )
   return c
 }
-let reader: Client | undefined, writer: Client | undefined
+let reader: Client | undefined,
+  writer: Client | undefined,
+  parityWriter: Client | undefined
 try {
   if (bundled) {
     let ready = false
@@ -84,8 +88,14 @@ try {
   }
   reader = await connect(process.env.TAN_TEST_READ_TOKEN!)
   writer = await connect(process.env.TAN_TEST_WRITE_TOKEN!)
-  assert.equal((await reader.listTools()).tools.length, 8)
-  assert.equal((await writer.listTools()).tools.length, 16)
+  assert.equal(
+    (await reader.listTools()).tools.length,
+    8 + apiOperations.filter((op) => op.method === "GET").length
+  )
+  assert.equal(
+    (await writer.listTools()).tools.length,
+    16 + apiOperations.length
+  )
   const created = await writer.callTool({
     name: "tan_create_coffee",
     arguments: { name: "Isolated MCP integration", provider: "Fixture" },
@@ -129,6 +139,83 @@ try {
   })
   assert.equal(conflict.isError, true)
   assert.match(JSON.stringify(conflict), /412/)
+
+  // A separate test principal keeps this suite below the real admission limits.
+  parityWriter = await connect(process.env.TAN_TEST_PARITY_TOKEN!)
+  const record = z.object({
+    data: z.object({ id: z.number(), revision: z.number() }).passthrough(),
+  })
+  const profileResult = await parityWriter.callTool({
+    name: "tan_api_create_profile",
+    arguments: { body: { name: "Fruit filter fixture", profile: {} } },
+  })
+  assert.notEqual(profileResult.isError, true)
+  const profile = record.parse(profileResult.structuredContent).data
+  const roastResult = await parityWriter.callTool({
+    name: "tan_api_create_roast",
+    arguments: {
+      body: {
+        profileId: profile.id,
+        greenInputMassMg: 123000,
+        levelThousandths: 800,
+      },
+    },
+  })
+  assert.notEqual(roastResult.isError, true)
+  const roast = record.parse(roastResult.structuredContent).data
+  const measuredResult = await parityWriter.callTool({
+    name: "tan_api_update_roast",
+    arguments: {
+      path: { id: roast.id },
+      headers: { "If-Match": `"revision:${roast.revision}"` },
+      body: {
+        durationMs: 442652,
+        firstCrack: { elapsedMs: 338000 },
+        roastedYieldMassMg: 107000,
+      },
+    },
+  })
+  assert.notEqual(measuredResult.isError, true)
+  const measured = record.parse(measuredResult.structuredContent).data
+  const linkedResult = await parityWriter.callTool({
+    name: "tan_api_update_roast",
+    arguments: {
+      path: { id: roast.id },
+      headers: { "If-Match": `"revision:${measured.revision}"` },
+      body: { coffeeId: coffee.id },
+    },
+  })
+  assert.notEqual(linkedResult.isError, true)
+  const linked = record
+    .extend({
+      data: z
+        .object({
+          coffee: z.object({ id: z.number() }),
+          durationMs: z.number(),
+          greenInputMassMg: z.number(),
+          roastedYieldMassMg: z.number(),
+          developmentBasisPoints: z.number(),
+        })
+        .passthrough(),
+    })
+    .parse(linkedResult.structuredContent).data
+  assert.equal(linked.coffee.id, coffee.id)
+  assert.equal(linked.durationMs, 442652)
+  assert.equal(linked.greenInputMassMg, 123000)
+  assert.equal(linked.roastedYieldMassMg, 107000)
+  assert.equal(linked.developmentBasisPoints, measured.developmentBasisPoints)
+  const fetched = await reader.callTool({
+    name: "tan_api_get_roast",
+    arguments: { path: { id: roast.id } },
+  })
+  assert.notEqual(fetched.isError, true)
+  assert.deepEqual(fetched.structuredContent, linkedResult.structuredContent)
+  const admin = await parityWriter.callTool({
+    name: "tan_api_create",
+    arguments: { body: { label: "must remain operator-only" } },
+  })
+  assert.equal(admin.isError, true)
+  assert.match(JSON.stringify(admin), /403/)
   const raw = await fetch(baseUrl + "/api/v1/coffees", {
     headers: {
       Host: "studio.tan.coffee",
@@ -138,11 +225,12 @@ try {
   })
   assert.equal(raw.status, 401)
   console.info(
-    "Hosted MCP → Unix auth → Rust REST: read/write, attribution, revision conflict, audience isolation passed"
+    "Hosted MCP → Unix auth → Rust REST: API parity, precise coffee assignment, operator permissions, attribution, revision conflict and audience isolation passed"
   )
 } finally {
   await reader?.close()
   await writer?.close()
+  await parityWriter?.close()
   await server?.stop(true)
   if (child) {
     child.kill()

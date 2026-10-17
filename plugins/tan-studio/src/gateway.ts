@@ -1,4 +1,5 @@
 import type { components } from "./generated/api"
+import type { ApiArguments, ApiOperation, JsonValue } from "./operations"
 
 export type Bootstrap = components["schemas"]["BootstrapResponse"]
 export type Bridge = components["schemas"]["BridgeResource"]
@@ -56,6 +57,10 @@ export interface AttachmentUploadInput {
  * SQLite, files, or the Rust service's implementation details.
  */
 export interface TanStudioGateway {
+  executeOperation(
+    operation: ApiOperation,
+    input: ApiArguments
+  ): Promise<JsonValue>
   status(): Promise<{
     bootstrap: Bootstrap
     device: Device

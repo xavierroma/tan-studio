@@ -13,6 +13,7 @@ import type {
   TanStudioGateway,
 } from "../src/gateway"
 import { createTanStudioServer } from "../src/mcp"
+import { apiOperations } from "../src/operations"
 
 const expectedTools = [
   "tan_add_note",
@@ -50,11 +51,13 @@ afterEach(async () => {
 })
 
 describe("Tan Studio MCP contract", () => {
-  test("exposes a curated tool set without raw HTTP, SQL, or serial access", async () => {
+  test("exposes every OpenAPI operation alongside the convenience tools", async () => {
     const { client } = await connect(fakeApi())
     const result = await client.listTools()
 
-    expect(result.tools.map((tool) => tool.name).sort()).toEqual(expectedTools)
+    expect(result.tools.map((tool) => tool.name).sort()).toEqual(
+      [...expectedTools, ...apiOperations.map((op) => op.name)].sort()
+    )
     expect(
       result.tools.every((tool) => tool.annotations?.openWorldHint === false)
     ).toBe(true)
@@ -409,6 +412,7 @@ async function connect(api: TanStudioGateway) {
 
 function fakeApi(overrides: Partial<TanStudioGateway> = {}): TanStudioGateway {
   return {
+    executeOperation: async () => ({}),
     status: async () => ({ bootstrap: {}, device: {}, bridges: { items: [] } }),
     pantry: async () => ({ items: [] }),
     searchProfiles: async () => ({ items: [] }),

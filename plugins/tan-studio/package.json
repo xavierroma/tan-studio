@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run scripts/build.ts",
-    "contract:generate": "openapi-typescript ../../apps/web/src/generated/openapi.json -o src/generated/api.ts",
+    "contract:generate": "openapi-typescript ../../apps/web/src/generated/openapi.json -o src/generated/api.ts && bun scripts/generate-contract.ts",
     "smoke": "bun run build && bun run scripts/smoke.ts",
     "test": "bun test",
     "test:e2e": "bun run scripts/e2e.ts",

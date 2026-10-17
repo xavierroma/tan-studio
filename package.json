@@ -28,7 +28,7 @@
     "boundaries": "bun scripts/check-boundaries.ts",
     "audit:klog": "bun scripts/audit-klog-corpus.ts",
     "contract:generate": "bun run --cwd apps/web contract:generate && bun run --cwd plugins/tan-studio contract:generate",
-    "contract:check": "bun run contract:generate && git diff --exit-code -- apps/web/src/generated/openapi.json apps/web/src/generated/api.ts plugins/tan-studio/src/generated/api.ts",
+    "contract:check": "bun run contract:generate && git diff --exit-code -- apps/web/src/generated/openapi.json apps/web/src/generated/api.ts plugins/tan-studio/src/generated/api.ts plugins/tan-studio/src/generated/openapi.json",
     "check": "bun run boundaries && bun run typecheck && bun run test && bun run build",
     "format": "prettier --write package.json tsconfig.json turbo.json scripts apps packages plugins",
     "format:check": "prettier --check package.json tsconfig.json turbo.json scripts apps packages plugins"

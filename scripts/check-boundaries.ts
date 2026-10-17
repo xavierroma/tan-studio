@@ -61,11 +61,14 @@ const pluginControllerFiles = [
   "plugins/tan-studio/src/mcp.ts",
   "plugins/tan-studio/src/results.ts",
   "plugins/tan-studio/src/units.ts",
+  "plugins/tan-studio/src/operations.ts",
 ]
 const pluginControllerImports = new Set([
   "@modelcontextprotocol/server",
   "@modelcontextprotocol/sdk/types.js",
   "./gateway",
+  "./operations",
+  "./generated/openapi.json",
   "./results",
   "./units",
   "zod",
@@ -77,7 +80,7 @@ for (const file of pluginControllerFiles) {
     const specifier = match[1]
     if (specifier && !pluginControllerImports.has(specifier)) {
       violations.push(
-        `${file}: disallowed controller import ${JSON.stringify(specifier)} — MCP controllers may depend on the TanStudioGateway port, never its HTTP implementation or backend adapters.`
+        `${file}: disallowed controller import ${JSON.stringify(specifier)} — MCP controllers may depend on the gateway port and generated contract, never its HTTP implementation or backend adapters.`
       )
     }
   }
