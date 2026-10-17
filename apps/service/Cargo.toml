@@ -28,6 +28,7 @@ serialport = { version = "4.7.2", default-features = false }
 sha2 = "0.10.9"
 thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = "0.29.0"
 tokio-util = { version = "0.7.15", features = ["io"] }
 tower-http = { version = "0.6.6", features = ["catch-panic", "compression-gzip", "limit", "trace"] }
 tracing = "0.1.41"
@@ -37,7 +38,6 @@ uuid = { version = "1.16.0", features = ["serde", "v7"] }
 
 [dev-dependencies]
 tempfile = "3.20.0"
-tokio-tungstenite = "0.29.0"
 tower = { version = "0.5.2", features = ["util"] }
 
 [profile.release]
