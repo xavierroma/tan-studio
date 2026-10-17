@@ -1,24 +1,22 @@
 name: Hosted MCP isolated AMD64 verification
 
 on:
-  pull_request:
+  push:
     branches: [main]
-    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: hosted-mcp-verify-${{ github.event.pull_request.number }}
+  group: hosted-mcp-verify-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   isolated-amd64:
-    if: github.head_ref == 'codex/hosted-mcp' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Check out PR merge revision without retained credentials
+      - name: Check out main revision without retained credentials
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
