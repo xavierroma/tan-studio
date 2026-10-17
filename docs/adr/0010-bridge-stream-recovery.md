@@ -77,3 +77,9 @@ Read failures also retain the SASSI phase and numeric byte counts. Payloads,
 peer-supplied close text and credentials are never included. These diagnostics
 address the evidence gap in the transient 20:18 UTC disconnects; they do not
 retroactively establish their cause.
+
+WebSocket errors additionally use an allowlisted category derived from typed
+library variants, distinguishing abrupt closure without a close handshake from
+framing violations. Library error strings and embedded message payloads are not
+formatted. This closes the remaining ambiguity in `socket_receive_error` when
+no nested OS I/O error exists.

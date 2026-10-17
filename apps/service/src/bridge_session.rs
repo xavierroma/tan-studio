@@ -187,6 +187,7 @@ async fn websocket_session(
     let mut end_reason = "socket_stream_ended";
     let mut close_code = None;
     let mut io_error_kind = None;
+    let mut websocket_error = None;
     let mut os_error = None;
     let mut usb_bytes = 0_u64;
     let mut backend_bytes_attempted = 0_u64;
@@ -216,6 +217,7 @@ async fn websocket_session(
                     if let Err(error) = socket.send(Message::Pong(payload)).await {
                         end_reason = "pong_send_failed";
                         (io_error_kind, os_error) = socket_io_error(&error);
+                        websocket_error = Some(socket_error_category(&error));
                         break;
                     }
                 }
@@ -228,6 +230,7 @@ async fn websocket_session(
                 Some(Err(error)) => {
                     end_reason = "socket_receive_error";
                     (io_error_kind, os_error) = socket_io_error(&error);
+                    websocket_error = Some(socket_error_category(&error));
                     break;
                 }
                 None => break,
@@ -261,6 +264,7 @@ async fn websocket_session(
                     if let Err(error) = socket.send(Message::Binary(record.into())).await {
                         end_reason = "backend_send_failed";
                         (io_error_kind, os_error) = socket_io_error(&error);
+                        websocket_error = Some(socket_error_category(&error));
                         break;
                     }
                 }
@@ -273,9 +277,49 @@ async fn websocket_session(
     }
     // Do not log frame contents, close reason strings, or authentication material.
     tracing::info!(event = "bridge_session_ended", bridge_id = %bridge_id,
-        reason = end_reason, close_code, ?io_error_kind, os_error,
+        reason = end_reason, close_code, websocket_error, ?io_error_kind, os_error,
         lifetime_ms = connected_at.elapsed().as_millis() as u64,
         usb_bytes, backend_bytes_attempted);
+}
+
+// Return only fixed categories; some library errors contain received data.
+fn socket_error_category(error: &(dyn std::error::Error + 'static)) -> &'static str {
+    use tokio_tungstenite::tungstenite::{error::ProtocolError, Error};
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(error) = error.downcast_ref::<Error>() {
+            return match error {
+                Error::ConnectionClosed => "connection_closed",
+                Error::AlreadyClosed => "already_closed",
+                Error::Io(_) => "io",
+                Error::Tls(_) => "tls",
+                Error::Capacity(_) => "capacity",
+                Error::WriteBufferFull(_) => "write_buffer_full",
+                Error::Utf8(_) => "invalid_utf8",
+                Error::AttackAttempt => "attack_attempt",
+                Error::Protocol(protocol) => match protocol {
+                    ProtocolError::ResetWithoutClosingHandshake => "reset_without_close",
+                    ProtocolError::NonZeroReservedBits => "reserved_bits",
+                    ProtocolError::UnmaskedFrameFromClient => "unmasked_client_frame",
+                    ProtocolError::MaskedFrameFromServer => "masked_server_frame",
+                    ProtocolError::FragmentedControlFrame => "fragmented_control",
+                    ProtocolError::ControlFrameTooBig => "oversized_control",
+                    ProtocolError::UnknownControlFrameType(_) => "unknown_control_type",
+                    ProtocolError::UnknownDataFrameType(_) => "unknown_data_type",
+                    ProtocolError::UnexpectedContinueFrame => "unexpected_continuation",
+                    ProtocolError::ExpectedFragment(_) => "expected_continuation",
+                    ProtocolError::InvalidOpcode(_) => "invalid_opcode",
+                    ProtocolError::InvalidCloseSequence => "invalid_close",
+                    ProtocolError::SendAfterClosing => "send_after_close",
+                    ProtocolError::ReceivedAfterClosing => "received_after_close",
+                    _ => "other_protocol",
+                },
+                _ => "other_websocket",
+            };
+        }
+        current = error.source();
+    }
+    "unknown"
 }
 
 fn socket_io_error(
@@ -567,6 +611,24 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+    #[test]
+    fn socket_categories_unwrap_axum_without_exposing_payloads() {
+        use tokio_tungstenite::tungstenite::{error::ProtocolError, Error, Message};
+        let reset = axum::Error::new(Error::Protocol(ProtocolError::ResetWithoutClosingHandshake));
+        assert_eq!(socket_error_category(&reset), "reset_without_close");
+        let frame = axum::Error::new(Error::Protocol(ProtocolError::UnexpectedContinueFrame));
+        assert_eq!(socket_error_category(&frame), "unexpected_continuation");
+        let payload = axum::Error::new(Error::WriteBufferFull(Box::new(Message::Text(
+            "sensitive-payload".into(),
+        ))));
+        assert_eq!(socket_error_category(&payload), "write_buffer_full");
+        let utf8 = axum::Error::new(Error::Utf8("sensitive-payload".into()));
+        assert_eq!(socket_error_category(&utf8), "invalid_utf8");
+        let io = axum::Error::new(Error::Io(io::Error::from_raw_os_error(104)));
+        assert_eq!(socket_error_category(&io), "io");
+        assert_eq!(socket_io_error(&io).1, Some(104));
+    }
+
     #[test]
     fn diagnostic_contract_is_bounded_numeric_and_strict() {
         let mut value = serde_json::json!({"schemaVersion":1,"type":"diagnostics",
