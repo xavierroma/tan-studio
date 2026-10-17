@@ -26,10 +26,11 @@ import {
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { Textarea } from "@tan-studio/ui/components/textarea"
 import { ArrowLeftIcon, SaveIcon } from "lucide-react"
-import type { FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/page-header"
+import { DecimalInput, parseDecimalInput } from "@/components/decimal-input"
 import {
   getRoast,
   listCoffees,
@@ -57,7 +58,8 @@ function elapsedInput(value?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
-function parseElapsedInput(value: string) {
+function parseElapsedInput(value: string, original?: number | null) {
+  if (value === elapsedInput(original)) return original ?? null
   const match = /^(\d+):([0-5]\d)$/u.exec(value.trim())
   if (!match) return null
   return (Number(match[1]) * 60 + Number(match[2])) * 1_000
@@ -79,6 +81,7 @@ function localDateTime(value?: string | null) {
 }
 
 export function RoastEditorScreen() {
+  const [loadInput, setLoadInput] = useState<string>()
   const params = useParams({ from: "/roasts/$roastId/edit" })
   const roastId = Number(params.roastId)
   const navigate = useNavigate({ from: "/roasts/$roastId/edit" })
@@ -144,10 +147,11 @@ export function RoastEditorScreen() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!event.currentTarget.reportValidity()) return
     const form = new FormData(event.currentTarget)
     const optionalNumber = (name: string) => {
       const value = String(form.get(name) ?? "").trim()
-      return value === "" ? null : Number(value)
+      return parseDecimalInput(value)
     }
     const profileId = optionalNumber("profileId")
     const coffeeId = optionalNumber("coffeeId")
@@ -179,13 +183,22 @@ export function RoastEditorScreen() {
         ? Math.round(developmentPercent * 100)
         : null
     const nextDuration =
-      durationInput === "" ? null : parseElapsedInput(durationInput)
+      durationInput === ""
+        ? null
+        : parseElapsedInput(durationInput, item.durationMs)
     if (durationInput !== "" && nextDuration == null) {
       toast.error("Roast duration must use m:ss, for example 6:53")
       return
     }
     const nextCoolingDuration =
-      coolingInput === "" ? null : parseElapsedInput(coolingInput)
+      coolingInput === ""
+        ? null
+        : parseElapsedInput(
+            coolingInput,
+            item.cooldownEndMs == null || item.durationMs == null
+              ? null
+              : item.cooldownEndMs - item.durationMs
+          )
     if (coolingInput !== "" && nextCoolingDuration == null) {
       toast.error("Cooling duration must use m:ss, for example 3:50")
       return
@@ -233,7 +246,10 @@ export function RoastEditorScreen() {
     if (firstCrackInput === "") {
       if (actualFirstCrack?.source === "user") patch.firstCrack = null
     } else {
-      const elapsedMs = parseElapsedInput(firstCrackInput)
+      const elapsedMs = parseElapsedInput(
+        firstCrackInput,
+        actualFirstCrack?.elapsedMs
+      )
       if (elapsedMs == null) {
         toast.error("First crack time must use m:ss, for example 6:20")
         return
@@ -348,7 +364,7 @@ export function RoastEditorScreen() {
                       <Input
                         id="duration"
                         name="duration"
-                        inputMode="numeric"
+                        inputMode="text"
                         placeholder="6:53"
                         pattern="[0-9]+:[0-5][0-9]"
                         defaultValue={elapsedInput(item.durationMs)}
@@ -358,13 +374,11 @@ export function RoastEditorScreen() {
                       <FieldLabel htmlFor="endTemperature">
                         End temperature · °C
                       </FieldLabel>
-                      <Input
+                      <DecimalInput
                         id="endTemperature"
                         name="endTemperature"
-                        type="number"
-                        min="-100"
-                        max="500"
-                        step="0.1"
+                        min={-100}
+                        max={500}
                         defaultValue={
                           item.endTemperatureMilliC == null
                             ? ""
@@ -379,7 +393,7 @@ export function RoastEditorScreen() {
                       <Input
                         id="coolingDuration"
                         name="coolingDuration"
-                        inputMode="numeric"
+                        inputMode="text"
                         placeholder="3:50"
                         pattern="[0-9]+:[0-5][0-9]"
                         defaultValue={
@@ -400,8 +414,8 @@ export function RoastEditorScreen() {
                       defaultValue={item.endReason}
                     />
                     <FieldDescription>
-                      Use 0:level for a normal automatic transition to cooling at
-                      the selected roast level.
+                      Use 0:level for a normal automatic transition to cooling
+                      at the selected roast level.
                     </FieldDescription>
                   </Field>
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -508,13 +522,11 @@ export function RoastEditorScreen() {
                   <div className="grid gap-4 sm:grid-cols-3">
                     <Field>
                       <FieldLabel htmlFor="level">Level</FieldLabel>
-                      <Input
+                      <DecimalInput
                         id="level"
                         name="level"
-                        type="number"
-                        min="0"
-                        max="10"
-                        step="0.1"
+                        min={0}
+                        max={10}
                         defaultValue={
                           item.levelThousandths == null
                             ? ""
@@ -524,12 +536,13 @@ export function RoastEditorScreen() {
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="load">Green load · g</FieldLabel>
-                      <Input
+                      <DecimalInput
                         id="load"
                         name="load"
-                        type="number"
-                        min="0.1"
-                        step="0.1"
+                        min={0.1}
+                        onChange={(event) =>
+                          setLoadInput(event.currentTarget.value)
+                        }
                         defaultValue={
                           item.greenInputMassMg == null
                             ? ""
@@ -541,17 +554,17 @@ export function RoastEditorScreen() {
                       <FieldLabel htmlFor="roastedYield">
                         Roasted yield · g
                       </FieldLabel>
-                      <Input
+                      <DecimalInput
                         id="roastedYield"
                         name="roastedYield"
-                        type="number"
-                        min="0.1"
+                        min={0.1}
                         max={
-                          item.greenInputMassMg == null
-                            ? undefined
-                            : item.greenInputMassMg / 1_000
+                          loadInput !== undefined
+                            ? (parseDecimalInput(loadInput) ?? undefined)
+                            : item.greenInputMassMg == null
+                              ? undefined
+                              : item.greenInputMassMg / 1_000
                         }
-                        step="0.1"
                         defaultValue={
                           item.roastedYieldMassMg == null
                             ? ""
@@ -585,7 +598,7 @@ export function RoastEditorScreen() {
                     <Input
                       id="firstCrack"
                       name="firstCrack"
-                      inputMode="numeric"
+                      inputMode="text"
                       placeholder="6:20"
                       pattern="[0-9]+:[0-5][0-9]"
                       defaultValue={elapsedInput(actualFirstCrack?.elapsedMs)}
@@ -595,13 +608,11 @@ export function RoastEditorScreen() {
                     <FieldLabel htmlFor="firstCrackTemperature">
                       Temperature · °C
                     </FieldLabel>
-                    <Input
+                    <DecimalInput
                       id="firstCrackTemperature"
                       name="firstCrackTemperature"
-                      type="number"
-                      min="-100"
-                      max="500"
-                      step="0.1"
+                      min={-100}
+                      max={500}
                       defaultValue={
                         actualFirstCrack?.temperatureMilliC == null
                           ? ""
@@ -613,13 +624,11 @@ export function RoastEditorScreen() {
                     <FieldLabel htmlFor="developmentPercent">
                       Development · %
                     </FieldLabel>
-                    <Input
+                    <DecimalInput
                       id="developmentPercent"
                       name="developmentPercent"
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
+                      min={0}
+                      max={100}
                       defaultValue={
                         item.developmentBasisPoints == null
                           ? ""
