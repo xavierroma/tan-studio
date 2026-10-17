@@ -1,14 +1,14 @@
+import { Button } from "@tan-studio/ui/components/button"
 import {
   createRootRoute,
   createRoute,
   createRouter,
   lazyRouteComponent,
+  Link,
   parseSearchWith,
   redirect,
   stringifySearchWith,
 } from "@tanstack/react-router"
-import { Link } from "@tanstack/react-router"
-import { buttonVariants } from "@tan-studio/ui/components/button"
 
 import { AppErrorScreen, AppPendingScreen } from "@/components/app-error-screen"
 import { AppShell } from "@/components/app-shell"
@@ -34,31 +34,36 @@ const rootRoute = createRootRoute({
         This Tan Studio view does not exist.
       </p>
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
-          className={buttonVariants({ variant: "outline" })}
           onClick={() => window.history.back()}
+          variant={"outline"}
         >
           Go back
-        </button>
-        <Link
-          to="/roasts"
-          search={{
-            q: undefined,
-            status: undefined,
-            profileId: undefined,
-            coffeeId: undefined,
-            archived: undefined,
-            sort: undefined,
-            hidden: undefined,
-            density: undefined,
-            rest: undefined,
-            view: undefined,
-          }}
-          className={buttonVariants()}
+        </Button>
+        <Button
+          nativeButton={false}
+          role="link"
+          render={
+            <Link
+              to="/roasts"
+              search={{
+                q: undefined,
+                status: undefined,
+                profileId: undefined,
+                coffeeId: undefined,
+                archived: undefined,
+                sort: undefined,
+                hidden: undefined,
+                density: undefined,
+                rest: undefined,
+                view: undefined,
+              }}
+            />
+          }
         >
           Roasts
-        </Link>
+        </Button>
       </div>
     </div>
   ),
@@ -118,7 +123,7 @@ const roastLibraryRoute = createRoute({
         : undefined,
     hidden:
       typeof search.hidden === "string" &&
-      /^(roastedAt|coffee|profile|level|load|activity|status)(,(roastedAt|coffee|profile|level|load|activity|status))*$/u.test(
+      /^(roastedAt|coffee|profile|level|load|activity|status|notes|tasting)(,(roastedAt|coffee|profile|level|load|activity|status|notes|tasting))*$/u.test(
         search.hidden
       )
         ? search.hidden
@@ -254,6 +259,15 @@ const coffeeDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/coffees/$coffeeId",
   component: lazyRouteComponent(
+    () => import("@/screens/coffee-detail-screen"),
+    "CoffeeDetailScreen"
+  ),
+})
+
+const coffeeEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/coffees/$coffeeId/edit",
+  component: lazyRouteComponent(
     () => import("@/screens/coffee-editor-screen"),
     "CoffeeEditorScreen"
   ),
@@ -331,9 +345,11 @@ const settingsRoute = createRoute({
     section:
       search.section === "devices"
         ? ("devices" as const)
-        : search.section === "access"
-          ? ("access" as const)
-          : undefined,
+        : search.section === "notebook"
+          ? ("notebook" as const)
+          : search.section === "access"
+            ? ("access" as const)
+            : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/settings-screen"),
@@ -363,6 +379,7 @@ const routeTree = rootRoute.addChildren([
   coffeesRoute,
   coffeeCreateRoute,
   coffeeDetailRoute,
+  coffeeEditRoute,
   brewsRoute,
   brewCreateRoute,
   brewDetailRoute,

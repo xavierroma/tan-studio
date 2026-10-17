@@ -1,5 +1,6 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import { Link } from "@tanstack/react-router"
+import { ResourceLink } from "@/components/notebook"
+import { latestTasting } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
 import { Button } from "@tan-studio/ui/components/button"
 import {
   Select,
@@ -9,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
+import type { ColumnDef } from "@tanstack/react-table"
 import { PaperclipIcon } from "lucide-react"
 
 import {
@@ -42,6 +44,7 @@ export function BrewDataTable({
   updateSearch: (patch: Partial<BrewTableSearch>) => void
   onAttach: (brew: Brew) => void
 }) {
+  const history = useNotebookHistory()
   const methods = [
     { value: "all", label: "Every method" },
     ...Array.from(new Set(data.map((brew) => brew.method).filter(Boolean)))
@@ -57,24 +60,11 @@ export function BrewDataTable({
       brew.roastId,
       brew.method,
       brew.grinder,
+      history.roasts.find((r) => r.id === brew.roastId)?.coffee?.name ?? "",
       ...brew.notes.map((note) => note.body),
     ].some((value) => String(value).toLocaleLowerCase().includes(needle))
   })
   const columns: ColumnDef<Brew>[] = [
-    {
-      id: "image",
-      header: "Image",
-      cell: ({ row }) => (
-        <EntityImage
-          attachmentId={row.original.profileImageAttachmentId}
-          entityType="brew"
-          alt=""
-        />
-      ),
-      enableHiding: false,
-      enableSorting: false,
-      meta: { label: "Image", mobile: "image" },
-    },
     {
       accessorKey: "id",
       header: ({ column }) => (
@@ -85,13 +75,25 @@ export function BrewDataTable({
         />
       ),
       cell: ({ row }) => (
-        <Link
-          to="/brews/$brewId"
-          params={{ brewId: String(row.original.id) }}
-          className="font-medium underline-offset-4 hover:underline"
-        >
-          #{row.original.id}
-        </Link>
+        <div className="notebook-row-image">
+          <EntityImage
+            attachmentId={row.original.profileImageAttachmentId}
+            entityType="brew"
+          />
+          <div>
+            <ResourceLink type="brew" id={row.original.id}>
+              #{row.original.id} · {row.original.method}
+            </ResourceLink>
+            <small>{date(row.original.brewedAt)}</small>
+            <Button
+              className="notebook-link text-xs"
+              type="button"
+              onClick={() => onAttach(row.original)}
+            >
+              Add files
+            </Button>
+          </div>
+        </div>
       ),
       enableHiding: false,
       meta: { label: "Brew", mobile: "primary" },
@@ -100,21 +102,30 @@ export function BrewDataTable({
       accessorKey: "roastId",
       header: ({ column }) => (
         <DataTableSortHeader
-          label="Roast"
+          label="Coffee · roast"
           sorted={column.getIsSorted()}
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
       cell: ({ row }) => (
-        <Link
-          to="/roasts/$roastId"
-          params={{ roastId: String(row.original.roastId) }}
-          className="underline-offset-4 hover:underline"
-        >
-          #{row.original.roastId}
-        </Link>
+        <div>
+          {(() => {
+            const r = history.roasts.find((r) => r.id === row.original.roastId)
+            return r?.coffee ? (
+              <>
+                <ResourceLink type="coffee" id={r.coffee.id}>
+                  {r.coffee.name}
+                </ResourceLink>
+                <br />
+              </>
+            ) : null
+          })()}
+          <ResourceLink type="roast" id={row.original.roastId}>
+            #{row.original.roastId}
+          </ResourceLink>
+        </div>
       ),
-      meta: { label: "Roast", mobile: "detail" },
+      meta: { label: "Coffee · roast", mobile: "detail" },
     },
     {
       id: "recipe",
@@ -126,8 +137,18 @@ export function BrewDataTable({
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) =>
-        `${row.original.coffeeMassMg / 1_000} g · ${row.original.waterMassMg / 1_000} g · ${row.original.method}`,
+      cell: ({ row }) => (
+        <div>
+          {row.original.coffeeMassMg / 1000} g /{" "}
+          {row.original.waterMassMg / 1000} g water
+          <small>
+            {row.original.waterTemperatureMilliC == null
+              ? "Temperature —"
+              : `${row.original.waterTemperatureMilliC / 1000}°C`}{" "}
+            · {row.original.grinderSetting}
+          </small>
+        </div>
+      ),
       meta: { label: "Recipe", mobile: "detail" },
     },
     {
@@ -161,12 +182,34 @@ export function BrewDataTable({
       enableSorting: false,
       meta: { label: "Media", mobile: "detail" },
     },
+    {
+      id: "tasting",
+      header: "Tasting notes",
+      enableSorting: false,
+      meta: { label: "Tasting notes", mobile: "detail" },
+      cell: ({ row }) => (
+        <p className="notebook-excerpt">
+          {latestTasting(row.original)?.body ?? "No tasting note."}
+        </p>
+      ),
+    },
+    {
+      id: "score",
+      accessorFn: (b) => latestTasting(b)?.ratingBasisPoints ?? -1,
+      header: "Score",
+      meta: { label: "Score", mobile: "detail" },
+      cell: ({ row }) => {
+        const score = latestTasting(row.original)?.ratingBasisPoints
+        return score == null ? "—" : `${score / 100} / 100`
+      },
+    },
   ]
 
   return (
     <DataTable
       preferenceKey="brews"
       columns={columns}
+      defaultHidden={["brewedAt", "media"]}
       data={filtered}
       state={search}
       updateState={updateSearch}

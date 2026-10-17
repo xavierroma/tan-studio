@@ -1,4 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button } from "@tan-studio/ui/components/button"
 import {
@@ -8,6 +7,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@tan-studio/ui/components/card"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@tan-studio/ui/components/collapsible"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CableIcon, ChevronDownIcon, RefreshCwIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -109,39 +114,59 @@ export function DeviceSettings() {
         </CardHeader>
         <CardContent>
           {item ? (
-            <details>
-              <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+            <Collapsible>
+              <CollapsibleTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium"
+                  />
+                }
+              >
                 <ChevronDownIcon className="size-4" />
                 Device details
-              </summary>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <Metric label="Firmware" value={item.firmware ?? "—"} />
-                <Metric label="Protocol" value={item.protocol ?? "—"} />
-                <Metric
-                  label="Profiles"
-                  value={
-                    item.profileCount == null ? "—" : String(item.profileCount)
-                  }
-                />
-                <Metric
-                  label="Logs"
-                  value={item.logCount == null ? "—" : String(item.logCount)}
-                />
-              </div>
-            </details>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <Metric label="Firmware" value={item.firmware ?? "—"} />
+                  <Metric label="Protocol" value={item.protocol ?? "—"} />
+                  <Metric
+                    label="Profiles"
+                    value={
+                      item.profileCount == null
+                        ? "—"
+                        : String(item.profileCount)
+                    }
+                  />
+                  <Metric
+                    label="Logs"
+                    value={item.logCount == null ? "—" : String(item.logCount)}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
         </CardContent>
       </Card>
       {connected ? (
-        <details>
-          <summary className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+        <Collapsible>
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="ghost"
+                className="text-muted-foreground flex cursor-pointer list-none items-center gap-2 text-sm font-medium"
+              />
+            }
+          >
             <ChevronDownIcon className="size-4" />
             Set up another bridge
-          </summary>
-          <div className="mt-3">
-            <TanBridgeSetupPanel />
-          </div>
-        </details>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-3">
+              <TanBridgeSetupPanel />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       ) : (
         <TanBridgeSetupPanel />
       )}

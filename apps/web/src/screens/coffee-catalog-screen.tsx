@@ -1,8 +1,7 @@
-import { useQuery } from "@tanstack/react-query"
-import type { ColumnDef } from "@tanstack/react-table"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { ResourceLink } from "@/components/notebook"
+import { brewsForCoffee, dateText, latestTasting } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   Empty,
   EmptyDescription,
@@ -18,6 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
+import { useQuery } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import type { ColumnDef } from "@tanstack/react-table"
 import { BeanIcon, ExternalLinkIcon, PlusIcon } from "lucide-react"
 import { useEffect } from "react"
 
@@ -38,6 +40,7 @@ function selectItems(values: Array<string | null | undefined>, all: string) {
 }
 
 export function CoffeeCatalogScreen() {
+  const history = useNotebookHistory()
   const search = useSearch({ from: "/coffees" })
   const navigate = useNavigate({ from: "/coffees" })
   const coffees = useQuery({
@@ -82,20 +85,6 @@ export function CoffeeCatalogScreen() {
     ) ?? []
   const columns: ColumnDef<Coffee>[] = [
     {
-      id: "image",
-      header: "Image",
-      cell: ({ row }) => (
-        <EntityImage
-          attachmentId={row.original.profileImageAttachmentId}
-          entityType="coffee"
-          alt=""
-        />
-      ),
-      enableHiding: false,
-      enableSorting: false,
-      meta: { label: "Image", mobile: "image" },
-    },
-    {
       id: "id",
       accessorFn: (coffee) => coffee.id,
       header: ({ column }) => (
@@ -106,13 +95,24 @@ export function CoffeeCatalogScreen() {
         />
       ),
       cell: ({ row }) => (
-        <Link
-          to="/coffees/$coffeeId"
-          params={{ coffeeId: String(row.original.id) }}
-          className="font-medium underline-offset-4 hover:underline"
-        >
-          #{row.original.id} · {row.original.name}
-        </Link>
+        <div className="notebook-row-image">
+          <EntityImage
+            attachmentId={row.original.profileImageAttachmentId}
+            entityType="coffee"
+          />
+          <div>
+            <ResourceLink
+              type="coffee"
+              id={row.original.id}
+              className="notebook-link notebook-coffee-name"
+            >
+              {row.original.name}
+            </ResourceLink>
+            <small>
+              #{row.original.id} · {row.original.provider}
+            </small>
+          </div>
+        </div>
       ),
       enableHiding: false,
       meta: { label: "Coffee", mobile: "primary" },
@@ -210,10 +210,12 @@ export function CoffeeCatalogScreen() {
       cell: ({ row }) =>
         row.original.priceMinor == null
           ? "—"
-          : new Intl.NumberFormat(undefined, {
-              style: "currency",
-              currency: row.original.currencyCode ?? "USD",
-            }).format(row.original.priceMinor / 100),
+          : row.original.currencyCode
+            ? new Intl.NumberFormat(undefined, {
+                style: "currency",
+                currency: row.original.currencyCode,
+              }).format(row.original.priceMinor / 100)
+            : (row.original.priceMinor / 100).toFixed(2),
       meta: { label: "Price", mobile: "hidden" },
     },
     {
@@ -311,7 +313,9 @@ export function CoffeeCatalogScreen() {
         />
       ),
       cell: ({ row }) => (
-        <Badge variant="secondary">{row.original.roastCount}</Badge>
+        <ResourceLink type="coffee" id={row.original.id}>
+          {row.original.roastCount} roasts
+        </ResourceLink>
       ),
       meta: { label: "Roasts", mobile: "detail" },
     },
@@ -351,6 +355,94 @@ export function CoffeeCatalogScreen() {
       header: "Revision",
       meta: { label: "Revision", mobile: "hidden" },
     },
+    {
+      id: "origin",
+      accessorFn: (c) => [c.country, c.process, c.variety].join(" "),
+      header: "Origin · process",
+      meta: { label: "Origin · process", mobile: "detail" },
+      cell: ({ row }) => (
+        <div>
+          {row.original.country || "—"}
+          <small>
+            {[row.original.process, row.original.variety]
+              .filter(Boolean)
+              .join(" · ")}
+          </small>
+        </div>
+      ),
+    },
+    {
+      id: "lastRoast",
+      accessorFn: (c) =>
+        history.roasts.find((r) => r.coffee?.id === c.id)?.roastedAt ?? "",
+      header: "Last roast",
+      meta: { label: "Last roast", mobile: "detail" },
+      cell: ({ row }) => {
+        const r = history.roasts.find((r) => r.coffee?.id === row.original.id)
+        return r ? (
+          <div>
+            <ResourceLink type="roast" id={r.id}>
+              #{r.id}
+            </ResourceLink>
+            <small>{dateText(r.roastedAt)}</small>
+          </div>
+        ) : (
+          "Not roasted yet"
+        )
+      },
+    },
+    {
+      id: "tasting",
+      header: "Latest tasting",
+      enableSorting: false,
+      meta: { label: "Latest tasting", mobile: "detail" },
+      cell: ({ row }) => {
+        const b = brewsForCoffee(
+          history.brews,
+          history.roasts,
+          row.original.id
+        )[0]
+        return b ? (
+          <div>
+            <ResourceLink type="brew" id={b.id}>
+              Brew #{b.id} · {b.method}
+            </ResourceLink>
+            <p className="notebook-excerpt">
+              {latestTasting(b)?.body ?? "No tasting note."}
+            </p>
+          </div>
+        ) : (
+          "No brews."
+        )
+      },
+    },
+  ]
+  // Keep every original field available in Columns; the initial view prioritizes relationships.
+  const arrangedColumns = [
+    ...[
+      "id",
+      "origin",
+      "remaining",
+      "roastCount",
+      "lastRoast",
+      "tasting",
+    ].flatMap((id) =>
+      columns.filter(
+        (c) =>
+          (c.id ?? ("accessorKey" in c ? String(c.accessorKey) : "")) === id
+      )
+    ),
+    ...columns.filter(
+      (c) =>
+        ![
+          "id",
+          "origin",
+          "remaining",
+          "roastCount",
+          "lastRoast",
+          "tasting",
+        ].includes(c.id ?? ("accessorKey" in c ? String(c.accessorKey) : ""))
+    ),
   ]
 
   return (
@@ -358,10 +450,14 @@ export function CoffeeCatalogScreen() {
       <PageHeader
         title="Coffees"
         actions={
-          <Link to="/coffees/new" className={buttonVariants()}>
+          <Button
+            nativeButton={false}
+            role="link"
+            render={<Link to="/coffees/new" />}
+          >
             <PlusIcon data-icon="inline-start" />
             Add coffee
-          </Link>
+          </Button>
         }
       />
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
@@ -369,6 +465,11 @@ export function CoffeeCatalogScreen() {
           <DataTable
             preferenceKey="coffees"
             defaultHidden={[
+              "provider",
+              "providerUrl",
+              "country",
+              "process",
+              "variety",
               "providerProductId",
               "purchaseReference",
               "purchasedAt",
@@ -388,7 +489,7 @@ export function CoffeeCatalogScreen() {
               "updatedAt",
               "revision",
             ]}
-            columns={columns}
+            columns={arrangedColumns}
             data={filtered}
             state={search}
             updateState={updateSearch}
@@ -467,7 +568,11 @@ export function CoffeeCatalogScreen() {
                 Add the green coffee you plan to roast.
               </EmptyDescription>
             </EmptyHeader>
-            <Button nativeButton={false} render={<Link to="/coffees/new" />}>
+            <Button
+              nativeButton={false}
+              role="link"
+              render={<Link to="/coffees/new" />}
+            >
               <PlusIcon data-icon="inline-start" />
               Add coffee
             </Button>

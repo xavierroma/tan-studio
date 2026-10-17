@@ -1,4 +1,5 @@
 import { Badge } from "@tan-studio/ui/components/badge"
+import { Button } from "@tan-studio/ui/components/button"
 import { useEffect, useState } from "react"
 
 import {
@@ -43,12 +44,6 @@ export function SessionControls() {
     return (
       <>
         <Badge variant="info">Local</Badge>
-        <span
-          className="bg-secondary flex size-8 items-center justify-center rounded-full border text-xs font-semibold"
-          aria-label="User profile"
-        >
-          XR
-        </span>
       </>
     )
   }
@@ -63,12 +58,13 @@ export function SessionControls() {
         <Badge variant="success">Signed in</Badge>
         {/* A form, not a link: sign-out is a POST so no other site can fire it. */}
         <form method="post" action="/auth/logout">
-          <button
+          <Button
+            variant="link"
             type="submit"
             className="text-muted-foreground hover:text-foreground text-[0.625rem] leading-tight font-medium"
           >
             Sign out
-          </button>
+          </Button>
         </form>
       </>
     )
@@ -77,12 +73,14 @@ export function SessionControls() {
   return (
     <>
       <Badge variant="warning">Signed out</Badge>
-      <a
-        href="/auth/google"
-        className="text-muted-foreground hover:text-foreground text-center text-[0.625rem] leading-tight font-medium"
+      <Button
+        nativeButton={false}
+        role="link"
+        variant="link"
+        render={<a href="/auth/google" />}
       >
         Sign in with Google
-      </a>
+      </Button>
     </>
   )
 }

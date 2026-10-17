@@ -5234,6 +5234,12 @@
             ],
             "format": "int64"
           },
+          "deployedPageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "developmentBasisPoints": {
             "type": [
               "integer",
@@ -5380,6 +5386,12 @@
           },
           "createdAt": {
             "type": "string"
+          },
+          "deployedPageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "developmentBasisPoints": {
             "type": [

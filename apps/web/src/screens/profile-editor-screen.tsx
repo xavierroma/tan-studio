@@ -1,17 +1,6 @@
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@tan-studio/ui/components/alert"
+import { Card, CardContent } from "@tan-studio/ui/components/card"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -21,19 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@tan-studio/ui/components/dropdown-menu"
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@tan-studio/ui/components/empty"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@tan-studio/ui/components/field"
+import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
   Select,
@@ -46,7 +23,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -55,22 +31,35 @@ import {
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { Textarea } from "@tan-studio/ui/components/textarea"
 import {
-  FileChartColumnIncreasingIcon,
-  GitBranchIcon,
-  InfoIcon,
-  Layers3Icon,
-  PlusIcon,
-} from "lucide-react"
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
+import { GitBranchIcon, Layers3Icon, PlusIcon } from "lucide-react"
 import type { FormEvent } from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
+import { AttachmentPanel } from "@/components/attachment-panel"
+import { DataTable, type DataTableViewState } from "@/components/data-table"
+import { EntityImage } from "@/components/entity-image"
 import { Metric } from "@/components/metric"
+import {
+  CollectionLink,
+  NotebookBreadcrumbs,
+  NotebookSection,
+  ResourceLink,
+  RoastHistory,
+} from "@/components/notebook"
+import { NotebookNotes } from "@/components/notebook-notes"
 import { PageHeader } from "@/components/page-header"
 import {
   ProfileComparisonChart,
   type ProfileChartCurve,
 } from "@/components/profile-comparison-chart"
+import type { ProfileSummary } from "@/lib/api"
 import {
   createChildProfile,
   getProfile,
@@ -78,7 +67,10 @@ import {
   listRoasts,
   queryKeys,
 } from "@/lib/api"
+import { levelText, massText } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
 import type { ChartPoint } from "@/types"
+import type { ColumnDef } from "@tanstack/react-table"
 
 function record(value: unknown): Record<string, unknown> {
   return value != null && typeof value === "object" && !Array.isArray(value)
@@ -201,7 +193,8 @@ export function ProfileEditorScreen() {
     queryKey: queryKeys.profiles(),
     queryFn: ({ signal }) => listProfiles(undefined, signal),
   })
-  const selectedId = search.profileId ?? list.data?.[0]?.id
+  const selectedId = search.profileId
+  const history = useNotebookHistory()
   const profile = useQuery({
     queryKey: queryKeys.profile(selectedId ?? 0),
     queryFn: ({ signal }) => getProfile(selectedId!, signal),
@@ -238,13 +231,6 @@ export function ProfileEditorScreen() {
     onError: (error) => toast.error(error.message),
   })
 
-  useEffect(() => {
-    if (!search.profileId && selectedId)
-      void navigate({
-        search: { profileId: selectedId, compare: search.compare },
-        replace: true,
-      })
-  }, [navigate, search.profileId, selectedId])
   if (list.error) throw list.error
   if (profile.error) throw profile.error
 
@@ -272,19 +258,7 @@ export function ProfileEditorScreen() {
       </div>
     )
   if (!selectedId)
-    return (
-      <Empty className="m-7 min-h-80 border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <FileChartColumnIncreasingIcon />
-          </EmptyMedia>
-          <EmptyTitle>No profiles yet</EmptyTitle>
-          <EmptyDescription>
-            Synchronize the Nano to import its KPRO profile library.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
+    return <ProfileLibrary profiles={list.data ?? []} roasts={history.roasts} />
   if (!profile.data)
     return (
       <div className="p-7">
@@ -315,23 +289,33 @@ export function ProfileEditorScreen() {
       name: String(form.get("name") ?? "").trim(),
       description: String(form.get("description") ?? ""),
       designer: item.designer,
-      recommendedLevelThousandths: Math.round(
-        Number(form.get("level")) * 1_000
-      ),
-      referenceLoadMg: Math.round(Number(form.get("load")) * 1_000),
+      recommendedLevelThousandths:
+        String(form.get("level") ?? "").trim() === ""
+          ? null
+          : Math.round(Number(form.get("level")) * 1_000),
+      referenceLoadMg:
+        String(form.get("load") ?? "").trim() === ""
+          ? null
+          : Math.round(Number(form.get("load")) * 1_000),
       profile: item.profile,
     })
   }
 
   return (
     <div className="min-h-screen">
+      <NotebookBreadcrumbs
+        items={[<CollectionLink type="profile" />, item.name]}
+      />
       <PageHeader
+        image={
+          <EntityImage
+            attachmentId={item.profileImageAttachmentId}
+            entityType="profile"
+          />
+        }
         eyebrow={`Profile #${item.id} · ${item.origin}`}
         title={item.name}
-        description={
-          item.description.split("\n").find(Boolean) ??
-          "Kaffelogic roast profile"
-        }
+        description={item.designer || ""}
         actions={
           <Sheet open={childOpen} onOpenChange={setChildOpen}>
             <SheetTrigger
@@ -345,10 +329,6 @@ export function ProfileEditorScreen() {
             <SheetContent>
               <SheetHeader>
                 <SheetTitle>Create a child profile</SheetTitle>
-                <SheetDescription>
-                  The child keeps this exact profile document and records your
-                  reusable changes without changing profile #{item.id}.
-                </SheetDescription>
               </SheetHeader>
               <form
                 id="child-profile-form"
@@ -377,14 +357,12 @@ export function ProfileEditorScreen() {
                         min="0"
                         max="10"
                         step="0.1"
-                        required
                         defaultValue={
-                          (item.recommendedLevelThousandths ?? 0) / 1_000
+                          item.recommendedLevelThousandths == null
+                            ? ""
+                            : item.recommendedLevelThousandths / 1_000
                         }
                       />
-                      <FieldDescription>
-                        Default endpoint for a roast.
-                      </FieldDescription>
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="child-load">
@@ -396,12 +374,12 @@ export function ProfileEditorScreen() {
                         type="number"
                         min="1"
                         step="1"
-                        required
-                        defaultValue={(item.referenceLoadMg ?? 120_000) / 1_000}
+                        defaultValue={
+                          item.referenceLoadMg == null
+                            ? ""
+                            : item.referenceLoadMg / 1_000
+                        }
                       />
-                      <FieldDescription>
-                        Bean mass the profile was tuned around.
-                      </FieldDescription>
                     </Field>
                   </div>
                   <Field>
@@ -432,6 +410,30 @@ export function ProfileEditorScreen() {
       />
 
       <div className="flex flex-col gap-6 px-5 py-6 sm:px-7">
+        <Button
+          variant="outline"
+          nativeButton={false}
+          role="link"
+          render={
+            <Link
+              to="/roast"
+              search={{ profileId: item.id, coffeeId: undefined }}
+            />
+          }
+        >
+          Prepare a roast
+        </Button>
+        <NotebookSection
+          title="Roast history"
+          count={history.roasts.filter((r) => r.profile?.id === item.id).length}
+        >
+          <RoastHistory
+            roasts={history.roasts.filter((r) => r.profile?.id === item.id)}
+            brews={history.brews}
+            notes={history.notes}
+            showCoffee
+          />
+        </NotebookSection>
         <div className="flex max-w-3xl flex-col gap-3 sm:flex-row sm:items-end">
           <Field>
             <FieldLabel htmlFor="profile-picker">Inspect profile</FieldLabel>
@@ -512,154 +514,280 @@ export function ProfileEditorScreen() {
           </DropdownMenu>
         </div>
 
-        <section className="bg-card overflow-hidden rounded-xl border">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
-            <div>
-              <h2 className="font-semibold">Temperature & fan</h2>
-              <p className="text-muted-foreground mt-1 text-sm">
-                The curve stored in the source KPRO; viewing it never normalizes
-                or rewrites the original file.
-              </p>
+        <Card className="overflow-hidden">
+          <CardContent className="p-0">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4">
+              <div>
+                <h2 className="font-semibold">Temperature & fan</h2>
+              </div>
+              {item.sourceHash ? (
+                <Badge variant="success">Source retained</Badge>
+              ) : (
+                <Badge variant="secondary">User profile</Badge>
+              )}
             </div>
-            {item.sourceHash ? (
-              <Badge variant="success">Source retained</Badge>
+            {chartCurves[0]?.points.length ? (
+              <ProfileComparisonChart curves={chartCurves} />
             ) : (
-              <Badge variant="secondary">User profile</Badge>
+              <p className="text-muted-foreground p-8 text-center text-sm">
+                This profile has no curve points yet.
+              </p>
             )}
-          </div>
-          {chartCurves[0]?.points.length ? (
-            <ProfileComparisonChart curves={chartCurves} />
-          ) : (
-            <p className="text-muted-foreground p-8 text-center text-sm">
-              This profile has no curve points yet.
-            </p>
-          )}
-        </section>
+          </CardContent>
+        </Card>
 
         <section
           className="grid gap-4 sm:grid-cols-3"
           aria-label="Profile metrics"
         >
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Recommended level"
-              value={
-                item.recommendedLevelThousandths == null
-                  ? "—"
-                  : (item.recommendedLevelThousandths / 1_000).toFixed(1)
-              }
-              detail="A starting endpoint, adjustable per roast"
-            />
-          </div>
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Reference load"
-              value={
-                item.referenceLoadMg == null
-                  ? "—"
-                  : `${item.referenceLoadMg / 1_000} g`
-              }
-              detail="The bean mass this curve expects"
-            />
-          </div>
-          <div className="bg-card rounded-xl border p-5">
-            <Metric
-              label="Used by"
-              value={`${item.roastCount} roasts`}
-              detail={`${item.childCount} child profiles`}
-            />
-          </div>
+          <Card className="">
+            <CardContent className="p-0">
+              <Metric
+                label="Recommended level"
+                value={
+                  item.recommendedLevelThousandths == null
+                    ? "—"
+                    : (item.recommendedLevelThousandths / 1_000).toFixed(1)
+                }
+              />
+            </CardContent>
+          </Card>
+          <Card className="">
+            <CardContent className="p-0">
+              <Metric
+                label="Reference load"
+                value={
+                  item.referenceLoadMg == null
+                    ? "—"
+                    : `${item.referenceLoadMg / 1_000} g`
+                }
+              />
+            </CardContent>
+          </Card>
+          <Card className="">
+            <CardContent className="p-0">
+              <Metric
+                label="Used by"
+                value={`${item.roastCount} roasts`}
+                detail={`${item.childCount} child profiles`}
+              />
+            </CardContent>
+          </Card>
         </section>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <section className="bg-card rounded-xl border p-5">
-            <h2 className="font-semibold">About this profile</h2>
-            <p className="text-muted-foreground mt-4 text-sm leading-relaxed whitespace-pre-line">
-              {item.description || "No description was supplied."}
-            </p>
-            <Alert className="bg-info mt-5">
-              <InfoIcon />
-              <AlertTitle>Adjustments belong to the roast first</AlertTitle>
-              <AlertDescription>
-                Changing level or boost for one run is recorded on that roast.
-                Create a child only when you want the adjustment to become a
-                reusable profile.
-              </AlertDescription>
-            </Alert>
-          </section>
-          <aside className="bg-card self-start rounded-xl border p-5">
-            <h2 className="font-semibold">Relationships</h2>
-            <div className="mt-4 flex flex-col gap-3 text-sm">
-              {parent ? (
-                <Link
-                  to="/profiles"
-                  search={{ profileId: parent.id, compare: undefined }}
-                  className="underline-offset-4 hover:underline"
-                >
-                  Parent · #{parent.id} {parent.name}
-                </Link>
-              ) : (
-                <span className="text-muted-foreground">No parent profile</span>
-              )}
-              {children.slice(0, 3).map((candidate) => (
-                <Link
-                  key={candidate.id}
-                  to="/profiles"
-                  search={{ profileId: candidate.id, compare: undefined }}
-                  className="underline-offset-4 hover:underline"
-                >
-                  Child · #{candidate.id} {candidate.name}
-                </Link>
-              ))}
-              {latestRoasts.length ? (
-                <div className="border-t pt-3">
-                  <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
-                    Latest roasts
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {latestRoasts.map((roast) => (
-                      <Link
-                        key={roast.id}
-                        to="/roasts/$roastId"
-                        params={{ roastId: String(roast.id) }}
-                        className="flex items-center justify-between gap-3 underline-offset-4 hover:underline"
-                      >
-                        <span>
-                          Roast #{roast.id}
-                          {roast.coffee ? ` · ${roast.coffee.name}` : ""}
-                        </span>
-                        <Badge variant="secondary">{roast.status}</Badge>
-                      </Link>
-                    ))}
+          <Card className="">
+            <CardContent className="p-0">
+              <h2 className="font-semibold">About this profile</h2>
+              <p className="text-muted-foreground mt-4 text-sm leading-relaxed whitespace-pre-line">
+                {item.description || "No description was supplied."}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="self-start">
+            <CardContent className="p-0">
+              <h2 className="font-semibold">Relationships</h2>
+              <div className="mt-4 flex flex-col gap-3 text-sm">
+                {parent ? (
+                  <Link
+                    to="/profiles"
+                    search={{ profileId: parent.id, compare: undefined }}
+                    className="underline-offset-4 hover:underline"
+                  >
+                    Parent · #{parent.id} {parent.name}
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground">
+                    No parent profile
+                  </span>
+                )}
+                {children.map((candidate) => (
+                  <Link
+                    key={candidate.id}
+                    to="/profiles"
+                    search={{ profileId: candidate.id, compare: undefined }}
+                    className="underline-offset-4 hover:underline"
+                  >
+                    Child · #{candidate.id} {candidate.name}
+                  </Link>
+                ))}
+                {latestRoasts.length ? (
+                  <div className="border-t pt-3">
+                    <p className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+                      Latest roasts
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      {latestRoasts.map((roast) => (
+                        <Link
+                          key={roast.id}
+                          to="/roasts/$roastId"
+                          params={{ roastId: String(roast.id) }}
+                          className="flex items-center justify-between gap-3 underline-offset-4 hover:underline"
+                        >
+                          <span>
+                            Roast #{roast.id}
+                            {roast.coffee ? ` · ${roast.coffee.name}` : ""}
+                          </span>
+                          <Badge variant="secondary">{roast.status}</Badge>
+                        </Link>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <span className="text-muted-foreground">
-                  No roasts use this profile yet
-                </span>
-              )}
-              <Link
-                to="/roasts"
-                search={{
-                  profileId: item.id,
-                  coffeeId: undefined,
-                  archived: undefined,
-                  q: undefined,
-                  status: undefined,
-                  sort: undefined,
-                  hidden: undefined,
-                  density: undefined,
-                  rest: undefined,
-                  view: undefined,
-                }}
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                View its {item.roastCount} roasts
-              </Link>
-            </div>
-          </aside>
+                ) : (
+                  <span className="text-muted-foreground">
+                    No roasts use this profile yet
+                  </span>
+                )}
+                <Button
+                  nativeButton={false}
+                  role="link"
+                  variant={"outline"}
+                  size={"sm"}
+                  render={
+                    <Link
+                      to="/roasts"
+                      search={{
+                        profileId: item.id,
+                        coffeeId: undefined,
+                        archived: undefined,
+                        q: undefined,
+                        status: undefined,
+                        sort: undefined,
+                        hidden: undefined,
+                        density: undefined,
+                        rest: undefined,
+                        view: undefined,
+                      }}
+                    />
+                  }
+                >
+                  View its {item.roastCount} roasts
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
+        <NotebookNotes type="profile" id={item.id} />
+        <AttachmentPanel
+          resourceType="profile"
+          resourceId={item.id}
+          title="Images & files"
+        />
       </div>
+    </div>
+  )
+}
+
+function ProfileLibrary({
+  profiles,
+  roasts,
+}: {
+  profiles: ProfileSummary[]
+  roasts: import("@/lib/api").RoastSummary[]
+}) {
+  const [q, setQ] = useState<string | undefined>(),
+    [state, setState] = useState<DataTableViewState>({
+      sort: undefined,
+      hidden: undefined,
+      density: undefined,
+    })
+  const columns: ColumnDef<ProfileSummary, unknown>[] = [
+    {
+      id: "name",
+      accessorKey: "name",
+      header: "Profile",
+      meta: { mobile: "primary" },
+      cell: ({ row: { original: p } }) => (
+        <div className="notebook-row-image">
+          <EntityImage
+            attachmentId={p.profileImageAttachmentId}
+            entityType="profile"
+          />
+          <div>
+            <ResourceLink type="profile" id={p.id}>
+              {p.name}
+            </ResourceLink>
+            <small>
+              #{p.id} · {p.origin}
+            </small>
+          </div>
+        </div>
+      ),
+    },
+    { id: "origin", accessorKey: "origin", header: "Origin" },
+    {
+      id: "family",
+      header: "Family",
+      cell: ({ row: { original: p } }) => (
+        <>
+          {p.parentProfileId ? (
+            <ResourceLink type="profile" id={p.parentProfileId}>
+              Parent #{p.parentProfileId}
+            </ResourceLink>
+          ) : (
+            "Root profile"
+          )}
+          <small>{p.childCount} children</small>
+        </>
+      ),
+    },
+    {
+      id: "level",
+      accessorKey: "recommendedLevelThousandths",
+      header: "Level",
+      cell: ({ row }) => levelText(row.original.recommendedLevelThousandths),
+    },
+    {
+      id: "load",
+      accessorKey: "referenceLoadMg",
+      header: "Reference load",
+      cell: ({ row }) => massText(row.original.referenceLoadMg),
+    },
+    {
+      id: "coffees",
+      header: "Coffees",
+      cell: ({ row }) => (
+        <div className="flex flex-col gap-2">
+          {[
+            ...new Map(
+              roasts
+                .filter((r) => r.profile?.id === row.original.id && r.coffee)
+                .map((r) => [r.coffee!.id, r.coffee!])
+            ).values(),
+          ].map((c) => (
+            <ResourceLink key={c.id} type="coffee" id={c.id}>
+              {c.name}
+            </ResourceLink>
+          ))}
+        </div>
+      ),
+    },
+    { id: "roastCount", accessorKey: "roastCount", header: "Roasts" },
+  ]
+  return (
+    <div>
+      <PageHeader title="Profiles" />
+      <DataTable
+        columns={columns}
+        data={profiles.filter((p) =>
+          [p.name, p.origin, p.id]
+            .join(" ")
+            .toLowerCase()
+            .includes((q ?? "").toLowerCase())
+        )}
+        preferenceKey="profiles"
+        state={state}
+        updateState={(patch) => setState((s) => ({ ...s, ...patch }))}
+        defaultSorting={[{ id: "name", desc: false }]}
+        noun="profile"
+        search={{
+          id: "profile-search",
+          label: "Search profiles",
+          placeholder: "Name, origin…",
+          value: q,
+          onChange: setQ,
+        }}
+      />
     </div>
   )
 }

@@ -70,6 +70,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         16,
         include_str!("../../companion/migrations/0016_agent_credentials.sql"),
     ),
+    (
+        17,
+        include_str!("../../companion/migrations/0017_roast_gift_page.sql"),
+    ),
 ];
 
 #[derive(Clone)]
@@ -278,7 +282,7 @@ mod tests {
     fn applies_the_existing_forward_migrations() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (16, 4));
+        assert_eq!(database.schema_versions().unwrap(), (17, 4));
         assert!(database.quick_check().unwrap());
     }
 
@@ -300,7 +304,7 @@ mod tests {
         connection.execute("INSERT INTO tan_bridges(bridge_id,device_token_sha256,created_at_ms,updated_at_ms,revoked_at_ms) VALUES (?, ?, 1, 2, 2)", rusqlite::params!["a".repeat(26), "0".repeat(64)]).unwrap();
         drop(connection);
         let database = Database::open(&path).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (16, 4));
+        assert_eq!(database.schema_versions().unwrap(), (17, 4));
         let connection = database.connection();
         let bridge: (String, i64) = connection
             .query_row(
@@ -361,7 +365,7 @@ mod tests {
 
         let database = Database::open(&path).unwrap();
 
-        assert_eq!(database.schema_versions().unwrap(), (16, 4));
+        assert_eq!(database.schema_versions().unwrap(), (17, 4));
         let connection = database.connection();
         assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
         let applied: i64 = connection
@@ -369,7 +373,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 16);
+        assert_eq!(applied, 17);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

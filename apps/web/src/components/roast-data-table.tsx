@@ -1,5 +1,6 @@
-import type { ColumnDef } from "@tanstack/react-table"
-import { Link } from "@tanstack/react-router"
+import { ResourceLink } from "@/components/notebook"
+import { latestTasting, roastNotes } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
 import { Badge } from "@tan-studio/ui/components/badge"
 import {
   Select,
@@ -9,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
+import type { ColumnDef } from "@tanstack/react-table"
 
 import {
   DataTable,
@@ -67,20 +69,6 @@ function statusVariant(status: string) {
 
 const columns: ColumnDef<RoastSummary>[] = [
   {
-    id: "image",
-    header: "Image",
-    cell: ({ row }) => (
-      <EntityImage
-        attachmentId={row.original.profileImageAttachmentId}
-        entityType="roast"
-        alt=""
-      />
-    ),
-    enableHiding: false,
-    enableSorting: false,
-    meta: { label: "Image", mobile: "image" },
-  },
-  {
     accessorKey: "id",
     header: ({ column }) => (
       <DataTableSortHeader
@@ -90,13 +78,18 @@ const columns: ColumnDef<RoastSummary>[] = [
       />
     ),
     cell: ({ row }) => (
-      <Link
-        to="/roasts/$roastId"
-        params={{ roastId: String(row.original.id) }}
-        className="font-semibold underline-offset-4 hover:underline"
-      >
-        #{row.original.id}
-      </Link>
+      <div className="notebook-row-image">
+        <EntityImage
+          attachmentId={row.original.profileImageAttachmentId}
+          entityType="roast"
+        />
+        <div>
+          <ResourceLink type="roast" id={row.original.id}>
+            #{row.original.id}
+          </ResourceLink>
+          <small>{date(row.original.roastedAt)}</small>
+        </div>
+      </div>
     ),
     enableHiding: false,
     meta: { label: "Roast", mobile: "primary" },
@@ -128,7 +121,11 @@ const columns: ColumnDef<RoastSummary>[] = [
       />
     ),
     cell: ({ row }) =>
-      row.original.coffee?.name ?? (
+      row.original.coffee ? (
+        <ResourceLink type="coffee" id={row.original.coffee.id}>
+          {row.original.coffee.name}
+        </ResourceLink>
+      ) : (
         <span className="text-muted-foreground">Unassigned</span>
       ),
     meta: { label: "Coffee", mobile: "detail" },
@@ -143,7 +140,23 @@ const columns: ColumnDef<RoastSummary>[] = [
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       />
     ),
-    cell: ({ row }) => row.original.profile?.name ?? "—",
+    cell: ({ row }) => (
+      <div>
+        {row.original.profile ? (
+          <ResourceLink type="profile" id={row.original.profile.id}>
+            {row.original.profile.name}
+          </ResourceLink>
+        ) : (
+          "—"
+        )}
+        <small>
+          Level{" "}
+          {row.original.levelThousandths == null
+            ? "—"
+            : row.original.levelThousandths / 1000}
+        </small>
+      </div>
+    ),
     meta: { label: "Profile", mobile: "detail" },
   },
   {
@@ -167,13 +180,24 @@ const columns: ColumnDef<RoastSummary>[] = [
     accessorFn: (roast) => roast.greenInputMassMg ?? -1,
     header: ({ column }) => (
       <DataTableSortHeader
-        label="Load"
+        label="Batch"
         sorted={column.getIsSorted()}
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
       />
     ),
-    cell: ({ row }) => grams(row.original.greenInputMassMg),
-    meta: { label: "Load", mobile: "detail" },
+    cell: ({ row }) => (
+      <div>
+        {grams(row.original.greenInputMassMg)} →{" "}
+        {grams(row.original.roastedYieldMassMg)}
+        <small>
+          {row.original.greenInputMassMg &&
+          row.original.roastedYieldMassMg != null
+            ? `${(100 * (1 - row.original.roastedYieldMassMg / row.original.greenInputMassMg)).toFixed(1)}% loss`
+            : "Yield —"}
+        </small>
+      </div>
+    ),
+    meta: { label: "Batch", mobile: "detail" },
   },
   {
     id: "activity",
@@ -216,6 +240,48 @@ export function RoastDataTable({
   search,
   updateSearch,
 }: RoastDataTableProps) {
+  const history = useNotebookHistory()
+  const relationalColumns: ColumnDef<RoastSummary>[] = [
+    ...columns,
+    {
+      id: "notes",
+      header: "Roast note",
+      enableSorting: false,
+      meta: { label: "Roast note", mobile: "detail" },
+      cell: ({ row }) => {
+        const notes = roastNotes(history.notes, row.original.id)
+        return notes.length
+          ? notes.map((n) => (
+              <p className="notebook-excerpt" key={n.id}>
+                {n.body}
+              </p>
+            ))
+          : "No note."
+      },
+    },
+    {
+      id: "tasting",
+      header: "Brews & tasting",
+      enableSorting: false,
+      meta: { label: "Brews & tasting", mobile: "detail" },
+      cell: ({ row }) => {
+        const brews = history.brews.filter((b) => b.roastId === row.original.id)
+        return brews.length
+          ? brews.map((b) => (
+              <div className="notebook-brew-excerpt" key={b.id}>
+                <ResourceLink type="brew" id={b.id}>
+                  #{b.id} · {b.method}
+                </ResourceLink>
+                <p className="notebook-excerpt">
+                  {latestTasting(b)?.body ?? "No tasting note."}
+                </p>
+              </div>
+            ))
+          : "No brews."
+      },
+    },
+  ]
+
   const profileItems = [
     { value: "all", label: "Every profile" },
     ...profiles.map((profile) => ({
@@ -234,7 +300,8 @@ export function RoastDataTable({
   return (
     <DataTable
       preferenceKey="roasts"
-      columns={columns}
+      columns={relationalColumns}
+      defaultHidden={["roastedAt", "level", "activity", "status"]}
       data={data}
       state={search}
       updateState={updateSearch}

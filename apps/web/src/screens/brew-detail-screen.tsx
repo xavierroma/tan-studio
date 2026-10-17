@@ -1,7 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
-import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
@@ -12,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
-import { Separator } from "@tan-studio/ui/components/separator"
 import {
   Sheet,
   SheetContent,
@@ -22,18 +18,28 @@ import {
   SheetTrigger,
 } from "@tan-studio/ui/components/sheet"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
-import { Textarea } from "@tan-studio/ui/components/textarea"
-import { ArrowLeftIcon, PencilIcon, SaveIcon } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useParams } from "@tanstack/react-router"
+import { PencilIcon, SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { useState } from "react"
 import { toast } from "sonner"
 
+import {
+  BrewHistory,
+  CollectionLink,
+  NotebookBreadcrumbs,
+  NotebookSection,
+  ResourceLink,
+} from "@/components/notebook"
+import { NotebookNotes } from "@/components/notebook-notes"
+import { dateText, levelText, massText } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
+
 import { AttachmentPanel } from "@/components/attachment-panel"
 import { EntityImage } from "@/components/entity-image"
-import { Metric } from "@/components/metric"
 import { PageHeader } from "@/components/page-header"
 import {
-  createNote,
   getBrew,
   listRoasts,
   queryKeys,
@@ -70,7 +76,7 @@ export function BrewDetailScreen() {
   const brewId = Number(params.brewId)
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
-  const [noteBody, setNoteBody] = useState("")
+  const history = useNotebookHistory()
   const brew = useQuery({
     queryKey: queryKeys.brew(brewId),
     queryFn: ({ signal }) => getBrew(brewId, signal),
@@ -93,17 +99,6 @@ export function BrewDetailScreen() {
     },
     onError: (error) => toast.error(error.message),
   })
-  const addNote = useMutation({
-    mutationFn: createNote,
-    onSuccess: () => {
-      toast.success("Note saved")
-      setNoteBody("")
-      void queryClient.invalidateQueries({ queryKey: queryKeys.brew(brewId) })
-      void queryClient.invalidateQueries({ queryKey: ["brews"] })
-    },
-    onError: (error) => toast.error(error.message),
-  })
-
   if (brew.error) throw brew.error
   if (roasts.error) throw roasts.error
   if (brew.isPending || !brew.data) {
@@ -115,9 +110,11 @@ export function BrewDetailScreen() {
   }
 
   const item = brew.data
-  const roast = roasts.data?.find((candidate) => candidate.id === item.roastId)
+  const roast = history.roasts.find(
+    (candidate) => candidate.id === item.roastId
+  )
   const roastItems =
-    roasts.data?.map((candidate) => ({
+    history.roasts.map((candidate) => ({
       value: String(candidate.id),
       label: `#${candidate.id} · ${candidate.coffee?.name ?? "Unassigned coffee"} · ${candidate.profile?.name ?? "No profile"}`,
     })) ?? []
@@ -147,59 +144,42 @@ export function BrewDetailScreen() {
     })
   }
 
-  const submitNote = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const body = noteBody.trim()
-    if (!body) return
-    const score = String(form.get("score") ?? "").trim()
-    addNote.mutate({
-      kind: "tasting",
-      body,
-      ratingBasisPoints: score === "" ? null : Math.round(Number(score) * 100),
-      source: "user",
-      attributes: {},
-      links: [
-        { resourceType: "brew", resourceId: item.id },
-        { resourceType: "roast", resourceId: item.roastId },
-      ],
-    })
-  }
-
   return (
     <div className="min-h-screen">
+      <NotebookBreadcrumbs
+        items={[
+          <CollectionLink type="brew" />,
+          ...(roast?.coffee
+            ? [
+                <ResourceLink type="coffee" id={roast.coffee.id}>
+                  {roast.coffee.name}
+                </ResourceLink>,
+              ]
+            : []),
+          <ResourceLink type="roast" id={item.roastId}>
+            Roast #{item.roastId}
+          </ResourceLink>,
+          `Brew #${item.id}`,
+        ]}
+      />
       <PageHeader
-        eyebrow={new Intl.DateTimeFormat(undefined, {
-          dateStyle: "long",
-          timeStyle: "short",
-        }).format(new Date(item.brewedAt))}
-        title={`Brew #${item.id}`}
-        description={`${item.method} · Roast #${item.roastId}`}
+        title={`Brew #${item.id} / ${item.method}`}
+        image={
+          <EntityImage
+            attachmentId={item.profileImageAttachmentId}
+            entityType="brew"
+            alt={`Brew #${item.id}`}
+          />
+        }
+        description={dateText(item.brewedAt, true)}
         actions={
           <>
-            <Link
-              to="/brews"
-              search={{
-                roastId: undefined,
-                brewId: undefined,
-                tab: undefined,
-                q: undefined,
-                method: undefined,
-                sort: undefined,
-                hidden: undefined,
-                density: undefined,
-              }}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <ArrowLeftIcon data-icon="inline-start" />
-              Brews
-            </Link>
             <Sheet open={editOpen} onOpenChange={setEditOpen}>
               <SheetTrigger
                 render={
                   <Button variant="outline">
                     <PencilIcon data-icon="inline-start" />
-                    Edit
+                    Edit brew
                   </Button>
                 }
               />
@@ -367,120 +347,101 @@ export function BrewDetailScreen() {
           </>
         }
       />
-
-      <div className="grid gap-6 px-3 py-4 sm:px-7 sm:py-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <main className="min-w-0 space-y-6">
-          <section className="bg-card flex items-center gap-5 rounded-xl border p-5">
-            <EntityImage
-              attachmentId={item.profileImageAttachmentId}
-              entityType="brew"
-              alt={`Brew #${item.id}`}
-              className="size-28 rounded-xl sm:size-36"
-            />
-            <div className="min-w-0">
-              <p className="text-muted-foreground text-sm">Brew #{item.id}</p>
-              <h2 className="mt-1 text-xl font-semibold">{item.method}</h2>
-              <Link
-                to="/roasts/$roastId"
-                params={{ roastId: String(item.roastId) }}
-                className="text-muted-foreground mt-2 inline-block underline-offset-4 hover:underline"
-              >
-                Roast #{item.roastId}
-                {roast?.coffee?.name ? ` · ${roast.coffee.name}` : ""}
-              </Link>
-            </div>
-          </section>
-
-          <section
-            className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-3"
-            aria-label="Brew summary"
-          >
-            <Metric label="Coffee" value={grams(item.coffeeMassMg)} />
-            <Metric label="Water" value={grams(item.waterMassMg)} />
-            <Metric
-              label="Ratio"
-              value={`1:${(item.waterMassMg / item.coffeeMassMg).toFixed(1)}`}
-            />
-            <Metric
-              label="Temperature"
-              value={
-                item.waterTemperatureMilliC == null
-                  ? "—"
-                  : `${item.waterTemperatureMilliC / 1_000}°C`
-              }
-            />
-            <Metric label="Grinder" value={item.grinder || "—"} />
-            <Metric label="Setting" value={item.grinderSetting || "—"} />
-          </section>
-
+      <div className="notebook-lineage">
+        <div>
+          <small>Coffee</small>
+          {roast?.coffee ? (
+            <ResourceLink type="coffee" id={roast.coffee.id}>
+              {roast.coffee.name}
+            </ResourceLink>
+          ) : (
+            <span>Unassigned</span>
+          )}
+        </div>
+        <div>
+          <small>Roast</small>
+          <ResourceLink type="roast" id={item.roastId}>
+            #{item.roastId}
+            {roast?.roastedAt ? ` · ${dateText(roast.roastedAt)}` : ""}
+          </ResourceLink>
+          <p>
+            {roast?.profile?.name ?? "Profile —"} · Level{" "}
+            {levelText(roast?.levelThousandths)}
+          </p>
+        </div>
+      </div>
+      <dl className="notebook-facts">
+        {[
+          ["Coffee dose", massText(item.coffeeMassMg)],
+          ["Water in", massText(item.waterMassMg)],
+          [
+            "Input ratio",
+            item.coffeeMassMg > 0
+              ? `1 : ${(item.waterMassMg / item.coffeeMassMg).toFixed(1)}`
+              : "—",
+          ],
+          [
+            "Water temperature",
+            item.waterTemperatureMilliC == null
+              ? "—"
+              : `${item.waterTemperatureMilliC / 1000}°C`,
+          ],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="notebook-columns">
+        <NotebookNotes
+          type="brew"
+          id={item.id}
+          roastId={item.roastId}
+          notes={item.notes}
+          title="Tasting & notes"
+        />
+        <NotebookSection title="Brew recipe">
+          <dl className="notebook-details">
+            {[
+              ["Method", item.method],
+              ["Grinder", item.grinder],
+              ["Grind setting", item.grinderSetting],
+              ["Kettle", item.kettle],
+              ["Water", item.water],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v || "—"}</dd>
+              </div>
+            ))}
+          </dl>
           {technique(item.recipe) ? (
-            <section className="bg-card rounded-xl border p-5">
-              <h2 className="font-semibold">Technique</h2>
-              <p className="mt-3 text-sm whitespace-pre-wrap">
-                {technique(item.recipe)}
-              </p>
-            </section>
+            <p className="notebook-recipe">{technique(item.recipe)}</p>
           ) : null}
-
-          <AttachmentPanel
-            resourceType="brew"
-            resourceId={item.id}
-            title="Brew media"
-            description="Photos and files from this brew."
-          />
-        </main>
-
-        <aside className="min-w-0">
-          <section className="bg-card rounded-xl border p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Tasting notes</h2>
-              <Badge variant="secondary">{item.notes.length}</Badge>
-            </div>
-            <div className="mt-4 flex flex-col gap-4">
-              {item.notes.map((note) => (
-                <article key={note.id}>
-                  <p className="text-sm whitespace-pre-wrap">{note.body}</p>
-                  {note.ratingBasisPoints != null ? (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      Score {(note.ratingBasisPoints / 100).toFixed(2)}
-                    </p>
-                  ) : null}
-                  <Separator className="mt-4" />
-                </article>
-              ))}
-            </div>
-            <form onSubmit={submitNote} className="mt-4">
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="brew-note">Add tasting note</FieldLabel>
-                  <Textarea
-                    id="brew-note"
-                    value={noteBody}
-                    onChange={(event) => setNoteBody(event.target.value)}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="score">Score / 100</FieldLabel>
-                  <Input
-                    id="score"
-                    name="score"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.25"
-                  />
-                </Field>
-                <Button
-                  type="submit"
-                  disabled={addNote.isPending || !noteBody.trim()}
-                >
-                  <SaveIcon data-icon="inline-start" />
-                  Save note
-                </Button>
-              </FieldGroup>
-            </form>
-          </section>
-        </aside>
+        </NotebookSection>
+      </div>
+      <NotebookSection
+        title="Other brews from this roast"
+        count={
+          history.brews.filter(
+            (b) => b.roastId === item.roastId && b.id !== item.id
+          ).length
+        }
+      >
+        <BrewHistory
+          brews={history.brews.filter(
+            (b) => b.roastId === item.roastId && b.id !== item.id
+          )}
+          roasts={history.roasts}
+        />
+      </NotebookSection>
+      <div className="notebook-section">
+        <AttachmentPanel
+          resourceType="brew"
+          resourceId={item.id}
+          title="Images & files"
+        />
       </div>
     </div>
   )

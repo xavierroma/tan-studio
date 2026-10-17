@@ -1,4 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@tan-studio/ui/components/dialog"
+import { Item, ItemContent, ItemActions } from "@tan-studio/ui/components/item"
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardAction,
+  CardContent,
+} from "@tan-studio/ui/components/card"
 import { Badge } from "@tan-studio/ui/components/badge"
 import { Button } from "@tan-studio/ui/components/button"
 import {
@@ -7,18 +21,20 @@ import {
   FieldLabel,
 } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ExternalLinkIcon,
   FileIcon,
   ImageIcon,
   PaperclipIcon,
-  UploadIcon,
   StarIcon,
+  UploadIcon,
   VideoIcon,
 } from "lucide-react"
 import type { FormEvent } from "react"
 import { toast } from "sonner"
 
+import { EntityImage } from "@/components/entity-image"
 import {
   getAttachmentContent,
   listAttachments,
@@ -27,7 +43,6 @@ import {
   uploadAttachment,
   type Attachment,
 } from "@/lib/api"
-import { EntityImage } from "@/components/entity-image"
 
 type AttachmentPanelProps = {
   resourceType: "profile" | "coffee" | "roast" | "brew"
@@ -61,9 +76,10 @@ export function AttachmentPanel({
   resourceType,
   resourceId,
   title = "Attachments",
-  description = "Photos, videos, PDFs, and source documents stay in Tan Studio’s local file store.",
+  description = "",
   compact = false,
 }: AttachmentPanelProps) {
+  const [selected, setSelected] = useState<Attachment | null>(null)
   const queryClient = useQueryClient()
   const attachments = useQuery({
     queryKey: queryKeys.attachments(resourceType, resourceId),
@@ -147,117 +163,190 @@ export function AttachmentPanel({
   }
 
   return (
-    <section className={compact ? "" : "bg-card rounded-xl border p-5"}>
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">{title}</h2>
-        <Badge variant="secondary">{attachments.data?.length ?? 0}</Badge>
-      </div>
-      {!compact ? (
-        <p className="text-muted-foreground mt-1 text-sm">{description}</p>
-      ) : null}
-
-      {attachments.data?.length ? (
-        <div className="mt-4 flex flex-col gap-2">
-          {attachments.data.map((attachment) => (
-            <div
-              key={attachment.id}
-              className="bg-muted/40 flex items-center gap-3 rounded-lg border p-3"
-            >
-              {attachment.mediaType.startsWith("image/") ? (
-                <EntityImage
-                  attachmentId={attachment.id}
-                  entityType={resourceType}
-                  alt=""
-                  className={compact ? "size-12" : "size-16"}
-                />
-              ) : (
-                <span className="text-muted-foreground [&_svg]:size-4">
-                  <MediaIcon mediaType={attachment.mediaType} />
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {attachment.title}
-                </p>
-                <p className="text-muted-foreground truncate text-xs">
-                  #{attachment.id} · {bytes(attachment.byteLength)}
-                </p>
-              </div>
-              {attachment.sha256 ? (
-                <div className="flex items-center gap-1">
-                  {attachment.mediaType.startsWith("image/") ? (
-                    <Button
-                      type="button"
-                      variant={
-                        attachment.links.some(
+    <Card className={compact ? "border-0" : ""}>
+      <CardHeader className="p-0">
+        <CardTitle>
+          <h2>{title}</h2>
+        </CardTitle>
+        <CardAction>
+          <Badge variant="secondary">{attachments.data?.length ?? 0}</Badge>
+        </CardAction>
+        {!compact && description ? (
+          <p className="text-muted-foreground mt-1 text-sm">{description}</p>
+        ) : null}
+      </CardHeader>
+      <CardContent className="p-0">
+        {attachments.data?.length ? (
+          <div className="mt-4 flex flex-col gap-2">
+            {attachments.data.map((attachment) => (
+              <Item key={attachment.id} className="border-b p-3">
+                {attachment.mediaType.startsWith("image/") ? (
+                  <EntityImage
+                    attachmentId={attachment.id}
+                    entityType={resourceType}
+                    alt=""
+                    className={compact ? "size-12" : "size-16"}
+                  />
+                ) : (
+                  <span className="text-muted-foreground [&_svg]:size-4">
+                    <MediaIcon mediaType={attachment.mediaType} />
+                  </span>
+                )}
+                <ItemContent className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {attachment.title}
+                  </p>
+                  <p className="text-muted-foreground truncate text-xs">
+                    #{attachment.id} · {bytes(attachment.byteLength)}
+                  </p>
+                </ItemContent>
+                {attachment.sha256 ? (
+                  <ItemActions className="flex-wrap">
+                    {attachment.mediaType.startsWith("image/") ? (
+                      <Button
+                        type="button"
+                        variant={
+                          attachment.links.some(
+                            (link) =>
+                              link.resourceType === resourceType &&
+                              link.resourceId === resourceId &&
+                              link.role === "profile"
+                          )
+                            ? "secondary"
+                            : "ghost"
+                        }
+                        size="sm"
+                        disabled={profileImage.isPending}
+                        onClick={() => profileImage.mutate(attachment.id)}
+                      >
+                        <StarIcon data-icon="inline-start" />
+                        {attachment.links.some(
                           (link) =>
                             link.resourceType === resourceType &&
                             link.resourceId === resourceId &&
                             link.role === "profile"
                         )
-                          ? "secondary"
-                          : "ghost"
-                      }
+                          ? "Profile image"
+                          : "Use as profile"}
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
                       size="sm"
-                      disabled={profileImage.isPending}
-                      onClick={() => profileImage.mutate(attachment.id)}
+                      disabled={open.isPending}
+                      onClick={() =>
+                        attachment.mediaType.startsWith("image/")
+                          ? setSelected(attachment)
+                          : open.mutate(attachment)
+                      }
                     >
-                      <StarIcon data-icon="inline-start" />
-                      {attachment.links.some(
-                        (link) =>
-                          link.resourceType === resourceType &&
-                          link.resourceId === resourceId &&
-                          link.role === "profile"
-                      )
-                        ? "Profile image"
-                        : "Use as profile"}
+                      <ExternalLinkIcon data-icon="inline-start" />
+                      Open
                     </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={open.isPending}
-                    onClick={() => open.mutate(attachment)}
-                  >
-                    <ExternalLinkIcon data-icon="inline-start" />
-                    Open
-                  </Button>
-                </div>
-              ) : (
-                <Badge variant="warning">Pending</Badge>
-              )}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
-          <PaperclipIcon />
-          Nothing attached yet.
-        </p>
-      )}
+                  </ItemActions>
+                ) : (
+                  <Badge variant="warning">Pending</Badge>
+                )}
+              </Item>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground mt-4 flex items-center gap-2 text-sm">
+            <PaperclipIcon />
+            Nothing attached yet.
+          </p>
+        )}
 
-      <form onSubmit={submit} className="mt-4 flex items-end gap-2">
-        <Field className="min-w-0 flex-1">
-          <FieldLabel htmlFor={`attachments-${resourceType}-${resourceId}`}>
-            Add files
-          </FieldLabel>
-          <Input
-            id={`attachments-${resourceType}-${resourceId}`}
-            name="files"
-            type="file"
-            multiple
-            accept="image/*,video/*,application/pdf,text/plain,text/csv"
-          />
-          {!compact ? (
-            <FieldDescription>Up to 512 MiB per file.</FieldDescription>
+        <form onSubmit={submit} className="mt-4 flex items-end gap-2">
+          <Field className="min-w-0 flex-1">
+            <FieldLabel htmlFor={`attachments-${resourceType}-${resourceId}`}>
+              Add files
+            </FieldLabel>
+            <Input
+              id={`attachments-${resourceType}-${resourceId}`}
+              name="files"
+              type="file"
+              multiple
+              accept="image/*,video/*,application/pdf,text/plain,text/csv"
+            />
+            {!compact ? (
+              <FieldDescription>Up to 512 MiB per file.</FieldDescription>
+            ) : null}
+          </Field>
+          <Button type="submit" variant="outline" disabled={upload.isPending}>
+            <UploadIcon data-icon="inline-start" />
+            {upload.isPending ? "Saving…" : "Attach"}
+          </Button>
+        </form>
+      </CardContent>
+      <Dialog
+        open={selected != null}
+        onOpenChange={(value) => {
+          if (!value) setSelected(null)
+        }}
+      >
+        <DialogContent className="max-h-[90svh] max-w-4xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {selected?.title || selected?.filename || "Attachment"}
+            </DialogTitle>
+          </DialogHeader>
+          {selected ? (
+            <>
+              <EntityImage
+                attachmentId={selected.id}
+                entityType={resourceType}
+                alt={selected.title || selected.filename}
+                className="h-[60vh] w-full border-0"
+                imageClassName="object-contain"
+              />
+              <p className="text-muted-foreground text-xs">
+                #{selected.id} · {selected.filename} · {selected.mediaType} ·{" "}
+                {bytes(selected.byteLength)}
+              </p>
+              {selected.description ? (
+                <p className="text-sm whitespace-pre-wrap">
+                  {selected.description}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={
+                    !attachments.data?.some(
+                      (a, i, all) => all[i + 1]?.id === selected.id
+                    )
+                  }
+                  onClick={() => {
+                    const i = attachments.data!.findIndex(
+                      (a) => a.id === selected.id
+                    )
+                    setSelected(attachments.data![i - 1]!)
+                  }}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={attachments.data?.at(-1)?.id === selected.id}
+                  onClick={() => {
+                    const i = attachments.data!.findIndex(
+                      (a) => a.id === selected.id
+                    )
+                    setSelected(attachments.data![i + 1]!)
+                  }}
+                >
+                  Next
+                </Button>
+                <Button variant="outline" onClick={() => open.mutate(selected)}>
+                  Open original ↗
+                </Button>
+              </div>
+            </>
           ) : null}
-        </Field>
-        <Button type="submit" variant="outline" disabled={upload.isPending}>
-          <UploadIcon data-icon="inline-start" />
-          {upload.isPending ? "Saving…" : "Attach"}
-        </Button>
-      </form>
-    </section>
+        </DialogContent>
+      </Dialog>
+    </Card>
   )
 }

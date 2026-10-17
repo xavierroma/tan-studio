@@ -1,6 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   Empty,
   EmptyDescription,
@@ -9,6 +7,8 @@ import {
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
+import { useQuery } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FlameIcon, PlusIcon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
@@ -74,14 +74,19 @@ export function RoastLibraryScreen() {
       <PageHeader
         title="Roasts"
         actions={
-          <Link
-            to="/roast"
-            search={{ profileId: undefined, coffeeId: undefined }}
-            className={buttonVariants()}
+          <Button
+            nativeButton={false}
+            role="link"
+            render={
+              <Link
+                to="/roast"
+                search={{ profileId: undefined, coffeeId: undefined }}
+              />
+            }
           >
             <PlusIcon data-icon="inline-start" />
             Prepare a roast
-          </Link>
+          </Button>
         }
       />
 

@@ -1,12 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
@@ -18,6 +16,8 @@ import {
   SelectValue,
 } from "@tan-studio/ui/components/select"
 import { Textarea } from "@tan-studio/ui/components/textarea"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { CableIcon, FlameIcon, RefreshCwIcon, SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { useEffect } from "react"
@@ -184,13 +184,19 @@ export function LiveRoastScreen() {
               </AlertTitle>
               <AlertDescription>
                 <div className="flex flex-wrap gap-2">
-                  <Link
-                    to="/roasts/$roastId"
-                    params={{ roastId: String(activeRoast.id) }}
-                    className={buttonVariants({ size: "sm" })}
+                  <Button
+                    nativeButton={false}
+                    role="link"
+                    size={"sm"}
+                    render={
+                      <Link
+                        to="/roasts/$roastId"
+                        params={{ roastId: String(activeRoast.id) }}
+                      />
+                    }
                   >
                     Resume roast
-                  </Link>
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -212,9 +218,7 @@ export function LiveRoastScreen() {
                 <FieldLabel htmlFor="roast-profile">Profile</FieldLabel>
                 <Select
                   items={profileItems}
-                  value={
-                    selectedProfile ? String(selectedProfile.id) : undefined
-                  }
+                  value={selectedProfile ? String(selectedProfile.id) : null}
                   onValueChange={(value) =>
                     value &&
                     void navigate({

@@ -1,6 +1,6 @@
+import { Button } from "@tan-studio/ui/components/button"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { buttonVariants } from "@tan-studio/ui/components/button"
 import { PlusIcon } from "lucide-react"
 
 import { AttachmentPanel } from "@/components/attachment-panel"
@@ -30,22 +30,30 @@ export function BrewsScreen() {
         actions={
           <>
             {search.roastId ? (
-              <Link
-                to="/roasts/$roastId"
-                params={{ roastId: String(search.roastId) }}
-                className={buttonVariants({ variant: "outline" })}
+              <Button
+                nativeButton={false}
+                role="link"
+                variant={"outline"}
+                render={
+                  <Link
+                    to="/roasts/$roastId"
+                    params={{ roastId: String(search.roastId) }}
+                  />
+                }
               >
                 Roast #{search.roastId}
-              </Link>
+              </Button>
             ) : null}
-            <Link
-              to="/brews/new"
-              search={{ roastId: search.roastId }}
-              className={buttonVariants()}
+            <Button
+              nativeButton={false}
+              role="link"
+              render={
+                <Link to="/brews/new" search={{ roastId: search.roastId }} />
+              }
             >
               <PlusIcon data-icon="inline-start" />
               Log brew
-            </Link>
+            </Button>
           </>
         }
       />

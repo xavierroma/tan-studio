@@ -1,11 +1,16 @@
-import { Link, useRouter } from "@tanstack/react-router"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
-import { buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@tan-studio/ui/components/collapsible"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
+import { Link, useRouter } from "@tanstack/react-router"
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -51,47 +56,62 @@ export function AppErrorScreen({
             return to the roast notebook.
           </p>
           {import.meta.env.DEV && error.stack ? (
-            <details className="mt-3">
-              <summary className="cursor-pointer text-sm font-medium">
+            <Collapsible className="mt-3">
+              <CollapsibleTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    className="cursor-pointer text-sm font-medium"
+                  />
+                }
+              >
                 Development stack trace
-              </summary>
-              <pre className="mt-2 max-h-64 overflow-auto text-xs whitespace-pre-wrap">
-                {error.stack}
-              </pre>
-            </details>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <pre className="mt-2 max-h-64 overflow-auto text-xs whitespace-pre-wrap">
+                  {error.stack}
+                </pre>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" className={buttonVariants()} onClick={retry}>
+            <Button type="button" onClick={retry}>
               <RefreshCwIcon data-icon="inline-start" />
               Retry
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={buttonVariants({ variant: "outline" })}
               onClick={() => window.history.back()}
+              variant={"outline"}
             >
               <ArrowLeftIcon data-icon="inline-start" />
               Go back
-            </button>
-            <Link
-              to="/roasts"
-              search={{
-                q: undefined,
-                status: undefined,
-                profileId: undefined,
-                coffeeId: undefined,
-                archived: undefined,
-                sort: undefined,
-                hidden: undefined,
-                density: undefined,
-                rest: undefined,
-                view: undefined,
-              }}
-              className={buttonVariants({ variant: "outline" })}
+            </Button>
+            <Button
+              nativeButton={false}
+              role="link"
+              variant={"outline"}
+              render={
+                <Link
+                  to="/roasts"
+                  search={{
+                    q: undefined,
+                    status: undefined,
+                    profileId: undefined,
+                    coffeeId: undefined,
+                    archived: undefined,
+                    sort: undefined,
+                    hidden: undefined,
+                    density: undefined,
+                    rest: undefined,
+                    view: undefined,
+                  }}
+                />
+              }
             >
               <HouseIcon data-icon="inline-start" />
               Roast notebook
-            </Link>
+            </Button>
           </div>
         </AlertDescription>
       </Alert>

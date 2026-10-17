@@ -1,49 +1,35 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useParams } from "@tanstack/react-router"
+import { Card, CardContent } from "@tan-studio/ui/components/card"
+import { RoastGiftPage } from "@/components/roast-gift-page"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@tan-studio/ui/components/field"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@tan-studio/ui/components/select"
-import { Separator } from "@tan-studio/ui/components/separator"
+import { Button } from "@tan-studio/ui/components/button"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
-import { Textarea } from "@tan-studio/ui/components/textarea"
-import {
-  ArchiveIcon,
-  ArchiveRestoreIcon,
-  ArrowLeftIcon,
-  CoffeeIcon,
-  FileTextIcon,
-  PencilIcon,
-  PrinterIcon,
-} from "lucide-react"
-import type { FormEvent } from "react"
-import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useParams } from "@tanstack/react-router"
+import { ArchiveIcon, ArchiveRestoreIcon, PencilIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { Metric } from "@/components/metric"
-import { PageHeader } from "@/components/page-header"
-import { RoastChart } from "@/components/roast-chart"
+import {
+  BrewHistory,
+  CollectionLink,
+  NotebookBreadcrumbs,
+  NotebookSection,
+  ResourceLink,
+  RoastHistory,
+} from "@/components/notebook"
+import { NotebookNotes } from "@/components/notebook-notes"
+import { dateText, levelText, massText } from "@/lib/notebook"
+import { useNotebookHistory } from "@/lib/notebook-queries"
+
 import { AttachmentPanel } from "@/components/attachment-panel"
 import { EntityImage } from "@/components/entity-image"
+import { PageHeader } from "@/components/page-header"
+import { RoastChart } from "@/components/roast-chart"
 import {
-  createNote,
   getRoast,
   getRoastContext,
   getRoastSeries,
@@ -119,7 +105,7 @@ export function RoastDetailScreen() {
   const params = useParams({ from: "/roasts/$roastId" })
   const roastId = Number(params.roastId)
   const queryClient = useQueryClient()
-  const [noteBody, setNoteBody] = useState("")
+  const history = useNotebookHistory()
   const roast = useQuery({
     queryKey: queryKeys.roast(roastId),
     queryFn: ({ signal }) => getRoast(roastId, signal),
@@ -135,18 +121,6 @@ export function RoastDetailScreen() {
     ),
     queryFn: ({ signal }) => getRoastSeries(roast.data!, signal),
     enabled: Boolean(roast.data?.sampleStream),
-  })
-  const noteMutation = useMutation({
-    mutationFn: createNote,
-    onSuccess: () => {
-      toast.success("Note saved")
-      setNoteBody("")
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.roastContext(roastId),
-      })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.roast(roastId) })
-    },
-    onError: (error) => toast.error(error.message),
   })
   const archiveMutation = useMutation({
     mutationFn: (archived: boolean) =>
@@ -177,19 +151,6 @@ export function RoastDetailScreen() {
 
   const item = roast.data
   const points = chartPoints(series.data ?? null)
-  const submitNote = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const body = noteBody.trim()
-    if (!body) return
-    noteMutation.mutate({
-      kind: String(form.get("kind") ?? "observation"),
-      body,
-      source: "user",
-      attributes: {},
-      links: [{ resourceType: "roast", resourceId: roastId }],
-    })
-  }
   const actualFirstCrack =
     item.events.find(
       (event) => event.kind === "first_crack" && event.source === "user"
@@ -218,48 +179,47 @@ export function RoastDetailScreen() {
 
   return (
     <div className="min-h-screen">
+      <NotebookBreadcrumbs
+        items={[
+          <CollectionLink type="roast" />,
+          ...(item.coffee
+            ? [
+                <ResourceLink type="coffee" id={item.coffee.id}>
+                  {item.coffee.name}
+                </ResourceLink>,
+              ]
+            : []),
+          `Roast #${item.id}`,
+        ]}
+      />
       <PageHeader
-        eyebrow={
-          item.roastedAt
-            ? new Intl.DateTimeFormat(undefined, {
-                dateStyle: "long",
-                timeStyle: "short",
-              }).format(new Date(item.roastedAt))
-            : "Date unavailable"
-        }
         title={`Roast #${item.id}`}
-        description={`${item.coffee?.name ?? "Unassigned coffee"} · ${item.profile?.name ?? "No profile"}`}
+        description={`${dateText(item.roastedAt, true)} · ${item.status}${item.archivedAt ? " · archived" : ""}`}
+        image={
+          <EntityImage
+            attachmentId={item.profileImageAttachmentId}
+            entityType="roast"
+            alt={`Roast #${item.id}`}
+          />
+        }
         actions={
           <>
-            <Link
-              to="/roasts"
-              search={{
-                q: undefined,
-                status: undefined,
-                profileId: undefined,
-                coffeeId: undefined,
-                archived: item.archivedAt ? true : undefined,
-                sort: undefined,
-                hidden: undefined,
-                density: undefined,
-                rest: undefined,
-                view: undefined,
-              }}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              <ArrowLeftIcon data-icon="inline-start" />
-              Roasts
-            </Link>
-            <Link
-              to="/roasts/$roastId/edit"
-              params={{ roastId: String(item.id) }}
-              className={buttonVariants({ variant: "outline" })}
+            <Button
+              nativeButton={false}
+              role="link"
+              variant={"outline"}
+              render={
+                <Link
+                  to="/roasts/$roastId/edit"
+                  params={{ roastId: String(item.id) }}
+                />
+              }
             >
               <PencilIcon data-icon="inline-start" />
-              Edit
-            </Link>
+              Edit roast
+            </Button>
             <Button
-              variant={item.archivedAt ? "outline" : "destructive"}
+              variant="outline"
               disabled={archiveMutation.isPending}
               onClick={() => archiveMutation.mutate(!item.archivedAt)}
             >
@@ -273,296 +233,255 @@ export function RoastDetailScreen() {
           </>
         }
       />
-
-      <div className="grid gap-6 px-3 py-4 sm:px-7 sm:py-6 xl:grid-cols-[minmax(0,1fr)_21rem]">
-        <main className="min-w-0">
-          <section className="bg-card mb-6 flex items-center gap-5 rounded-xl border p-5">
-            <EntityImage
-              attachmentId={item.profileImageAttachmentId}
-              entityType="roast"
-              alt={`Roast #${item.id}`}
-              className="size-28 rounded-xl sm:size-36"
-            />
-            <div className="min-w-0">
-              <p className="text-muted-foreground text-sm">Roast #{item.id}</p>
-              <h2 className="mt-1 text-xl font-semibold">
-                {item.coffee?.name ?? "Unassigned coffee"}
-              </h2>
-              <p className="text-muted-foreground mt-2">
-                {item.profile?.name ?? "No profile"}
-              </p>
-            </div>
-          </section>
-          <section
-            className="bg-card grid grid-cols-2 gap-5 rounded-xl border p-5 sm:grid-cols-4 lg:grid-cols-8"
-            aria-label="Roast summary"
-          >
-            <Metric
-              label="Level"
-              value={
-                item.levelThousandths == null
+      <div className="flex flex-wrap items-center gap-3 pb-6">
+        <Button
+          nativeButton={false}
+          role="link"
+          variant={"outline"}
+          render={<Link to="/brews/new" search={{ roastId: item.id }} />}
+        >
+          Record a brew
+        </Button>
+        <Button
+          nativeButton={false}
+          role="link"
+          variant={"outline"}
+          render={<Link to="/labels" search={{ roastId: item.id }} />}
+        >
+          Jar label
+        </Button>
+        <a href="#roast-media" className="notebook-link text-xs">
+          Images & files ↓
+        </a>
+      </div>
+      <div className="notebook-lineage">
+        <div>
+          <small>Coffee</small>
+          {item.coffee ? (
+            <ResourceLink type="coffee" id={item.coffee.id}>
+              {item.coffee.name}
+            </ResourceLink>
+          ) : (
+            <span>Unassigned</span>
+          )}
+          {context.data?.coffee ? (
+            <p>
+              {[context.data.coffee.country, context.data.coffee.process]
+                .filter(Boolean)
+                .join(" · ")}{" "}
+              · {massText(context.data.coffee.remainingMassMg)} green
+            </p>
+          ) : null}
+        </div>
+        <div>
+          <small>Profile</small>
+          {item.profile ? (
+            <ResourceLink type="profile" id={item.profile.id}>
+              {item.profile.name}
+            </ResourceLink>
+          ) : (
+            <span>Unassigned</span>
+          )}
+        </div>
+      </div>
+      <dl className="notebook-facts">
+        {[
+          ["Level", levelText(item.levelThousandths)],
+          [
+            "Green → roasted",
+            `${massText(item.greenInputMassMg)} → ${massText(item.roastedYieldMassMg)}`,
+          ],
+          [
+            "Weight loss",
+            item.greenInputMassMg && item.roastedYieldMassMg != null
+              ? `${(100 * (1 - item.roastedYieldMassMg / item.greenInputMassMg)).toFixed(1)}%`
+              : "—",
+          ],
+          ["Duration", elapsed(item.durationMs)],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {item.status === "planned" ? (
+        <Alert>
+          <AlertTitle>Prepared</AlertTitle>
+          <AlertDescription>
+            Run the roast on the Nano, then synchronize to attach its log.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      <NotebookNotes
+        type="roast"
+        id={item.id}
+        notes={context.data?.notes.filter(
+          (n) => !n.links.some((l) => l.resourceType === "brew")
+        )}
+        title="Roast notes"
+      />
+      <NotebookSection
+        title="Brews & tasting"
+        count={context.data?.brews.length ?? 0}
+      >
+        <BrewHistory
+          brews={context.data?.brews ?? []}
+          roasts={history.roasts}
+        />
+      </NotebookSection>
+      {item.coffee ? (
+        <NotebookSection
+          title="Other roasts of this coffee"
+          count={
+            history.roasts.filter(
+              (r) => r.coffee?.id === item.coffee?.id && r.id !== item.id
+            ).length
+          }
+        >
+          <RoastHistory
+            roasts={history.roasts.filter(
+              (r) => r.coffee?.id === item.coffee?.id && r.id !== item.id
+            )}
+            brews={history.brews}
+            notes={history.notes}
+          />
+        </NotebookSection>
+      ) : null}
+      <div className="notebook-columns">
+        <NotebookSection title="Roast details">
+          <dl className="notebook-details">
+            {[
+              [
+                "Development",
+                item.developmentBasisPoints == null
                   ? "—"
-                  : (item.levelThousandths / 1_000).toFixed(1)
-              }
-            />
-            <Metric label="Green load" value={grams(item.greenInputMassMg)} />
-            <Metric label="Yield" value={grams(item.roastedYieldMassMg)} />
-            <Metric label="Duration" value={elapsed(item.durationMs)} />
-            <Metric
-              label="End temperature"
-              value={temperature(item.endTemperatureMilliC)}
-            />
-            <Metric
-              label="Cooling"
-              value={
+                  : `${item.developmentBasisPoints / 100}%`,
+              ],
+              ["End temperature", temperature(item.endTemperatureMilliC)],
+              [
+                "Cooling",
                 item.cooldownEndMs == null || item.durationMs == null
                   ? "—"
-                  : elapsed(item.cooldownEndMs - item.durationMs)
-              }
-            />
-            <Metric label="Brews" value={String(item.brewCount)} />
-            <Metric
-              label="Status"
-              value={
-                item.archivedAt ? `${item.status} · archived` : item.status
-              }
-            />
-          </section>
-
-          {item.status === "planned" ? (
-            <Alert className="bg-info mt-6">
-              <CoffeeIcon />
-              <AlertTitle>This roast is prepared</AlertTitle>
-              <AlertDescription>
-                Run it on the Nano, then synchronize. Tan Studio will attach the
-                next device log to roast #{item.id} and keep these coffee and
-                adjustment choices.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          <section
-            className="bg-card mt-6 overflow-hidden rounded-xl border"
-            aria-labelledby="roast-chart-title"
-          >
-            <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
-              <div>
-                <h2 id="roast-chart-title" className="font-semibold">
-                  Roast curve
-                </h2>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Temperature, profile, rate of rise, power, and fan data from
-                  the retained KLOG.
-                </p>
+                  : elapsed(item.cooldownEndMs - item.durationMs),
+              ],
+              ["Result", item.result],
+              ["End reason", item.endReason || "—"],
+              ["Roasted at", dateText(item.roastedAt, true)],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
               </div>
-              <Badge variant="secondary">
-                {item.sampleStream?.rowCount.toLocaleString() ?? 0} samples
-              </Badge>
+            ))}
+          </dl>
+        </NotebookSection>
+        <NotebookSection title="Rest & peak">
+          <dl className="notebook-details">
+            <div>
+              <dt>Rest state</dt>
+              <dd>{context.data?.rest?.state ?? "Unknown"}</dd>
             </div>
-            {series.isPending ? (
-              <Skeleton className="m-5 h-96" />
-            ) : points.length > 0 ? (
-              <RoastChart
-                points={points}
-                events={displayEvents.map((event) => ({
-                  id: event.id,
-                  elapsedMs: event.elapsedMs,
-                  label: event.kind.replaceAll("_", " "),
-                  temperatureC:
-                    event.temperatureMilliC == null
-                      ? null
-                      : event.temperatureMilliC / 1_000,
-                  kind: "device" as const,
-                }))}
-                {...(firstCrack ? { firstCrack } : {})}
-                {...(item.durationMs == null
-                  ? {}
-                  : { durationMs: item.durationMs })}
-                {...(item.cooldownEndMs == null
-                  ? {}
-                  : { cooldownEndMs: item.cooldownEndMs })}
-                height={680}
-                showFanAxis
-              />
-            ) : (
-              <p className="text-muted-foreground p-8 text-center text-sm">
-                Telemetry appears after the Nano log is synchronized.
-              </p>
-            )}
-          </section>
-
-          <section className="bg-card mt-6 rounded-xl border p-5">
-            <h2 className="font-semibold">Milestones</h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {displayEvents.map((event) => (
-                <Badge key={event.id} variant="outline">
-                  {event.kind.replaceAll("_", " ")} · {elapsed(event.elapsedMs)}
-                </Badge>
-              ))}
-              {!actualFirstCrack && expectedFirstCrackPoint ? (
-                <Badge variant="secondary">
-                  Expected first crack · ~
-                  {elapsed(expectedFirstCrackPoint.elapsedMs)}
-                  {expectedFirstCrackC == null
-                    ? ""
-                    : ` · ${expectedFirstCrackC.toFixed(0)}°C`}
-                </Badge>
-              ) : null}
-              {!actualFirstCrack && !expectedFirstCrackPoint ? (
-                <Badge variant="secondary">First crack not logged</Badge>
-              ) : null}
+            <div>
+              <dt>Age</dt>
+              <dd>
+                {context.data?.rest?.ageDays == null
+                  ? "—"
+                  : `${context.data.rest.ageDays} days`}
+              </dd>
             </div>
-          </section>
-        </main>
-
-        <aside className="flex min-w-0 flex-col gap-5">
-          <section className="bg-card rounded-xl border p-5">
-            <h2 className="font-semibold">Next actions</h2>
-            <div className="mt-4 flex flex-col gap-2">
-              <Link
-                to="/brews/new"
-                search={{ roastId: item.id }}
-                className={buttonVariants()}
-              >
-                <CoffeeIcon data-icon="inline-start" />
-                Log a brew
-              </Link>
-              <Link
-                to="/labels"
-                search={{ roastId: item.id }}
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <PrinterIcon data-icon="inline-start" />
-                Create label
-              </Link>
-              {item.profile ? (
-                <Link
-                  to="/profiles"
-                  search={{ profileId: item.profile.id, compare: undefined }}
-                  className={buttonVariants({ variant: "outline" })}
-                >
-                  View profile
-                </Link>
-              ) : null}
+            <div>
+              <dt>Suggested window</dt>
+              <dd>
+                {context.data?.rest?.suggestedFrom
+                  ? `${dateText(context.data.rest.suggestedFrom)} – ${dateText(context.data.rest.suggestedUntil)}`
+                  : "—"}
+              </dd>
             </div>
-          </section>
-
-          {context.data?.rest ? (
-            <section className="bg-card rounded-xl border p-5">
-              <h2 className="font-semibold">Rest & peak</h2>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge
-                  variant={
-                    context.data.rest.state === "peak"
-                      ? "success"
-                      : context.data.rest.state === "resting"
-                        ? "info"
-                        : context.data.rest.state === "unknown"
-                          ? "secondary"
-                          : "warning"
-                  }
-                >
-                  {context.data.rest.state === "pastPeak"
-                    ? "past peak"
-                    : context.data.rest.state === "unknown"
-                      ? "date required"
-                      : context.data.rest.state}
-                </Badge>
-                <span className="text-muted-foreground text-sm">
-                  {context.data.rest.ageDays == null
-                    ? "Set roast date"
-                    : `day ${context.data.rest.ageDays}`}
-                </span>
-              </div>
-              {context.data.rest.suggestedFrom &&
-              context.data.rest.suggestedUntil ? (
-                <p className="text-muted-foreground mt-3 text-sm">
-                  Suggested window:{" "}
-                  {new Intl.DateTimeFormat(undefined, {
-                    dateStyle: "medium",
-                  }).format(new Date(context.data.rest.suggestedFrom))}{" "}
-                  –{" "}
-                  {new Intl.DateTimeFormat(undefined, {
-                    dateStyle: "medium",
-                  }).format(new Date(context.data.rest.suggestedUntil))}
-                </p>
-              ) : null}
-            </section>
+          </dl>
+        </NotebookSection>
+      </div>
+      <NotebookSection title="Milestones">
+        <dl className="notebook-details">
+          {displayEvents.map((event) => (
+            <div key={event.id}>
+              <dt>{event.kind.replaceAll("_", " ")}</dt>
+              <dd>
+                {elapsed(event.elapsedMs)}
+                {event.temperatureMilliC == null
+                  ? ""
+                  : ` · ${temperature(event.temperatureMilliC)}`}
+              </dd>
+            </div>
+          ))}
+          {!actualFirstCrack && expectedFirstCrackPoint ? (
+            <div>
+              <dt>Expected first crack</dt>
+              <dd>
+                ~{elapsed(expectedFirstCrackPoint.elapsedMs)} ·{" "}
+                {expectedFirstCrackC}°C
+              </dd>
+            </div>
           ) : null}
-
-          <AttachmentPanel
-            resourceType="roast"
-            resourceId={item.id}
-            title="Roast media"
-            description="Attach process photos, finished beans, videos, or supporting documents."
-          />
-
-          <section className="bg-card rounded-xl border p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Notes</h2>
-              <Badge variant="secondary">
-                {context.data?.notes.length ?? 0}
-              </Badge>
+          {!displayEvents.length ? (
+            <p className="notebook-empty">No milestones recorded.</p>
+          ) : null}
+        </dl>
+      </NotebookSection>
+      <Card
+        className="mt-6 overflow-hidden"
+        aria-labelledby="roast-chart-title"
+      >
+        <CardContent className="p-0">
+          <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+            <div>
+              <h2 id="roast-chart-title" className="font-semibold">
+                Roast curve
+              </h2>
             </div>
-            <div className="mt-4 flex flex-col gap-4">
-              {context.data?.notes.map((note) => (
-                <article key={note.id}>
-                  <p className="text-sm whitespace-pre-wrap">{note.body}</p>
-                  {note.ratingBasisPoints != null ? (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      Score {(note.ratingBasisPoints / 100).toFixed(2)}
-                    </p>
-                  ) : null}
-                  <Separator className="mt-4" />
-                </article>
-              ))}
-            </div>
-            <form onSubmit={submitNote} className="mt-4">
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="note-kind">Type</FieldLabel>
-                  <Select
-                    items={noteKindItems}
-                    name="kind"
-                    defaultValue="observation"
-                  >
-                    <SelectTrigger id="note-kind" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {noteKindItems.map((kind) => (
-                          <SelectItem key={kind.value} value={kind.value}>
-                            {kind.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="note-body">Add a note</FieldLabel>
-                  <Textarea
-                    id="note-body"
-                    name="body"
-                    required
-                    value={noteBody}
-                    onChange={(event) => setNoteBody(event.target.value)}
-                    placeholder="What did you notice?"
-                  />
-                  <FieldDescription>
-                    Saved to roast #{item.id}; agents receive it through the
-                    same API.
-                  </FieldDescription>
-                </Field>
-                <Button type="submit" disabled={noteMutation.isPending}>
-                  <FileTextIcon data-icon="inline-start" />
-                  Save note
-                </Button>
-              </FieldGroup>
-            </form>
-          </section>
-        </aside>
+            <Badge variant="secondary">
+              {item.sampleStream?.rowCount.toLocaleString() ?? 0} samples
+            </Badge>
+          </div>
+          {series.isPending && item.sampleStream ? (
+            <Skeleton className="m-5 h-96" />
+          ) : points.length > 0 ? (
+            <RoastChart
+              points={points}
+              events={displayEvents.map((event) => ({
+                id: event.id,
+                elapsedMs: event.elapsedMs,
+                label: event.kind.replaceAll("_", " "),
+                temperatureC:
+                  event.temperatureMilliC == null
+                    ? null
+                    : event.temperatureMilliC / 1_000,
+                kind: "device" as const,
+              }))}
+              {...(firstCrack ? { firstCrack } : {})}
+              {...(item.durationMs == null
+                ? {}
+                : { durationMs: item.durationMs })}
+              {...(item.cooldownEndMs == null
+                ? {}
+                : { cooldownEndMs: item.cooldownEndMs })}
+              height={680}
+              showFanAxis
+            />
+          ) : (
+            <p className="text-muted-foreground p-8 text-center text-sm">
+              Telemetry appears after the Nano log is synchronized.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+      <RoastGiftPage roast={item} />
+      <div id="roast-media" className="notebook-section">
+        <AttachmentPanel
+          resourceType="roast"
+          resourceId={item.id}
+          title="Images & files"
+        />
       </div>
     </div>
   )

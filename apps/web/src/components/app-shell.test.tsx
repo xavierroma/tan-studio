@@ -1,4 +1,3 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
 import {
   createMemoryHistory,
   createRootRoute,
@@ -7,6 +6,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { AppShell } from "@/components/app-shell"
@@ -49,16 +49,16 @@ describe("AppShell primary navigation", () => {
     const primaryNavigation = screen.getAllByRole("navigation", {
       name: "Primary navigation",
     })
-    expect(primaryNavigation).toHaveLength(2)
+    expect(primaryNavigation).toHaveLength(1)
     fireEvent.click(
-      within(primaryNavigation[1]!).getByRole("link", { name: "Coffees" })
+      within(primaryNavigation[0]!).getByRole("link", { name: "Coffees" })
     )
 
     expect(await screen.findByText("Coffees view")).toBeVisible()
     expect(router.state.location.pathname).toBe("/coffees")
     expect(router.state.location.search).toEqual({})
     expect(
-      within(primaryNavigation[1]!).getByRole("link", { name: "Pantry" })
+      within(primaryNavigation[0]!).getByRole("button", { name: "More" })
     ).toBeVisible()
   })
 })

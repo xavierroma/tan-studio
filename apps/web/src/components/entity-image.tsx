@@ -1,3 +1,8 @@
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@tan-studio/ui/components/avatar"
 import { useQuery } from "@tanstack/react-query"
 import {
   BeanIcon,
@@ -5,7 +10,7 @@ import {
   CoffeeIcon,
   FlameIcon,
 } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import { useEffect, useState } from "react"
 
 import { getAttachmentContent } from "@/lib/api"
 
@@ -23,11 +28,13 @@ export function EntityImage({
   entityType,
   alt = "",
   className = "size-12",
+  imageClassName = "object-cover",
 }: {
   attachmentId?: number | null | undefined
   entityType: EntityType
   alt?: string
   className?: string
+  imageClassName?: string
 }) {
   const image = useQuery({
     queryKey: ["attachment-content", attachmentId ?? "placeholder"],
@@ -35,28 +42,34 @@ export function EntityImage({
     enabled: attachmentId != null,
     staleTime: Number.POSITIVE_INFINITY,
   })
-  const url = useMemo(
-    () => (image.data ? URL.createObjectURL(image.data) : null),
-    [image.data]
-  )
-  useEffect(
-    () => () => {
-      if (url) URL.revokeObjectURL(url)
-    },
-    [url]
-  )
+  const [object, setObject] = useState<{ blob: Blob; url: string } | null>(null)
+  useEffect(() => {
+    if (!image.data) {
+      setObject(null)
+      return
+    }
+    const url = URL.createObjectURL(image.data)
+    setObject({ blob: image.data, url })
+    return () => URL.revokeObjectURL(url)
+  }, [image.data])
+  const url = object?.blob === image.data ? object?.url : null
   const Icon = icons[entityType]
 
   return (
-    <span
-      className={`bg-muted text-muted-foreground relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg border ${className}`}
+    <Avatar
+      className={`rounded-sm border after:rounded-sm ${className}`}
       aria-hidden={alt ? undefined : true}
     >
       {url ? (
-        <img src={url} alt={alt} className="size-full object-cover" />
-      ) : (
+        <AvatarImage
+          src={url}
+          alt={alt}
+          className={`rounded-sm ${imageClassName}`}
+        />
+      ) : null}
+      <AvatarFallback className="rounded-sm">
         <Icon className="size-1/2" />
-      )}
-    </span>
+      </AvatarFallback>
+    </Avatar>
   )
 }

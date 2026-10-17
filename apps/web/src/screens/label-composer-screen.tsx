@@ -1,379 +1,586 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useSearch } from "@tanstack/react-router"
 import {
-  renderLabelToSvg,
-  type LabelDocument,
-} from "@tan-studio/printing-adapters"
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@tan-studio/ui/components/collapsible"
+import {
+  CollectionLink,
+  NotebookBreadcrumbs,
+  NotebookSection,
+  ResourceLink,
+} from "@/components/notebook"
+import { PageHeader } from "@/components/page-header"
+import {
+  createLabel,
+  getCoffee,
+  getRoast,
+  listLabels,
+  queryKeys,
+} from "@/lib/api"
+import { buildLabel, type LabelCopy } from "@/lib/labels/artwork"
+import {
+  proDownload,
+  proExportArtwork,
+  proPdf,
+  type PrintInput,
+} from "@/lib/labels/export"
+import { useNotebookHistory } from "@/lib/notebook-queries"
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@tan-studio/ui/components/alert"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@tan-studio/ui/components/empty"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@tan-studio/ui/components/field"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@tan-studio/ui/components/dialog"
+import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
-import { Textarea } from "@tan-studio/ui/components/textarea"
-import { ArrowLeftIcon, PrinterIcon, QrCodeIcon, SaveIcon } from "lucide-react"
-import type { FormEvent } from "react"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@tan-studio/ui/components/select"
+import { Skeleton } from "@tan-studio/ui/components/skeleton"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
-import { PageHeader } from "@/components/page-header"
-import {
-  createLabel,
-  getRoast,
-  getSettings,
-  listLabels,
-  queryKeys,
-} from "@/lib/api"
-
-function documentFor(
-  widthUm: number,
-  heightUm: number,
-  roastId: number,
-  coffee: string,
-  profile: string,
-  note: string
-): LabelDocument {
-  const qrSize = Math.min(heightUm - 6_000, 15_000)
-  return {
-    schemaVersion: 1,
-    widthUm,
-    heightUm,
-    bleedUm: 0,
-    safeInsetUm: 2_000,
-    background: "paper",
-    elements: [
-      {
-        id: "coffee",
-        kind: "text",
-        frame: {
-          xUm: 2_500,
-          yUm: 2_000,
-          widthUm: widthUm - qrSize - 7_000,
-          heightUm: 6_000,
-        },
-        rotationMdeg: 0,
-        opacityBasisPoints: 10_000,
-        content: coffee,
-        font: { family: "geist_sans", style: "normal" },
-        sizeUm: 3_200,
-        weight: 700,
-        lineHeightBasisPoints: 12_000,
-        horizontalAlign: "start",
-        verticalAlign: "center",
-        maxLines: 1,
-        overflow: "ellipsis",
-      },
-      {
-        id: "roast",
-        kind: "text",
-        frame: {
-          xUm: 2_500,
-          yUm: 8_500,
-          widthUm: widthUm - qrSize - 7_000,
-          heightUm: 4_500,
-        },
-        rotationMdeg: 0,
-        opacityBasisPoints: 10_000,
-        content: `ROAST #${roastId}`,
-        font: { family: "geist_sans", style: "normal" },
-        sizeUm: 2_600,
-        weight: 700,
-        lineHeightBasisPoints: 12_000,
-        horizontalAlign: "start",
-        verticalAlign: "center",
-        maxLines: 1,
-        overflow: "ellipsis",
-      },
-      {
-        id: "profile",
-        kind: "text",
-        frame: {
-          xUm: 2_500,
-          yUm: 13_000,
-          widthUm: widthUm - qrSize - 7_000,
-          heightUm: 3_500,
-        },
-        rotationMdeg: 0,
-        opacityBasisPoints: 10_000,
-        content: profile,
-        font: { family: "geist_sans", style: "normal" },
-        sizeUm: 1_800,
-        weight: 500,
-        lineHeightBasisPoints: 12_000,
-        horizontalAlign: "start",
-        verticalAlign: "center",
-        maxLines: 1,
-        overflow: "ellipsis",
-      },
-      {
-        id: "note",
-        kind: "text",
-        frame: {
-          xUm: 2_500,
-          yUm: 17_000,
-          widthUm: widthUm - qrSize - 7_000,
-          heightUm: heightUm - 19_000,
-        },
-        rotationMdeg: 0,
-        opacityBasisPoints: 10_000,
-        content: note,
-        font: { family: "geist_sans", style: "normal" },
-        sizeUm: 1_500,
-        weight: 400,
-        lineHeightBasisPoints: 13_000,
-        horizontalAlign: "start",
-        verticalAlign: "start",
-        maxLines: 2,
-        overflow: "ellipsis",
-      },
-      {
-        id: "qr",
-        kind: "qr",
-        frame: {
-          xUm: widthUm - qrSize - 2_500,
-          yUm: Math.round((heightUm - qrSize) / 2),
-          widthUm: qrSize,
-          heightUm: qrSize,
-        },
-        rotationMdeg: 0,
-        opacityBasisPoints: 10_000,
-        data: `tan:roast:${roastId}`,
-        correction: "M",
-        quietModules: 4,
-      },
-    ],
-  }
-}
-
 export function LabelComposerScreen() {
-  const search = useSearch({ from: "/labels" })
-  const queryClient = useQueryClient()
+  const search = useSearch({ from: "/labels" }),
+    navigate = useNavigate({ from: "/labels" }),
+    cache = useQueryClient(),
+    history = useNotebookHistory()
   const roast = useQuery({
     queryKey: queryKeys.roast(search.roastId ?? 0),
     queryFn: ({ signal }) => getRoast(search.roastId!, signal),
     enabled: search.roastId != null,
   })
-  const settings = useQuery({
-    queryKey: queryKeys.settings(),
-    queryFn: ({ signal }) => getSettings(signal),
+  const coffeeId = roast.data?.coffee?.id
+  const coffee = useQuery({
+    queryKey: queryKeys.coffee(coffeeId ?? 0),
+    queryFn: ({ signal }) => getCoffee(coffeeId!, signal),
+    enabled: coffeeId != null,
   })
   const labels = useQuery({
     queryKey: queryKeys.labels(search.roastId),
     queryFn: ({ signal }) => listLabels(search.roastId, signal),
     enabled: search.roastId != null,
   })
-  const [note, setNote] = useState("")
-  const [widthMm, setWidthMm] = useState<number | null>(null)
-  const [heightMm, setHeightMm] = useState<number | null>(null)
-  const width =
-    widthMm ?? (settings.data?.defaultLabelWidthMicrometers ?? 50_000) / 1_000
-  const height =
-    heightMm ?? (settings.data?.defaultLabelHeightMicrometers ?? 30_000) / 1_000
-  const document = useMemo(
-    () =>
-      search.roastId && roast.data
-        ? documentFor(
-            Math.round(width * 1_000),
-            Math.round(height * 1_000),
-            search.roastId,
-            roast.data.coffee?.name ?? "Roasted coffee",
-            roast.data.profile?.name ?? "Tan Studio",
-            note
-          )
-        : null,
-    [height, note, roast.data, search.roastId, width]
-  )
-  const svg = useMemo(() => {
-    try {
-      return document ? renderLabelToSvg(document) : null
-    } catch {
-      return null
+  const [copy, setCopy] = useState<Record<number, Partial<LabelCopy>>>({})
+  const [layout, setLayout] = useState("estate"),
+    [format, setFormat] = useState("50x80"),
+    [note, setNote] = useState<Record<number, string>>({}),
+    [grams, setGrams] = useState<Record<number, string>>({}),
+    [copies, setCopies] = useState(1),
+    [guide, setGuide] = useState(false),
+    [exporting, setExporting] = useState(false)
+  const width = 50,
+    height = format === "50x80" ? 80 : 30,
+    paper = height === 80 ? "dual-white" : "white"
+  const sourceNote = history.notes
+    .filter(
+      (n) =>
+        n.kind === "tasting" &&
+        n.links.some(
+          (l) => l.resourceType === "roast" && l.resourceId === search.roastId
+        )
+    )
+    .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  const source = useMemo<LabelCopy | null>(() => {
+    const r = roast.data,
+      c = coffee.data
+    if (!r || (r.coffee && !c)) return null
+    return {
+      roastId: r.id,
+      coffee: c?.name || r.coffee?.name || "Not recorded",
+      country: c?.country || "Not recorded",
+      region: c?.region || "",
+      altitude:
+        c?.altitudeMinM != null && c.altitudeMaxM != null
+          ? `${c.altitudeMinM.toLocaleString("en-US")}–${c.altitudeMaxM.toLocaleString("en-US")} m`
+          : "—",
+      variety: c?.variety || "—",
+      process: c?.process || "—",
+      profile: r.profile?.name || "—",
+      level:
+        r.levelThousandths == null ? "" : String(r.levelThousandths / 1000),
+      tasting: note[r.id] ?? sourceNote?.body ?? "—",
+      grams:
+        grams[r.id] ??
+        (r.roastedYieldMassMg == null
+          ? "—"
+          : String(r.roastedYieldMassMg / 1000)),
+      ...copy[r.id],
+      date: r.roastedAt
+        ? new Intl.DateTimeFormat("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          }).format(new Date(r.roastedAt))
+        : "—",
     }
-  }, [document])
-  const createMutation = useMutation({
+  }, [roast.data, coffee.data, note, grams, sourceNote, copy])
+  const artwork = useMemo(() => {
+    if (!source) return null
+    try {
+      const main = buildLabel(source, layout, width, height, "front", paper),
+        companion = main.small
+          ? buildLabel(source, layout, width, height, "details", paper)
+          : undefined
+      return {
+        ...main,
+        widthMicrometers: width * 1000,
+        heightMicrometers: height * 1000,
+        companionSvg: companion?.svg,
+        warnings: [...main.warnings, ...(companion?.warnings ?? [])],
+      }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  }, [source, layout, height, paper])
+  const printable: PrintInput | null =
+    artwork && !("error" in artwork) ? artwork : null
+  const save = useMutation({
     mutationFn: createLabel,
     onSuccess: (label) => {
-      toast.success(`Label #${label.id} generated`)
-      void queryClient.invalidateQueries({
+      void cache.invalidateQueries({
         queryKey: queryKeys.labels(search.roastId),
       })
+      toast.success(`Label #${label.id} generated`)
     },
-    onError: (error) => toast.error(error.message),
+    onError: (e) => toast.error(e.message),
   })
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!search.roastId || !document) return
-    const form = new FormData(event.currentTarget)
-    createMutation.mutate({
-      roastId: search.roastId,
-      copies: Number(form.get("copies")),
-      widthMicrometers: document.widthUm,
-      heightMicrometers: document.heightUm,
-      printer: "",
-      content: {
-        schemaVersion: 1,
-        qrPayload: `tan:roast:${search.roastId}`,
-        coffee: roast.data?.coffee?.name ?? "",
-        profile: roast.data?.profile?.name ?? "",
-        note,
-        document,
-      },
-    })
+  const download = async (kind: "svg" | "png" | "pdf", side = "front") => {
+    if (!printable || !source) return
+    setExporting(true)
+    try {
+      if (printable.warnings.length)
+        throw Error("Shorten the highlighted copy before export.")
+      const name = `Tan-B21-Pro-Roast-${source.roastId}-${width}x${height}-${side}`
+      if (kind === "svg") {
+        proDownload(
+          side === "details" ? printable.companionSvg! : printable.svg,
+          "image/svg+xml",
+          `${name}.svg`
+        )
+      } else {
+        const raster = await proExportArtwork(printable, side)
+        proDownload(
+          kind === "pdf" ? await proPdf(raster) : raster.png,
+          kind === "pdf" ? "application/pdf" : "image/png",
+          `${name}.${kind}`
+        )
+      }
+      toast.success(`${kind.toUpperCase()} exported`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExporting(false)
+    }
   }
-
-  if (!search.roastId)
-    return (
-      <div className="min-h-screen">
-        <PageHeader
-          title="Labels"
-          description="Labels are created from a roast."
-        />
-        <Empty className="m-7 min-h-80 border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <QrCodeIcon />
-            </EmptyMedia>
-            <EmptyTitle>Choose a roast first</EmptyTitle>
-            <EmptyDescription>
-              Open a roast and choose Create label. The label record and QR code
-              will point back to it.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </div>
-    )
   if (roast.error) throw roast.error
-
+  if (coffee.error) throw coffee.error
   return (
-    <div className="min-h-screen">
+    <div>
+      <NotebookBreadcrumbs
+        items={[<CollectionLink type="roast" />, "Jar label"]}
+      />
       <PageHeader
-        eyebrow={`Roast #${search.roastId}`}
         title="Jar label"
-        description="The short roast number and QR payload both resolve to the same API resource."
+        description={`NIIMBOT B21 Pro · 300dpi · ${height === 80 ? "red + black" : "black"} on white`}
         actions={
-          <Link
-            to="/roasts/$roastId"
-            params={{ roastId: String(search.roastId) }}
-            className={buttonVariants({ variant: "outline" })}
-          >
-            <ArrowLeftIcon data-icon="inline-start" />
-            Back to roast
-          </Link>
+          search.roastId ? (
+            <Button
+              nativeButton={false}
+              role="link"
+              variant="outline"
+              render={
+                <Link
+                  to="/roasts/$roastId"
+                  params={{ roastId: String(search.roastId) }}
+                />
+              }
+            >
+              Back to roast
+            </Button>
+          ) : null
         }
       />
-      <div className="grid gap-6 px-5 py-6 sm:px-7 xl:grid-cols-[minmax(22rem,0.8fr)_minmax(28rem,1.2fr)]">
-        <form onSubmit={submit} className="bg-card rounded-xl border p-5">
+      <div className="notebook-label-layout">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!source || !printable || printable.warnings.length) return
+            save.mutate({
+              roastId: source.roastId,
+              widthMicrometers: printable.widthMicrometers,
+              heightMicrometers: printable.heightMicrometers,
+              copies,
+              printer: "NIIMBOT B21 Pro",
+              content: {
+                schemaVersion: 2,
+                layout,
+                paper,
+                dpi: 300,
+                ...source,
+                svg: printable.svg,
+                companionSvg: printable.companionSvg ?? null,
+              },
+            })
+          }}
+        >
           <FieldGroup>
-            <div className="grid grid-cols-2 gap-4">
-              <Field>
-                <FieldLabel htmlFor="label-width">Width · mm</FieldLabel>
-                <Input
-                  id="label-width"
-                  type="number"
-                  min="20"
-                  max="200"
-                  step="1"
-                  value={width}
-                  onChange={(event) => setWidthMm(Number(event.target.value))}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="label-height">Height · mm</FieldLabel>
-                <Input
-                  id="label-height"
-                  type="number"
-                  min="20"
-                  max="200"
-                  step="1"
-                  value={height}
-                  onChange={(event) => setHeightMm(Number(event.target.value))}
-                />
-              </Field>
-            </div>
             <Field>
-              <FieldLabel htmlFor="label-note">Optional label note</FieldLabel>
-              <Textarea
-                id="label-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Rest through 26 July · floral filter roast"
-              />
+              <FieldLabel htmlFor="label-roast">Roast</FieldLabel>
+              <Select
+                value={search.roastId ? String(search.roastId) : null}
+                items={history.roasts.map((r) => ({
+                  value: String(r.id),
+                  label: `#${r.id} · ${r.coffee?.name ?? "Coffee —"}`,
+                }))}
+                onValueChange={(v) =>
+                  v && void navigate({ search: { roastId: Number(v) } })
+                }
+              >
+                <SelectTrigger id="label-roast">
+                  <SelectValue placeholder="Choose a roast" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {history.roasts.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        #{r.id} · {r.coffee?.name ?? "Coffee —"}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
-              <FieldLabel htmlFor="label-copies">Copies</FieldLabel>
-              <Input
-                id="label-copies"
-                name="copies"
-                type="number"
-                min="1"
-                max="100"
-                defaultValue="1"
-              />
-              <FieldDescription>
-                Generation is recorded now. Printer submission remains a
-                separate, truthful status.
-              </FieldDescription>
+              <FieldLabel htmlFor="label-layout">Layout</FieldLabel>
+              <Select
+                value={layout}
+                onValueChange={(v) => v && setLayout(v)}
+                items={[
+                  { value: "estate", label: "Estate editorial" },
+                  { value: "broadside", label: "Roastery broadside" },
+                ]}
+              >
+                <SelectTrigger id="label-layout">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="estate">Estate editorial</SelectItem>
+                    <SelectItem value="broadside">
+                      Roastery broadside
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
-            <Button type="submit" disabled={!svg || createMutation.isPending}>
-              <SaveIcon data-icon="inline-start" />
-              Generate label record
+            <Field>
+              <FieldLabel htmlFor="label-format">Paper</FieldLabel>
+              <Select
+                value={format}
+                onValueChange={(v) => v && setFormat(v)}
+                items={[
+                  { value: "50x80", label: "50 × 80 mm · red/black white" },
+                  {
+                    value: "50x30",
+                    label: "50 × 30 mm · black · front + details",
+                  },
+                ]}
+              >
+                <SelectTrigger id="label-format">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="50x80">
+                      50 × 80 mm · red/black white
+                    </SelectItem>
+                    <SelectItem value="50x30">
+                      50 × 30 mm · black · front + details
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            {source ? (
+              <>
+                <Collapsible>
+                  <CollapsibleTrigger
+                    render={<Button variant="outline" type="button" />}
+                  >
+                    Edit label copy
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="pt-4">
+                    <FieldGroup>
+                      {(
+                        [
+                          "coffee",
+                          "country",
+                          "region",
+                          "altitude",
+                          "variety",
+                          "process",
+                          "profile",
+                          "level",
+                        ] as const
+                      ).map((key) => (
+                        <Field key={key}>
+                          <FieldLabel htmlFor={`label-copy-${key}`}>
+                            {
+                              {
+                                coffee: "Coffee",
+                                country: "Country",
+                                region: "Region",
+                                altitude: "Altitude",
+                                variety: "Variety",
+                                process: "Process",
+                                profile: "Profile",
+                                level: "Level",
+                              }[key]
+                            }
+                          </FieldLabel>
+                          <Input
+                            id={`label-copy-${key}`}
+                            value={source[key]}
+                            onChange={(e) =>
+                              setCopy((s) => ({
+                                ...s,
+                                [source.roastId]: {
+                                  ...s[source.roastId],
+                                  [key]: e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </Field>
+                      ))}
+                    </FieldGroup>
+                  </CollapsibleContent>
+                </Collapsible>
+                <Field>
+                  <FieldLabel htmlFor="label-tasting">
+                    Concise tasting note
+                  </FieldLabel>
+                  <Input
+                    id="label-tasting"
+                    value={source.tasting}
+                    maxLength={240}
+                    onChange={(e) =>
+                      setNote((s) => ({
+                        ...s,
+                        [source.roastId]: e.target.value,
+                      }))
+                    }
+                  />
+                  {sourceNote ? (
+                    <span className="text-muted-foreground text-xs">
+                      Note #{sourceNote.id}
+                    </span>
+                  ) : null}
+                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field>
+                    <FieldLabel htmlFor="label-grams">Total · g</FieldLabel>
+                    <Input
+                      id="label-grams"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={source.grams === "—" ? "" : source.grams}
+                      onChange={(e) =>
+                        setGrams((s) => ({
+                          ...s,
+                          [source.roastId]: e.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="label-copies">Copies</FieldLabel>
+                    <Input
+                      id="label-copies"
+                      type="number"
+                      min="1"
+                      max="100"
+                      required
+                      value={copies}
+                      onChange={(e) => setCopies(Number(e.target.value))}
+                    />
+                  </Field>
+                </div>
+              </>
+            ) : null}
+            <Button
+              type="submit"
+              disabled={
+                !printable || !!printable.warnings.length || save.isPending
+              }
+            >
+              Generate label
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setGuide(true)}
+            >
+              How to print
             </Button>
           </FieldGroup>
         </form>
-        <section className="bg-card flex min-h-80 flex-col items-center justify-center gap-5 rounded-xl border p-6">
-          <div className="flex w-full items-center justify-between">
-            <div>
-              <h2 className="font-semibold">Exact preview</h2>
-              <p className="text-muted-foreground mt-1 text-sm">
-                {width} × {height} mm · deterministic SVG
-              </p>
-            </div>
-            <Badge variant="secondary">
-              {labels.data?.length ?? 0} generated
-            </Badge>
-          </div>
-          {svg ? (
-            <img
-              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
-              alt={`Label preview for roast ${search.roastId}`}
-              className="max-h-96 max-w-full border shadow-sm"
-            />
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              The selected geometry cannot fit the QR code safely.
-            </p>
-          )}
-          <AlertMessage />
-        </section>
+        <div>
+          <NotebookSection
+            title="Print preview"
+            actions={
+              <Badge variant="secondary">
+                {labels.data?.length ?? 0} generated
+              </Badge>
+            }
+          >
+            {artwork && "error" in artwork ? (
+              <Alert variant="destructive">
+                <AlertTitle>Check label copy</AlertTitle>
+                <AlertDescription>{artwork.error}</AlertDescription>
+              </Alert>
+            ) : null}
+            {printable ? (
+              <>
+                <div className="notebook-label-preview">
+                  <img
+                    src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(printable.svg)}`}
+                    alt={`Roast ${source?.roastId} label`}
+                    width={295}
+                    height={height * 5.9}
+                  />
+                  {printable.companionSvg ? (
+                    <img
+                      src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(printable.companionSvg)}`}
+                      alt="Companion details label"
+                      width={295}
+                      height={177}
+                    />
+                  ) : null}
+                </div>
+                {printable.warnings.length ? (
+                  <Alert variant="destructive">
+                    <AlertTitle>Shorten label copy</AlertTitle>
+                    <AlertDescription>
+                      {printable.warnings.map((w, i) => (
+                        <p key={i}>{w}</p>
+                      ))}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {["front", ...(printable.companionSvg ? ["details"] : [])].map(
+                  (side) => (
+                    <div className="flex flex-wrap gap-2 py-3" key={side}>
+                      {(["pdf", "png", "svg"] as const).map((kind) => (
+                        <Button
+                          key={kind}
+                          type="button"
+                          variant="outline"
+                          disabled={exporting || !!printable.warnings.length}
+                          onClick={() => void download(kind, side)}
+                        >
+                          {kind.toUpperCase()}
+                          {side === "details" ? " · details" : ""}
+                        </Button>
+                      ))}
+                    </div>
+                  )
+                )}
+              </>
+            ) : search.roastId ? (
+              <Skeleton className="h-96" />
+            ) : (
+              <p className="notebook-empty">Choose a roast.</p>
+            )}
+          </NotebookSection>
+          {source ? (
+            <NotebookSection title="Label values">
+              <dl className="notebook-details">
+                {Object.entries(source).map(([key, value]) => (
+                  <div key={key}>
+                    <dt>
+                      {(
+                        {
+                          roastId: "Roast",
+                          coffee: "Coffee",
+                          country: "Country",
+                          region: "Region",
+                          altitude: "Altitude",
+                          variety: "Variety",
+                          process: "Process",
+                          profile: "Profile",
+                          level: "Level",
+                          tasting: "Tasting",
+                          grams: "Total · g",
+                          date: "Roasted",
+                        } as Record<string, string>
+                      )[key] ?? key}
+                    </dt>
+                    <dd>
+                      {key === "roastId" ? (
+                        <ResourceLink type="roast" id={Number(value)} />
+                      ) : (
+                        value || "—"
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </NotebookSection>
+          ) : null}
+        </div>
       </div>
+      <Dialog open={guide} onOpenChange={setGuide}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Print with B21 Pro</DialogTitle>
+          </DialogHeader>
+          <ol className="list-decimal space-y-3 pl-5 text-sm">
+            <li>
+              Export PDF at {width} × {height} mm.
+            </li>
+            <li>
+              Open NIIMBOT and connect B21 Pro with the matching roll loaded.
+            </li>
+            <li>
+              Import at actual size. Disable crop and fit-to-page. Check that
+              the preview preserves red; image import can convert it to black.
+            </li>
+            <li>
+              Print one proof and check color, edges and feed direction before
+              printing copies.
+            </li>
+          </ol>
+          <p className="text-muted-foreground text-xs">
+            Exports are ready; the printer connection and physical output are
+            untested.
+          </p>
+          <a
+            href="https://www.niimbot.com/au/downloadCenter"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="notebook-link text-sm"
+          >
+            NIIMBOT apps ↗
+          </a>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
-}
-
-function AlertMessage() {
-  return (
-    <Alert>
-      <PrinterIcon />
-      <AlertTitle>Truthful print status</AlertTitle>
-      <AlertDescription>
-        Tan Studio records generated, not “printed.” Physical confirmation will
-        appear only when a printer adapter can prove it.
-      </AlertDescription>
-    </Alert>
   )
 }

@@ -1,6 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   Card,
   CardContent,
@@ -25,12 +23,14 @@ import {
 } from "@tan-studio/ui/components/select"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { Textarea } from "@tan-studio/ui/components/textarea"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeftIcon, SaveIcon } from "lucide-react"
 import { useState, type FormEvent } from "react"
 import { toast } from "sonner"
 
-import { PageHeader } from "@/components/page-header"
 import { DecimalInput, parseDecimalInput } from "@/components/decimal-input"
+import { PageHeader } from "@/components/page-header"
 import {
   getRoast,
   listCoffees,
@@ -301,17 +301,22 @@ export function RoastEditorScreen() {
       <PageHeader
         eyebrow={`Roast #${item.id}`}
         title="Edit roast"
-        description="Update recorded details and milestones without changing imported telemetry."
         actions={
           <>
-            <Link
-              to="/roasts/$roastId"
-              params={{ roastId: String(item.id) }}
-              className={buttonVariants({ variant: "outline" })}
+            <Button
+              nativeButton={false}
+              role="link"
+              variant={"outline"}
+              render={
+                <Link
+                  to="/roasts/$roastId"
+                  params={{ roastId: String(item.id) }}
+                />
+              }
             >
               <ArrowLeftIcon data-icon="inline-start" />
               Roast
-            </Link>
+            </Button>
             <Button
               type="submit"
               form="roast-editor-form"

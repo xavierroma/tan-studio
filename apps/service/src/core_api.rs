@@ -385,6 +385,12 @@ pub async fn roasts_patch(
     let expected = expected_revision(&headers)?;
     let mut connection = state.database.connection();
     let current = get_roast(&connection, id)?;
+    let deployed_page_url = validate_gift_page_url(
+        input
+            .deployed_page_url
+            .clone()
+            .unwrap_or(current.deployed_page_url.clone()),
+    )?;
     let profile_id = input
         .profile_id
         .unwrap_or(current.profile.as_ref().map(|v| v.id));
@@ -552,12 +558,12 @@ pub async fn roasts_patch(
     let changed = transaction.execute(
         "UPDATE roasts SET profile_id=?, coffee_id=?, roasted_at_ms=?, roasted_at_source=?, user_roasted_at_ms=?, source_timezone=?, status=?, result=?, level_thousandths=?, green_input_mass_mg=?,
          roasted_yield_mass_mg=?, development_basis_points=?, duration_ms=?, cooldown_end_ms=?, end_temperature_milli_c=?, end_reason=?, adjustments_json=?, roaster_parameters_json=?,
-         profile_snapshot_json=?, archived_at_ms=CASE WHEN ? THEN ? ELSE archived_at_ms END, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+         deployed_page_url=?, profile_snapshot_json=?, archived_at_ms=CASE WHEN ? THEN ? ELSE archived_at_ms END, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![profile_id, coffee_id, roasted_at_ms, roasted_at_source, user_roasted_at_ms, source_timezone, status, result,
             input.level_thousandths.unwrap_or(current.level_thousandths), input.green_input_mass_mg.unwrap_or(current.green_input_mass_mg),
             input.roasted_yield_mass_mg.unwrap_or(current.roasted_yield_mass_mg), development_basis_points,
             duration_ms, cooldown_end_ms, end_temperature_milli_c, end_reason,
-            json_text(&adjustments)?, json_text(&parameters)?, profile_snapshot, archive_was_supplied, archived_at_ms, now_ms(), id, expected],
+            json_text(&adjustments)?, json_text(&parameters)?, deployed_page_url, profile_snapshot, archive_was_supplied, archived_at_ms, now_ms(), id, expected],
     )?;
     if changed == 0 {
         return Err(ApiError::revision());
@@ -1634,6 +1640,7 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
           let roasted_at_source = if user_roasted_at_ms.is_some() { "user".into() } else { stored_roasted_at_source };
           let roasted_at_ms = user_roasted_at_ms.unwrap_or(row.get("roasted_at_ms")?);
           Ok(RoastResource {
+            deployed_page_url: row.get("deployed_page_url")?,
             id: row.get("id")?,
             profile: row.get::<_, Option<i64>>("profile_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("profile_name").unwrap_or_default().unwrap_or_default() }),
             coffee: row.get::<_, Option<i64>>("coffee_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("coffee_name").unwrap_or_default().unwrap_or_default() }),
@@ -2509,4 +2516,66 @@ fn string_value(values: &Map<String, Value>, key: &str, fallback: &str) -> Strin
 }
 fn int_value(values: &Map<String, Value>, key: &str, fallback: i64) -> i64 {
     values.get(key).and_then(Value::as_i64).unwrap_or(fallback)
+}
+
+fn validate_gift_page_url(value: Option<String>) -> ApiResult<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    let url = reqwest::Url::parse(value)
+        .map_err(|_| ApiError::validation("deployedPageUrl must be an absolute HTTPS URL."))?;
+    if value.len() > 2048
+        || url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(ApiError::validation("deployedPageUrl must be an absolute HTTPS URL without credentials, at most 2048 characters."));
+    }
+    Ok(Some(value.to_owned()))
+}
+
+#[cfg(test)]
+mod gift_page_tests {
+    use super::*;
+    #[test]
+    fn gift_page_accepts_only_https_without_credentials() {
+        assert_eq!(validate_gift_page_url(None).unwrap(), None);
+        assert_eq!(
+            validate_gift_page_url(Some(" https://share.tan.coffee/gift/keramo ".into()))
+                .unwrap()
+                .as_deref(),
+            Some("https://share.tan.coffee/gift/keramo")
+        );
+        for value in [
+            "http://example.com",
+            "javascript:alert(1)",
+            "/gift",
+            "https://user:secret@example.com",
+            "",
+            "https://",
+        ] {
+            assert!(validate_gift_page_url(Some(value.into())).is_err());
+        }
+    }
+    #[test]
+    fn gift_page_patch_distinguishes_omitted_null_and_url() {
+        let rating: NotePatch =
+            serde_json::from_value(serde_json::json!({"ratingBasisPoints":null})).unwrap();
+        assert_eq!(rating.rating_basis_points, Some(None));
+        let omitted: RoastPatch = serde_json::from_value(serde_json::json!({})).unwrap();
+        let cleared: RoastPatch =
+            serde_json::from_value(serde_json::json!({"deployedPageUrl":null})).unwrap();
+        let linked: RoastPatch = serde_json::from_value(
+            serde_json::json!({"deployedPageUrl":"https://example.com/gift"}),
+        )
+        .unwrap();
+        assert_eq!(omitted.deployed_page_url, None);
+        assert_eq!(cleared.deployed_page_url, Some(None));
+        assert_eq!(
+            linked.deployed_page_url,
+            Some(Some("https://example.com/gift".into()))
+        );
+    }
 }

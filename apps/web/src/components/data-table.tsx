@@ -1,14 +1,4 @@
-import {
-  type ColumnDef,
-  type RowData,
-  type SortingState,
-  type VisibilityState,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Card, CardContent } from "@tan-studio/ui/components/card"
 import { Button } from "@tan-studio/ui/components/button"
 import {
   DropdownMenu,
@@ -29,6 +19,17 @@ import {
   TableHeader,
   TableRow,
 } from "@tan-studio/ui/components/table"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type RowData,
+  type SortingState,
+  type VisibilityState,
+} from "@tanstack/react-table"
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -262,7 +263,7 @@ export function DataTable<TData, TValue>({
   const rows = table.getRowModel().rows
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="notebook-data-table flex flex-col gap-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
         {search ? (
           <Field className="min-w-64 flex-1">
@@ -345,113 +346,117 @@ export function DataTable<TData, TValue>({
         </div>
       </div>
 
-      <div className="bg-card overflow-hidden rounded-xl border">
-        <div className="hidden overflow-x-auto md:block">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead key={header.id} colSpan={header.colSpan}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext()
-                          )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={density === "expanded" ? "py-4" : undefined}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="divide-y md:hidden">
-          {rows.map((row) => {
-            const cells = row
-              .getVisibleCells()
-              .filter((cell) => cell.column.columnDef.meta?.mobile !== "hidden")
-            const primary =
-              cells.find(
-                (cell) => cell.column.columnDef.meta?.mobile === "primary"
-              ) ??
-              cells.find(
-                (cell) => cell.column.columnDef.meta?.mobile !== "image"
-              )
-            const image = cells.find(
-              (cell) => cell.column.columnDef.meta?.mobile === "image"
-            )
-            const details = cells.filter(
-              (cell) => cell !== primary && cell !== image
-            )
-            return (
-              <article
-                key={row.id}
-                className={density === "expanded" ? "p-5" : "p-4"}
-              >
-                <div className="flex items-start gap-4">
-                  {image
-                    ? flexRender(
-                        image.column.columnDef.cell,
-                        image.getContext()
-                      )
-                    : null}
-                  <div className="min-w-0 flex-1">
-                    {primary ? (
-                      <div className="text-base font-semibold">
-                        {flexRender(
-                          primary.column.columnDef.cell,
-                          primary.getContext()
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-                <dl
-                  className={`grid grid-cols-2 gap-x-4 ${density === "expanded" ? "mt-4 gap-y-4" : "mt-3 gap-y-2"}`}
-                >
-                  {details.map((cell) => (
-                    <div key={cell.id} className="min-w-0">
-                      <dt className="text-muted-foreground text-xs">
-                        {cell.column.columnDef.meta?.label ?? cell.column.id}
-                      </dt>
-                      <dd className="mt-0.5 min-w-0 text-sm">
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="hidden overflow-x-auto md:block">
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id} colSpan={header.colSpan}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={density === "expanded" ? "py-4" : undefined}
+                      >
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext()
                         )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </article>
-            )
-          })}
-        </div>
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
 
-        <div className="text-muted-foreground border-t px-4 py-3 text-xs">
-          {rows.length.toLocaleString()} {noun}
-          {rows.length === 1 ? "" : "s"}
-        </div>
-      </div>
+          <div className="divide-y md:hidden">
+            {rows.map((row) => {
+              const cells = row
+                .getVisibleCells()
+                .filter(
+                  (cell) => cell.column.columnDef.meta?.mobile !== "hidden"
+                )
+              const primary =
+                cells.find(
+                  (cell) => cell.column.columnDef.meta?.mobile === "primary"
+                ) ??
+                cells.find(
+                  (cell) => cell.column.columnDef.meta?.mobile !== "image"
+                )
+              const image = cells.find(
+                (cell) => cell.column.columnDef.meta?.mobile === "image"
+              )
+              const details = cells.filter(
+                (cell) => cell !== primary && cell !== image
+              )
+              return (
+                <article
+                  key={row.id}
+                  className={density === "expanded" ? "p-5" : "p-4"}
+                >
+                  <div className="flex items-start gap-4">
+                    {image
+                      ? flexRender(
+                          image.column.columnDef.cell,
+                          image.getContext()
+                        )
+                      : null}
+                    <div className="min-w-0 flex-1">
+                      {primary ? (
+                        <div className="text-base font-semibold">
+                          {flexRender(
+                            primary.column.columnDef.cell,
+                            primary.getContext()
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <dl
+                    className={`grid grid-cols-2 gap-x-4 ${density === "expanded" ? "mt-4 gap-y-4" : "mt-3 gap-y-2"}`}
+                  >
+                    {details.map((cell) => (
+                      <div key={cell.id} className="min-w-0">
+                        <dt className="text-muted-foreground text-xs">
+                          {cell.column.columnDef.meta?.label ?? cell.column.id}
+                        </dt>
+                        <dd className="mt-0.5 min-w-0 text-sm">
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </article>
+              )
+            })}
+          </div>
+
+          <div className="text-muted-foreground border-t px-4 py-3 text-xs">
+            {rows.length.toLocaleString()} {noun}
+            {rows.length === 1 ? "" : "s"}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -1,6 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
@@ -12,6 +10,8 @@ import {
   SelectValue,
 } from "@tan-studio/ui/components/select"
 import { Textarea } from "@tan-studio/ui/components/textarea"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { toast } from "sonner"
@@ -94,22 +94,28 @@ export function BrewEditorScreen() {
       <PageHeader
         title="Log brew"
         actions={
-          <Link
-            to="/brews"
-            search={{
-              roastId: search.roastId,
-              brewId: undefined,
-              tab: undefined,
-              q: undefined,
-              method: undefined,
-              sort: undefined,
-              hidden: undefined,
-              density: undefined,
-            }}
-            className={buttonVariants({ variant: "outline" })}
+          <Button
+            nativeButton={false}
+            role="link"
+            variant={"outline"}
+            render={
+              <Link
+                to="/brews"
+                search={{
+                  roastId: search.roastId,
+                  brewId: undefined,
+                  tab: undefined,
+                  q: undefined,
+                  method: undefined,
+                  sort: undefined,
+                  hidden: undefined,
+                  density: undefined,
+                }}
+              />
+            }
           >
             Back to brews
-          </Link>
+          </Button>
         }
       />
       <div className="px-3 py-4 sm:px-7 sm:py-6">

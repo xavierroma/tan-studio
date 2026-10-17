@@ -1,69 +1,49 @@
-import { useNavigate, useSearch } from "@tanstack/react-router"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@tan-studio/ui/components/tabs"
-import { CableIcon, CupSodaIcon, KeyRoundIcon } from "lucide-react"
-
+import { Link, useSearch } from "@tanstack/react-router"
 import { AgentCredentialSettings } from "@/components/agent-credential-settings"
 import { ApiTokenSettings } from "@/components/api-token-settings"
 import { BrewDefaultsSettings } from "@/components/brew-defaults-settings"
+import { NotebookSettings } from "@/components/notebook-settings"
 import { PageHeader } from "@/components/page-header"
+import { NotebookBreadcrumbs } from "@/components/notebook"
+import { SessionControls } from "@/components/session-controls"
 import { DeviceSettings } from "@/screens/device-screen"
 
 export function SettingsScreen() {
-  const search = useSearch({ from: "/settings" })
-  const navigate = useNavigate({ from: "/settings" })
-  const section =
-    search.section === "devices" || search.section === "access"
-      ? search.section
-      : "brewing"
-
+  const { section } = useSearch({ from: "/settings" }),
+    title =
+      section === "notebook"
+        ? "Labels & tables"
+        : section === "devices"
+          ? "Devices"
+          : section === "access"
+            ? "Access"
+            : "Brewing defaults"
   return (
-    <div className="min-h-screen">
-      <PageHeader title="Settings" />
-      <div className="px-3 py-4 sm:px-7 sm:py-6">
-        <Tabs
-          value={section}
-          onValueChange={(value) =>
-            void navigate({
-              search: {
-                section:
-                  value === "devices" || value === "access"
-                    ? (value as "devices" | "access")
-                    : undefined,
-              },
-            })
-          }
-        >
-          <TabsList variant="line">
-            <TabsTrigger value="brewing">
-              <CupSodaIcon />
-              Brewing
-            </TabsTrigger>
-            <TabsTrigger value="devices">
-              <CableIcon />
-              Devices
-            </TabsTrigger>
-            <TabsTrigger value="access">
-              <KeyRoundIcon />
-              Access
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="brewing" className="pt-6">
-            <BrewDefaultsSettings />
-          </TabsContent>
-          <TabsContent value="devices" className="pt-6">
-            <DeviceSettings />
-          </TabsContent>
-          <TabsContent value="access" className="pt-6">
-            <ApiTokenSettings />
-            <AgentCredentialSettings />
-          </TabsContent>
-        </Tabs>
-      </div>
+    <div>
+      <NotebookBreadcrumbs
+        items={[
+          <Link to="/settings" search={{ section: undefined }}>
+            Settings
+          </Link>,
+          title,
+        ]}
+      />
+      <PageHeader title={title} />
+      {section === "notebook" ? (
+        <NotebookSettings />
+      ) : section === "devices" ? (
+        <DeviceSettings />
+      ) : section === "access" ? (
+        <>
+          <div className="flex items-center gap-3 pb-6">
+            <SessionControls />
+          </div>
+          <ApiTokenSettings />
+          <AgentCredentialSettings />
+        </>
+      ) : (
+        <BrewDefaultsSettings />
+      )}
     </div>
   )
 }

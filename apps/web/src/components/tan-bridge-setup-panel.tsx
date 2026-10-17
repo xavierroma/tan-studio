@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@tan-studio/ui/components/card"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -210,263 +211,270 @@ export function TanBridgeSetupPanel() {
   }
 
   return (
-    <section className="bg-card rounded-xl border p-5">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold">Tan Bridge setup</h2>
-            <Badge variant="secondary">Hosted</Badge>
-          </div>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
-            Connect the Atom to this computer once, choose Wi-Fi, then move its
-            single USB-C connection to the Nano. It will connect outbound over
-            TLS to
-            {` wss://${TanBridgeBackendHost}${TanBridgeBackendPath}`}.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {status ? (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => void disconnect()}
-                disabled={activity !== "idle"}
-              >
-                <UnplugIcon data-icon="inline-start" />
-                Disconnect
-              </Button>
-              <Button
-                onClick={() => void scan()}
-                disabled={activity !== "idle"}
-              >
-                <RefreshCwIcon data-icon="inline-start" />
-                {activity === "scanning" ? "Scanning…" : "Scan Wi-Fi"}
-              </Button>
-            </>
-          ) : (
-            <Button
-              onClick={() => void connect()}
-              disabled={!supported || activity !== "idle"}
-            >
-              <CableIcon data-icon="inline-start" />
-              {activity === "connecting" ? "Connecting…" : "Connect Atom"}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {!supported ? (
-        <Alert className="bg-warning mt-5">
-          <CableIcon />
-          <AlertTitle>Web Serial is unavailable</AlertTitle>
-          <AlertDescription>
-            Open Tan Studio in desktop Chrome or Edge to configure the bridge.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {error ? (
-        <Alert variant="destructive" className="mt-5">
-          <AlertTitle>Setup failed</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {status && !firmwareCompatible ? (
-        <Alert className="bg-warning mt-5">
-          <RefreshCwIcon />
-          <AlertTitle>Firmware update required</AlertTitle>
-          <AlertDescription>
-            This Atom is running incompatible firmware {status.firmware.version}
-            . Flash the hosted bridge firmware before saving its Wi-Fi and claim.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {configured ? (
-        <Alert className="bg-info mt-5">
-          <CheckCircle2Icon />
-          <AlertTitle>Bridge configured</AlertTitle>
-          <AlertDescription>
-            Unplug the Atom from this computer and connect that same USB-C port
-            to the powered Nano. It will claim itself through Tan Studio’s hosted
-            TLS endpoint.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {status ? (
-        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <div className="rounded-lg border p-4">
+    <Card className="">
+      <CardContent className="p-0">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+          <div>
             <div className="flex items-center gap-2">
-              <CableIcon className="size-4" />
-              <h3 className="text-sm font-medium">Atom connected</h3>
+              <h2 className="font-semibold">Tan Bridge setup</h2>
+              <Badge variant="secondary">Hosted</Badge>
             </div>
-            <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Bridge</dt>
-              <dd className="truncate font-mono text-xs">{status.bridgeId}</dd>
-              <dt className="text-muted-foreground">Firmware</dt>
-              <dd>{status.firmware.version}</dd>
-              <dt className="text-muted-foreground">Wi-Fi</dt>
-              <dd>{status.wifi.state}</dd>
-              <dt className="text-muted-foreground">Backend</dt>
-              <dd>{status.backend.state}</dd>
-              <dt className="text-muted-foreground">Last reset</dt>
-              <dd>{status.diagnostics.lastResetReason}</dd>
-              <dt className="text-muted-foreground">Boots</dt>
-              <dd>{status.diagnostics.bootCount}</dd>
-              <dt className="text-muted-foreground">Brownouts</dt>
-              <dd>{status.diagnostics.brownoutCount}</dd>
-              <dt className="text-muted-foreground">Watchdogs</dt>
-              <dd>
-                {status.diagnostics.watchdogCount} (
-                {status.diagnostics.interruptWatchdogCount}/
-                {status.diagnostics.taskWatchdogCount}/
-                {status.diagnostics.otherWatchdogCount})
-              </dd>
-              <dt className="text-muted-foreground">Watchdog stage</dt>
-              <dd>
-                {status.diagnostics.watchdogUsbStage} /{" "}
-                {status.diagnostics.watchdogNetworkStage}
-              </dd>
-            </dl>
+            <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
+              Connect the Atom to this computer once, choose Wi-Fi, then move
+              its single USB-C connection to the Nano. It will connect outbound
+              over TLS to
+              {` wss://${TanBridgeBackendHost}${TanBridgeBackendPath}`}.
+            </p>
           </div>
-          <div className="rounded-lg border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <WifiIcon className="size-4" />
-                <h3 className="text-sm font-medium">2.4 GHz Wi-Fi</h3>
-              </div>
-              {networks ? (
-                <Badge variant="secondary">{networks.length} found</Badge>
-              ) : null}
-            </div>
-            {networks === null ? (
-              <p className="text-muted-foreground mt-4 text-sm">
-                Scan, select the network, and enter its password.
-              </p>
-            ) : networks.length === 0 ? (
-              <p className="text-muted-foreground mt-4 text-sm">
-                No visible 2.4 GHz networks were found.
-              </p>
-            ) : (
-              <FieldGroup className="mt-4">
-                <Field>
-                  <FieldLabel htmlFor="tan-bridge-network">Network</FieldLabel>
-                  <Select
-                    items={networkItems}
-                    value={selectedNetworkId}
-                    onValueChange={(value) => {
-                      setSelectedNetworkId(value)
-                      setCredential("")
-                    }}
-                  >
-                    <SelectTrigger id="tan-bridge-network" className="w-full">
-                      <SelectValue placeholder="Choose a network" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {networks.map((network) => (
-                        <SelectItem
-                          key={network.networkId}
-                          value={network.networkId}
-                        >
-                          {networkLabel(network)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedNetwork ? (
-                    <FieldDescription>
-                      {selectedNetwork.authMode.replaceAll("-", " ")} · channel{" "}
-                      {selectedNetwork.channel}
-                    </FieldDescription>
-                  ) : null}
-                </Field>
-                {needsCredential ? (
-                  <Field>
-                    <FieldLabel htmlFor="tan-bridge-password">
-                      Wi-Fi password
-                    </FieldLabel>
-                    <Input
-                      id="tan-bridge-password"
-                      type="password"
-                      autoComplete="current-password"
-                      value={credential}
-                      onChange={(event) => setCredential(event.target.value)}
-                      maxLength={63}
-                    />
-                    <FieldDescription>
-                      Sent directly to the Atom over USB; Tan Studio does not
-                      send or store it in the backend.
-                    </FieldDescription>
-                  </Field>
-                ) : null}
+          <div className="flex gap-2">
+            {status ? (
+              <>
                 <Button
-                  onClick={() => void configure()}
-                  disabled={
-                    activity !== "idle" ||
-                    !firmwareCompatible ||
-                    !selectedNetwork ||
-                    (needsCredential && credential.length === 0)
-                  }
+                  variant="outline"
+                  onClick={() => void disconnect()}
+                  disabled={activity !== "idle"}
                 >
-                  <WifiIcon data-icon="inline-start" />
-                  {activity === "configuring"
-                    ? "Saving configuration…"
-                    : "Connect bridge"}
+                  <UnplugIcon data-icon="inline-start" />
+                  Disconnect
                 </Button>
-              </FieldGroup>
+                <Button
+                  onClick={() => void scan()}
+                  disabled={activity !== "idle"}
+                >
+                  <RefreshCwIcon data-icon="inline-start" />
+                  {activity === "scanning" ? "Scanning…" : "Scan Wi-Fi"}
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => void connect()}
+                disabled={!supported || activity !== "idle"}
+              >
+                <CableIcon data-icon="inline-start" />
+                {activity === "connecting" ? "Connecting…" : "Connect Atom"}
+              </Button>
             )}
           </div>
         </div>
-      ) : null}
 
-      {bridges.data?.length ? (
-        <div className="mt-5 rounded-lg border p-4">
-          <h3 className="text-sm font-medium">Registered bridges</h3>
-          <ul className="mt-3 flex flex-col gap-3">
-            {bridges.data.map((bridge) => (
-              <li
-                key={bridge.id}
-                className="flex flex-wrap items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-muted-foreground truncate font-mono text-xs">
-                      {bridge.bridgeId}
-                    </p>
-                    <Badge
-                      variant={
-                        bridge.revokedAt
-                          ? "warning"
-                          : bridge.state === "connected"
-                            ? "secondary"
-                            : "outline"
-                      }
-                    >
-                      {bridge.revokedAt ? "revoked" : bridge.state}
-                    </Badge>
-                  </div>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Firmware {bridge.firmwareVersion}
-                  </p>
+        {!supported ? (
+          <Alert className="bg-warning mt-5">
+            <CableIcon />
+            <AlertTitle>Web Serial is unavailable</AlertTitle>
+            <AlertDescription>
+              Open Tan Studio in desktop Chrome or Edge to configure the bridge.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {error ? (
+          <Alert variant="destructive" className="mt-5">
+            <AlertTitle>Setup failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {status && !firmwareCompatible ? (
+          <Alert className="bg-warning mt-5">
+            <RefreshCwIcon />
+            <AlertTitle>Firmware update required</AlertTitle>
+            <AlertDescription>
+              This Atom is running incompatible firmware{" "}
+              {status.firmware.version}. Flash the hosted bridge firmware before
+              saving its Wi-Fi and claim.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {configured ? (
+          <Alert className="bg-info mt-5">
+            <CheckCircle2Icon />
+            <AlertTitle>Bridge configured</AlertTitle>
+            <AlertDescription>
+              Unplug the Atom from this computer and connect that same USB-C
+              port to the powered Nano. It will claim itself through Tan
+              Studio’s hosted TLS endpoint.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {status ? (
+          <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <CableIcon className="size-4" />
+                <h3 className="text-sm font-medium">Atom connected</h3>
+              </div>
+              <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <dt className="text-muted-foreground">Bridge</dt>
+                <dd className="truncate font-mono text-xs">
+                  {status.bridgeId}
+                </dd>
+                <dt className="text-muted-foreground">Firmware</dt>
+                <dd>{status.firmware.version}</dd>
+                <dt className="text-muted-foreground">Wi-Fi</dt>
+                <dd>{status.wifi.state}</dd>
+                <dt className="text-muted-foreground">Backend</dt>
+                <dd>{status.backend.state}</dd>
+                <dt className="text-muted-foreground">Last reset</dt>
+                <dd>{status.diagnostics.lastResetReason}</dd>
+                <dt className="text-muted-foreground">Boots</dt>
+                <dd>{status.diagnostics.bootCount}</dd>
+                <dt className="text-muted-foreground">Brownouts</dt>
+                <dd>{status.diagnostics.brownoutCount}</dd>
+                <dt className="text-muted-foreground">Watchdogs</dt>
+                <dd>
+                  {status.diagnostics.watchdogCount} (
+                  {status.diagnostics.interruptWatchdogCount}/
+                  {status.diagnostics.taskWatchdogCount}/
+                  {status.diagnostics.otherWatchdogCount})
+                </dd>
+                <dt className="text-muted-foreground">Watchdog stage</dt>
+                <dd>
+                  {status.diagnostics.watchdogUsbStage} /{" "}
+                  {status.diagnostics.watchdogNetworkStage}
+                </dd>
+              </dl>
+            </div>
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <WifiIcon className="size-4" />
+                  <h3 className="text-sm font-medium">2.4 GHz Wi-Fi</h3>
                 </div>
-                {bridge.revokedAt ? null : (
+                {networks ? (
+                  <Badge variant="secondary">{networks.length} found</Badge>
+                ) : null}
+              </div>
+              {networks === null ? (
+                <p className="text-muted-foreground mt-4 text-sm">
+                  Scan, select the network, and enter its password.
+                </p>
+              ) : networks.length === 0 ? (
+                <p className="text-muted-foreground mt-4 text-sm">
+                  No visible 2.4 GHz networks were found.
+                </p>
+              ) : (
+                <FieldGroup className="mt-4">
+                  <Field>
+                    <FieldLabel htmlFor="tan-bridge-network">
+                      Network
+                    </FieldLabel>
+                    <Select
+                      items={networkItems}
+                      value={selectedNetworkId}
+                      onValueChange={(value) => {
+                        setSelectedNetworkId(value)
+                        setCredential("")
+                      }}
+                    >
+                      <SelectTrigger id="tan-bridge-network" className="w-full">
+                        <SelectValue placeholder="Choose a network" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {networks.map((network) => (
+                          <SelectItem
+                            key={network.networkId}
+                            value={network.networkId}
+                          >
+                            {networkLabel(network)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedNetwork ? (
+                      <FieldDescription>
+                        {selectedNetwork.authMode.replaceAll("-", " ")} ·
+                        channel {selectedNetwork.channel}
+                      </FieldDescription>
+                    ) : null}
+                  </Field>
+                  {needsCredential ? (
+                    <Field>
+                      <FieldLabel htmlFor="tan-bridge-password">
+                        Wi-Fi password
+                      </FieldLabel>
+                      <Input
+                        id="tan-bridge-password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={credential}
+                        onChange={(event) => setCredential(event.target.value)}
+                        maxLength={63}
+                      />
+                      <FieldDescription>
+                        Sent directly to the Atom over USB; Tan Studio does not
+                        send or store it in the backend.
+                      </FieldDescription>
+                    </Field>
+                  ) : null}
                   <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={revoke.isPending}
-                    onClick={() => revoke.mutate(Number(bridge.id))}
+                    onClick={() => void configure()}
+                    disabled={
+                      activity !== "idle" ||
+                      !firmwareCompatible ||
+                      !selectedNetwork ||
+                      (needsCredential && credential.length === 0)
+                    }
                   >
-                    Revoke
+                    <WifiIcon data-icon="inline-start" />
+                    {activity === "configuring"
+                      ? "Saving configuration…"
+                      : "Connect bridge"}
                   </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </section>
+                </FieldGroup>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {bridges.data?.length ? (
+          <div className="mt-5 rounded-lg border p-4">
+            <h3 className="text-sm font-medium">Registered bridges</h3>
+            <ul className="mt-3 flex flex-col gap-3">
+              {bridges.data.map((bridge) => (
+                <li
+                  key={bridge.id}
+                  className="flex flex-wrap items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-muted-foreground truncate font-mono text-xs">
+                        {bridge.bridgeId}
+                      </p>
+                      <Badge
+                        variant={
+                          bridge.revokedAt
+                            ? "warning"
+                            : bridge.state === "connected"
+                              ? "secondary"
+                              : "outline"
+                        }
+                      >
+                        {bridge.revokedAt ? "revoked" : bridge.state}
+                      </Badge>
+                    </div>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Firmware {bridge.firmwareVersion}
+                    </p>
+                  </div>
+                  {bridge.revokedAt ? null : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={revoke.isPending}
+                      onClick={() => revoke.mutate(Number(bridge.id))}
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }

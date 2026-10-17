@@ -1,21 +1,25 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState, type FormEvent } from "react"
-import { toast } from "sonner"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@tan-studio/ui/components/card"
-import { Button } from "@tan-studio/ui/components/button"
-import { Input } from "@tan-studio/ui/components/input"
-import { Field, FieldLabel } from "@tan-studio/ui/components/field"
 import {
   listAgentCredentials,
   mintAgentCredential,
   revokeAgentCredential,
 } from "@/lib/api"
 import { usesOperatorSession } from "@/lib/companion-client"
+import { Button } from "@tan-studio/ui/components/button"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@tan-studio/ui/components/card"
+import { Field, FieldLabel } from "@tan-studio/ui/components/field"
+import { Input } from "@tan-studio/ui/components/input"
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@tan-studio/ui/components/native-select"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState, type FormEvent } from "react"
+import { toast } from "sonner"
 
 const key = ["agent-credentials"] as const
 export function AgentCredentialSettings() {
@@ -91,29 +95,35 @@ export function AgentCredentialSettings() {
               </Field>
               <Field>
                 <FieldLabel htmlFor="agent-permission">Access</FieldLabel>
-                <select
-                  className="rounded-md border p-2 text-sm"
+                <NativeSelect
                   id="agent-permission"
                   name="permission"
                   defaultValue="read"
                 >
-                  <option value="read">Read only</option>
-                  <option value="write">Read and write notebook records</option>
-                </select>
+                  <NativeSelectOption value="read">
+                    Read only
+                  </NativeSelectOption>
+                  <NativeSelectOption value="write">
+                    Read and write notebook records
+                  </NativeSelectOption>
+                </NativeSelect>
               </Field>
               <Field>
                 <FieldLabel htmlFor="agent-term">
                   Credential lifetime
                 </FieldLabel>
-                <select
+                <NativeSelect
                   id="agent-term"
-                  className="rounded-md border p-2 text-sm"
                   value={term}
-                  onChange={(event) => setTerm(event.target.value)}
+                  onChange={(e) => setTerm(e.target.value)}
                 >
-                  <option value="days">1–90 days</option>
-                  <option value="five-years">Five calendar years</option>
-                </select>
+                  <NativeSelectOption value="days">
+                    1–90 days
+                  </NativeSelectOption>
+                  <NativeSelectOption value="five-years">
+                    Five calendar years
+                  </NativeSelectOption>
+                </NativeSelect>
               </Field>
               {term === "days" ? (
                 <Field>

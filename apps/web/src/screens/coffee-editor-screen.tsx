@@ -1,7 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { Badge } from "@tan-studio/ui/components/badge"
-import { Button, buttonVariants } from "@tan-studio/ui/components/button"
+import { Button } from "@tan-studio/ui/components/button"
 import {
   Card,
   CardAction,
@@ -17,6 +15,8 @@ import {
 } from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import { Textarea } from "@tan-studio/ui/components/textarea"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeftIcon, FileIcon, SaveIcon } from "lucide-react"
 import type { FormEvent } from "react"
 import { useState } from "react"
@@ -170,7 +170,7 @@ function GeneralFields({ coffee }: { coffee?: Coffee | undefined }) {
             id="currency-code"
             name="currencyCode"
             maxLength={3}
-            defaultValue={coffee?.currencyCode ?? "USD"}
+            defaultValue={coffee ? (coffee.currencyCode ?? "") : "USD"}
           />
         </Field>
       </div>
@@ -427,7 +427,7 @@ export function CoffeeEditorScreen() {
       } else {
         toast.success(editing ? "Coffee updated" : `Coffee #${saved.id} saved`)
       }
-      if (!editing) {
+      {
         void navigate({
           to: "/coffees/$coffeeId",
           params: { coffeeId: String(saved.id) },
@@ -466,14 +466,15 @@ export function CoffeeEditorScreen() {
         title={item?.name ?? "Add coffee"}
         actions={
           <>
-            <Link
-              to="/coffees"
-              search={coffeeListSearch}
-              className={buttonVariants({ variant: "outline" })}
+            <Button
+              nativeButton={false}
+              role="link"
+              variant={"outline"}
+              render={<Link to="/coffees" search={coffeeListSearch} />}
             >
               <ArrowLeftIcon data-icon="inline-start" />
               Coffees
-            </Link>
+            </Button>
             <Button
               type="submit"
               form="coffee-editor-form"
@@ -487,25 +488,27 @@ export function CoffeeEditorScreen() {
       />
       <div className="mx-auto flex max-w-6xl flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         {item ? (
-          <section className="bg-card flex items-center gap-5 rounded-xl border p-5">
-            <EntityImage
-              attachmentId={item.profileImageAttachmentId}
-              entityType="coffee"
-              alt={item.name}
-              className="size-28 rounded-xl sm:size-36"
-            />
-            <div className="min-w-0">
-              <p className="text-muted-foreground text-sm">
-                {item.provider || "Provider not set"}
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold">{item.name}</h2>
-              <p className="text-muted-foreground mt-2">
-                {[item.country, item.region, item.process]
-                  .filter(Boolean)
-                  .join(" · ") || "Origin details not set"}
-              </p>
-            </div>
-          </section>
+          <Card className="flex items-center gap-5">
+            <CardContent className="p-0">
+              <EntityImage
+                attachmentId={item.profileImageAttachmentId}
+                entityType="coffee"
+                alt={item.name}
+                className="size-28 rounded-xl sm:size-36"
+              />
+              <div className="min-w-0">
+                <p className="text-muted-foreground text-sm">
+                  {item.provider || "Provider not set"}
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold">{item.name}</h2>
+                <p className="text-muted-foreground mt-2">
+                  {[item.country, item.region, item.process]
+                    .filter(Boolean)
+                    .join(" · ") || "Origin details not set"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ) : null}
         {item ? (
           <CoffeeSpecCharts coffeeName={item.name} metadata={item.metadata} />
@@ -593,27 +596,31 @@ export function CoffeeEditorScreen() {
                   <h2>Notes</h2>
                 </CardTitle>
                 <CardAction>
-                  <Link
-                    to="/roasts"
-                    search={{
-                      coffeeId: item.id,
-                      profileId: undefined,
-                      archived: undefined,
-                      q: undefined,
-                      status: undefined,
-                      sort: undefined,
-                      hidden: undefined,
-                      density: undefined,
-                      rest: undefined,
-                      view: undefined,
-                    }}
-                    className={buttonVariants({
-                      variant: "outline",
-                      size: "sm",
-                    })}
+                  <Button
+                    nativeButton={false}
+                    role="link"
+                    variant={"outline"}
+                    size={"sm"}
+                    render={
+                      <Link
+                        to="/roasts"
+                        search={{
+                          coffeeId: item.id,
+                          profileId: undefined,
+                          archived: undefined,
+                          q: undefined,
+                          status: undefined,
+                          sort: undefined,
+                          hidden: undefined,
+                          density: undefined,
+                          rest: undefined,
+                          view: undefined,
+                        }}
+                      />
+                    }
                   >
                     {item.roastCount} roasts
-                  </Link>
+                  </Button>
                 </CardAction>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">

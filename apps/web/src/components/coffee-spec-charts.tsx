@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@tan-studio/ui/components/card"
 import { BarChart, RadarChart } from "echarts/charts"
 import {
   AriaComponent,
@@ -355,21 +356,20 @@ export function CoffeeSpecCharts({
   if (!data) return null
 
   return (
-    <section
-      className="bg-card rounded-xl border p-5"
-      aria-labelledby="provider-cupping-title"
-    >
-      <h2 id="provider-cupping-title" className="font-semibold">
-        Provider cupping profile
-      </h2>
-      <div className="mt-4 grid gap-8 xl:grid-cols-2">
-        {data.cupping ? (
-          <CuppingRadar coffeeName={coffeeName} data={data.cupping} />
-        ) : null}
-        {data.flavor ? (
-          <FlavorPolar coffeeName={coffeeName} values={data.flavor} />
-        ) : null}
-      </div>
-    </section>
+    <Card className="" aria-labelledby="provider-cupping-title">
+      <CardContent className="p-0">
+        <h2 id="provider-cupping-title" className="font-semibold">
+          Provider cupping profile
+        </h2>
+        <div className="mt-4 grid gap-8 xl:grid-cols-2">
+          {data.cupping ? (
+            <CuppingRadar coffeeName={coffeeName} data={data.cupping} />
+          ) : null}
+          {data.flavor ? (
+            <FlavorPolar coffeeName={coffeeName} values={data.flavor} />
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

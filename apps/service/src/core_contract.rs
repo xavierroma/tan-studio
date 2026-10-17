@@ -311,6 +311,7 @@ pub struct RoastEvent {
 #[serde(rename_all = "camelCase")]
 pub struct RoastResource {
     pub id: i64,
+    pub deployed_page_url: Option<String>,
     pub profile: Option<ResourceReference>,
     pub coffee: Option<ResourceReference>,
     pub roasted_at: Option<String>,
@@ -389,6 +390,8 @@ pub struct RoastMilestonePatch {
 #[derive(Debug, Clone, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoastPatch {
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub deployed_page_url: Option<Option<String>>,
     pub profile_id: Option<Option<i64>>,
     pub coffee_id: Option<Option<i64>>,
     pub roasted_at: Option<Option<String>>,
@@ -584,6 +587,7 @@ pub struct NoteCreate {
 pub struct NotePatch {
     pub kind: Option<String>,
     pub body: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
     pub rating_basis_points: Option<Option<i64>>,
     pub attributes: Option<Value>,
 }
@@ -855,4 +859,13 @@ fn one() -> i64 {
 }
 fn gallery_role() -> String {
     "gallery".into()
+}
+
+// PATCH must distinguish omitted (preserve) from explicit null (clear).
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }

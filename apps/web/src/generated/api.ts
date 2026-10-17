@@ -1272,6 +1272,7 @@ export interface components {
             coffeeId?: number | null;
             /** Format: int64 */
             cooldownEndMs?: number | null;
+            deployedPageUrl?: string | null;
             /** Format: int64 */
             developmentBasisPoints?: number | null;
             /** Format: int64 */
@@ -1303,6 +1304,7 @@ export interface components {
             /** Format: int64 */
             cooldownEndMs?: number | null;
             createdAt: string;
+            deployedPageUrl?: string | null;
             /** Format: int64 */
             developmentBasisPoints?: number | null;
             /** Format: int64 */
