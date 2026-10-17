@@ -73,15 +73,38 @@ SESSION_SECRET="$(first_set \
 
 "$ROOT_DIRECTORY/script/build_hosted_release.sh" "$VERSION"
 RELEASE_DIRECTORY="$ROOT_DIRECTORY/dist/hosted/$VERSION"
-REMOTE_DIRECTORY="/tmp/tan-studio-hosted-$VERSION"
-SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new)
+REMOTE_DIRECTORY=""
+SECRETS_STAGING=""
+SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
 
-cleanup_remote() {
-  "${SSH[@]}" "$HOSTED_SSH" "rm -rf '$REMOTE_DIRECTORY'" >/dev/null 2>&1 || true
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ -n "$SECRETS_STAGING" ]]; then
+    rm -f -- "$SECRETS_STAGING"
+  fi
+  if [[ -n "$REMOTE_DIRECTORY" ]]; then
+    if ! "${SSH[@]}" "$HOSTED_SSH" "rm -rf -- '$REMOTE_DIRECTORY'"; then
+      printf 'Deployment staging cleanup failed; retained at %s:%s\n' "$HOSTED_SSH" "$REMOTE_DIRECTORY" >&2
+      if [[ "$status" == 0 ]]; then status=1; fi
+    fi
+  fi
+  exit "$status"
 }
-trap cleanup_remote EXIT
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-"${SSH[@]}" "$HOSTED_SSH" "install -d -m 0700 '$REMOTE_DIRECTORY'"
+# /tmp is RAM-backed on the small hosted VM. Allocate each deployment a private,
+# unique directory on disk so concurrent runs cannot delete each other's files.
+candidate="$("${SSH[@]}" "$HOSTED_SSH" "set -eu; filesystem=\$(findmnt -n -o FSTYPE --target /var/tmp); case \"\$filesystem\" in tmpfs|ramfs|'') echo 'Deployment staging requires disk-backed /var/tmp' >&2; exit 1;; esac; mktemp -d '/var/tmp/tan-studio-hosted-$VERSION.XXXXXXXX'")"
+prefix="/var/tmp/tan-studio-hosted-$VERSION."
+suffix="${candidate#"$prefix"}"
+if [[ "$candidate" != "$prefix"* || ! "$suffix" =~ ^[[:alnum:]]{8}$ ]]; then
+  echo "Unexpected deployment staging path; refusing upload or cleanup" >&2
+  exit 1
+fi
+REMOTE_DIRECTORY="$candidate"
 tar -C "$RELEASE_DIRECTORY" -cf - . |
   "${SSH[@]}" "$HOSTED_SSH" "tar -C '$REMOTE_DIRECTORY' -xf -"
 "${SSH[@]}" "$HOSTED_SSH" \
@@ -108,13 +131,11 @@ if [[ -n "$CLIENT_ID" || -n "$CLIENT_SECRET" || -n "$OPERATOR_EMAIL" || -n "$SES
   "${SSH[@]}" "$HOSTED_SSH" \
     "umask 077; cat > '$REMOTE_DIRECTORY/secrets'" < "$SECRETS_STAGING"
   rm -f "$SECRETS_STAGING"
+  SECRETS_STAGING=""
 fi
 
 "${SSH[@]}" "$HOSTED_SSH" \
   "sudo '$REMOTE_DIRECTORY/install.sh' '$REMOTE_DIRECTORY' '$VERSION'"
-cleanup_remote
-trap - EXIT
-
 curl --fail --silent --show-error --max-time 10 \
   --header 'Host: studio.tan.coffee' https://studio.tan.coffee/healthz
 printf '\nTan Studio %s is running at https://studio.tan.coffee\n' "$VERSION"

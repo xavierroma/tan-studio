@@ -27,6 +27,15 @@ Overrides: `TAN_STUDIO_HOSTED_SSH`, `TAN_STUDIO_HOSTED_SSH_KEY`, `TAN_STUDIO_ENV
 A new git SHA builds a new immutable tree under `/opt/tan-studio/releases` and
 flips `/opt/tan-studio/current`. Unit files are not edited by hand.
 
+Deployment staging uses a private, unique directory under disk-backed `/var/tmp`.
+The script rejects `tmpfs`/`ramfs` staging and cleans up remote release copies and
+local secret staging on success, failure, or interruption. If SSH is unavailable
+during cleanup, it reports the retained path and fails rather than hiding the
+leftover. Installed releases and notebook backups are outside staging cleanup.
+Manual deployments must also use `/var/tmp`, remove disposable copies afterward,
+and coordinate service restarts with other active deployment workers. `/tmp` on
+this VM consumes its limited RAM.
+
 ## Operator commands (on the VM)
 
 If the laptop script cannot run, copy a built `dist/hosted/<version>/` tree to
