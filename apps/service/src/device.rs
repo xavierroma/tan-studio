@@ -21,7 +21,7 @@ use crate::{
     kpro::{ImportInput as KproImportInput, KproError, KproImporter},
     sassi::{
         self, acknowledgement_frame, directory_frame, file_frame, info_frame, time_sync_frame,
-        Decoder, Message, TransferChunk,
+        ConnectionRequest, Decoder, Message, TransferChunk,
     },
     virtual_nano::{VirtualNanoScenario, VirtualNanoTranscript, VirtualNanoTransport},
 };
@@ -162,6 +162,7 @@ struct Session {
     next_sync_at: Instant,
     next_status_poll: Instant,
     handshake_not_before: Instant,
+    pending_handshake: Option<ConnectionRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,8 +418,9 @@ fn new_bridge_session(port: Box<dyn SessionTransport>) -> Session {
     // The Atom can authenticate after buffering several repeated type-2
     // requests. Each request carries a new CRC seed, so answering a replayed
     // request would be validly encoded but stale by the time it reaches the
-    // Nano. Drain the bounded replay window and negotiate from the next live
-    // request instead.
+    // Nano. Drain the bounded replay window and keep only its newest request.
+    // A Nano that still considers its USB session open may not send another
+    // request after the backend reconnects, so do not discard the last one.
     new_session_with_handshake_delay(port, BRIDGE_REPLAY_SETTLE_TIME)
 }
 
@@ -439,10 +441,16 @@ fn new_session_with_handshake_delay(
         next_sync_at: Instant::now(),
         next_status_poll: Instant::now() + BUSY_STATUS_INTERVAL,
         handshake_not_before: Instant::now() + handshake_delay,
+        pending_handshake: None,
     }
 }
 
 fn poll_session(session: &mut Session, snapshot: &RwLock<DeviceSnapshot>) -> Result<(), String> {
+    if session.phase == Phase::AwaitingHandshake && Instant::now() >= session.handshake_not_before {
+        if let Some(request) = session.pending_handshake.take() {
+            handle_message(session, snapshot, Message::ConnectionRequest(request))?;
+        }
+    }
     // Recover a missed not-busy notification without repeatedly attempting
     // filesystem transfers (or inserting failed sync history) while roasting.
     if session.phase == Phase::Ready
@@ -498,12 +506,17 @@ fn handle_message(
             {
                 return Err("unsupported_device".into());
             }
-            if session.phase != Phase::AwaitingHandshake {
+            if session.phase != Phase::AwaitingHandshake
+                && !(session.phase == Phase::AwaitingTimeSync
+                    && session.crc_seed != Some(request.crc_seed))
+            {
                 return Ok(());
             }
             if Instant::now() < session.handshake_not_before {
+                session.pending_handshake = Some(request);
                 return Ok(());
             }
+            session.pending_handshake = None;
             session.crc_seed = Some(request.crc_seed);
             session.maximum_packet_bytes = Some(request.maximum_packet_bytes);
             session
@@ -1194,8 +1207,15 @@ mod tests {
         assert_eq!(session.phase, Phase::AwaitingHandshake);
 
         session.handshake_not_before = Instant::now();
-        handle_message(&mut session, &snapshot, message).unwrap();
-        assert_eq!(session.phase, Phase::AwaitingTimeSync);
+        // No repeated live type-2 request is required after the replay window.
+        for _ in 0..2_000 {
+            poll_session(&mut session, &snapshot).unwrap();
+            if session.phase == Phase::Ready {
+                break;
+            }
+        }
+        assert_eq!(session.phase, Phase::Ready);
+        assert!(session.pending_handshake.is_none());
     }
 
     #[test]
