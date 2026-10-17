@@ -69,3 +69,11 @@ before an old log's corrupt second packet, verifies old bytes unchanged, then
 reconnects and finishes without duplicates. Physical acceptance additionally
 requires a complete hosted Nano sync, stable watchdog counters, retained
 provisioning and a clean repeat/reconnect. Unit tests alone are insufficient.
+
+Hosted session endings now record a fixed reason, numeric close/OS error codes,
+I/O error kind, duration and byte counts. This distinguishes peer/socket loss
+from malformed records, a full inbound queue and device-consumer shutdown.
+Read failures also retain the SASSI phase and numeric byte counts. Payloads,
+peer-supplied close text and credentials are never included. These diagnostics
+address the evidence gap in the transient 20:18 UTC disconnects; they do not
+retroactively establish their cause.

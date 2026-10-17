@@ -494,7 +494,13 @@ fn read_message(session: &mut Session) -> Result<Option<sassi::DecodedMessage>, 
             {
                 return Ok(None)
             }
-            Err(_) => return Err("read_failed".into()),
+            Err(error) => {
+                tracing::warn!(event = "sassi_transport_read_failed",
+                    error_kind = ?error.kind(), os_error = error.raw_os_error(),
+                    phase = ?session.phase, received_wire_bytes = session.received_wire_bytes,
+                    buffered_bytes = session.decoder.buffered_bytes());
+                return Err("read_failed".into());
+            }
         }
     }
     while let Some(byte) = session.unread_bytes.pop_front() {

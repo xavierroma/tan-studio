@@ -183,6 +183,13 @@ async fn websocket_session(
     device.attach_bridge(bridge_id.clone(), transport);
     let mut last_diagnostics: Option<std::time::Instant> = None;
 
+    let connected_at = std::time::Instant::now();
+    let mut end_reason = "socket_stream_ended";
+    let mut close_code = None;
+    let mut io_error_kind = None;
+    let mut os_error = None;
+    let mut usb_bytes = 0_u64;
+    let mut backend_bytes_attempted = 0_u64;
     loop {
         tokio::select! {
             message = socket.recv() => match message {
@@ -191,25 +198,44 @@ async fn websocket_session(
                         Ok(payload) => payload.to_vec(),
                         Err(_) => {
                             let _ = socket.send(Message::Close(None)).await;
-                            return;
+                            end_reason = "invalid_usb_record";
+                            break;
                         }
                     };
-                    if nano_sender.try_send(payload).is_err() {
+                    usb_bytes += payload.len() as u64;
+                    if let Err(error) = nano_sender.try_send(payload) {
+                        end_reason = match error {
+                            mpsc::TrySendError::Full(_) => "inbound_queue_full",
+                            mpsc::TrySendError::Disconnected(_) => "device_consumer_closed",
+                        };
                         let _ = socket.send(Message::Close(None)).await;
-                        return;
+                        break;
                     }
                 }
                 Some(Ok(Message::Ping(payload))) => {
-                    if socket.send(Message::Pong(payload)).await.is_err() {
-                        return;
+                    if let Err(error) = socket.send(Message::Pong(payload)).await {
+                        end_reason = "pong_send_failed";
+                        (io_error_kind, os_error) = socket_io_error(&error);
+                        break;
                     }
                 }
                 Some(Ok(Message::Pong(_))) => {}
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
+                Some(Ok(Message::Close(frame))) => {
+                    end_reason = "peer_close";
+                    close_code = frame.map(|frame| frame.code);
+                    break;
+                }
+                Some(Err(error)) => {
+                    end_reason = "socket_receive_error";
+                    (io_error_kind, os_error) = socket_io_error(&error);
+                    break;
+                }
+                None => break,
                 Some(Ok(Message::Text(encoded))) => {
                     let Some(diagnostic) = parse_diagnostics(&encoded) else {
                         let _ = socket.send(Message::Close(None)).await;
-                        return;
+                        end_reason = "invalid_diagnostics";
+                        break;
                     };
                     // Numeric-only, authenticated diagnostics; bound log volume.
                     if last_diagnostics.is_none_or(|last| last.elapsed() >= Duration::from_secs(5)) {
@@ -231,14 +257,38 @@ async fn websocket_session(
             },
             record = backend_receiver.recv() => match record {
                 Some(record) => {
-                    if socket.send(Message::Binary(record.into())).await.is_err() {
-                        return;
+                    backend_bytes_attempted += record.len().saturating_sub(3) as u64;
+                    if let Err(error) = socket.send(Message::Binary(record.into())).await {
+                        end_reason = "backend_send_failed";
+                        (io_error_kind, os_error) = socket_io_error(&error);
+                        break;
                     }
                 }
-                None => return,
+                None => {
+                    end_reason = "device_session_ended";
+                    break;
+                },
             },
         }
     }
+    // Do not log frame contents, close reason strings, or authentication material.
+    tracing::info!(event = "bridge_session_ended", bridge_id = %bridge_id,
+        reason = end_reason, close_code, ?io_error_kind, os_error,
+        lifetime_ms = connected_at.elapsed().as_millis() as u64,
+        usb_bytes, backend_bytes_attempted);
+}
+
+fn socket_io_error(
+    error: &(dyn std::error::Error + 'static),
+) -> (Option<io::ErrorKind>, Option<i32>) {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        if let Some(error) = error.downcast_ref::<io::Error>() {
+            return (Some(error.kind()), error.raw_os_error());
+        }
+        current = error.source();
+    }
+    (None, None)
 }
 
 struct WebSocketBridgeTransport {
