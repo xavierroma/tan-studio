@@ -1,0 +1,33 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tan-studio-hosted",
+  "version": "1.0.0",
+  "description": "Read and update Xavier’s coffee notebook through the authenticated hosted Tan Studio MCP.",
+  "author": {
+    "name": "Xavier Roma"
+  },
+  "homepage": "https://studio.tan.coffee",
+  "repository": "https://github.com/xavierroma/tan-studio",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "Tan Studio Hosted",
+        "shortDescription": "Coffee roasts, brews and notes from your notebook.",
+        "developerName": "Xavier Roma",
+        "category": "Lifestyle",
+        "capabilities": [
+          "Search pantry, coffees, profiles and roasts",
+          "Read device status and notebook context",
+          "Create and update coffee, roast and brew records",
+          "Add tasting notes, profile images and labels"
+        ],
+        "defaultPrompt": [
+          "Show my most recent roasts.",
+          "Record a brew and tasting notes."
+        ],
+        "brandColor": "#A9785B"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "tan-studio": {
+      "type": "streamable-http",
+      "url": "https://studio.tan.coffee/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "api_key",
+            "headerScheme": "bearer"
+          }
+        }
+      }
+    }
+  }
+}

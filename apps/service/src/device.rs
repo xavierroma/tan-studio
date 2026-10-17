@@ -35,6 +35,8 @@ const READ_TIMEOUT: Duration = Duration::from_millis(25);
 const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(12);
 const BRIDGE_REPLAY_SETTLE_TIME: Duration = Duration::from_millis(750);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const BUSY_STATUS_INTERVAL: Duration = Duration::from_secs(5);
+const SYNC_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_DIRECTORY_BYTES: usize = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 const LOG_DIRECTORY: &str = "kaffelogic/roast-logs";
@@ -157,6 +159,8 @@ struct Session {
     crc_seed: Option<u16>,
     maximum_packet_bytes: Option<usize>,
     sync_attempted: bool,
+    next_sync_at: Instant,
+    next_status_poll: Instant,
     handshake_not_before: Instant,
 }
 
@@ -273,6 +277,7 @@ fn device_loop(
             tracing::warn!(
                 event = "device_session_failed",
                 reason = "negotiation_timeout",
+                phase = ?session.as_ref().map(|active| active.phase),
                 transport
             );
             *snapshot.write() = degraded("negotiation_timeout");
@@ -285,7 +290,7 @@ fn device_loop(
         if let Some(active) = session.as_mut() {
             match poll_session(active, &snapshot) {
                 Ok(()) => {
-                    if active.phase == Phase::Ready && !active.sync_attempted {
+                    if sync_due(active, &snapshot) {
                         active.sync_attempted = true;
                         if let Err(reason) = synchronize(
                             active,
@@ -299,8 +304,12 @@ fn device_loop(
                                 matches!(reason.as_str(), "device_busy" | "sassi_outcome_103");
                             if waiting {
                                 active.sync_attempted = false;
+                                active.next_sync_at = Instant::now() + SYNC_RETRY_INTERVAL;
                             }
                             let mut current = snapshot.write();
+                            if waiting {
+                                current.busy = Some(true);
+                            }
                             current.reason = Some(reason);
                             current.sync_state = if waiting { "idle" } else { "failed" }.into();
                             if !waiting {
@@ -427,11 +436,24 @@ fn new_session_with_handshake_delay(
         crc_seed: None,
         maximum_packet_bytes: None,
         sync_attempted: false,
+        next_sync_at: Instant::now(),
+        next_status_poll: Instant::now() + BUSY_STATUS_INTERVAL,
         handshake_not_before: Instant::now() + handshake_delay,
     }
 }
 
 fn poll_session(session: &mut Session, snapshot: &RwLock<DeviceSnapshot>) -> Result<(), String> {
+    // Recover a missed not-busy notification without repeatedly attempting
+    // filesystem transfers (or inserting failed sync history) while roasting.
+    if session.phase == Phase::Ready
+        && snapshot.read().busy == Some(true)
+        && Instant::now() >= session.next_status_poll
+    {
+        write_frame(session, |elapsed, seed, maximum| {
+            info_frame(elapsed, seed, maximum, 9)
+        })?;
+        session.next_status_poll = Instant::now() + BUSY_STATUS_INTERVAL;
+    }
     let mut buffer = [0u8; 4096];
     match session.port.read(&mut buffer) {
         Ok(0) => Ok(()),
@@ -453,6 +475,13 @@ fn poll_session(session: &mut Session, snapshot: &RwLock<DeviceSnapshot>) -> Res
         }
         Err(_) => Err("read_failed".into()),
     }
+}
+
+fn sync_due(session: &Session, snapshot: &RwLock<DeviceSnapshot>) -> bool {
+    session.phase == Phase::Ready
+        && !session.sync_attempted
+        && snapshot.read().busy != Some(true)
+        && Instant::now() >= session.next_sync_at
 }
 
 fn handle_message(
@@ -523,10 +552,33 @@ fn handle_message(
             session.phase = Phase::Ready;
             session.phase_started = Instant::now();
         }
-        Message::StatusNotification { info_code: 6, .. } => snapshot.write().busy = Some(true),
-        Message::StatusNotification { info_code: 7, .. } => snapshot.write().busy = Some(false),
+        Message::InfoResponse { data, info_code: 9 } if session.phase == Phase::Ready => {
+            let busy = filesystem_locked(&data);
+            let mut current = snapshot.write();
+            if current.busy == Some(true) && busy == Some(false) {
+                session.sync_attempted = false;
+            }
+            current.busy = busy;
+        }
+        Message::StatusNotification { info_code: 6, .. } => {
+            snapshot.write().busy = Some(true);
+            session.sync_attempted = false;
+        }
+        Message::StatusNotification { info_code: 7, .. } => {
+            snapshot.write().busy = Some(false);
+            session.sync_attempted = false;
+        }
+        Message::IncrementalFileChunk(_) => acknowledge_notification(session)?,
         _ => {}
     }
+    Ok(())
+}
+
+fn acknowledge_notification(session: &mut Session) -> Result<(), String> {
+    // Type 32 requires a type-1 ACK even for its final fragment. Its bytes are
+    // provisional: import only the complete CRC-checked file once unlocked.
+    write_frame(session, acknowledgement_frame)?;
+    session.sync_attempted = false;
     Ok(())
 }
 
@@ -575,6 +627,7 @@ fn synchronize(
     database: &Database,
     trigger: &str,
 ) -> Result<(), String> {
+    session.sync_attempted = true;
     let started_at = chrono::Utc::now().timestamp_millis();
     let (transport, device_model) = {
         let current = snapshot.read();
@@ -773,7 +826,7 @@ fn synchronize_run(
     Ok(())
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum TransferKind {
     Directory,
     File,
@@ -810,13 +863,26 @@ where
             Ok(length) => {
                 for event in session.decoder.push(&buffer[..length]) {
                     let message = event
-                        .map_err(|error| format!("protocol_{error:?}").to_ascii_lowercase())?
+                        .map_err(|error| {
+                            tracing::warn!(
+                                event = "sassi_transfer_failed",
+                                ?kind,
+                                expected_sequence,
+                                received_bytes = output.len(),
+                                ?error
+                            );
+                            format!("protocol_{error:?}").to_ascii_lowercase()
+                        })?
                         .message;
                     let chunk = match (kind, message) {
                         (TransferKind::Directory, Message::DirectoryChunk(chunk)) => Some(chunk),
                         (TransferKind::File, Message::FileChunk(chunk)) => Some(chunk),
                         (_, Message::StatusNotification { info_code: 6, .. }) => {
                             return Err("device_busy".into())
+                        }
+                        (_, Message::IncrementalFileChunk(_)) => {
+                            acknowledge_notification(session)?;
+                            None
                         }
                         _ => None,
                     };
@@ -856,6 +922,13 @@ where
             Err(_) => return Err("read_failed".into()),
         }
     }
+    tracing::warn!(
+        event = "sassi_transfer_failed",
+        ?kind,
+        expected_sequence,
+        received_bytes = output.len(),
+        reason = "request_timeout"
+    );
     Err("request_timeout".into())
 }
 
@@ -1123,6 +1196,139 @@ mod tests {
         session.handshake_not_before = Instant::now();
         handle_message(&mut session, &snapshot, message).unwrap();
         assert_eq!(session.phase, Phase::AwaitingTimeSync);
+    }
+
+    #[test]
+    fn busy_nano_does_not_flood_sync_history_and_unlock_schedules_sync() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("busy.sqlite")).unwrap();
+        let mut scenario = VirtualNanoScenario::smoke();
+        scenario.fault = VirtualNanoFault::BusyFilesystem;
+        let (manager, _) =
+            NanoDeviceManager::start_simulated(database.clone(), scenario.clone()).unwrap();
+        for _ in 0..200 {
+            if manager.snapshot().firmware.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(manager.snapshot().busy, Some(true));
+        thread::sleep(Duration::from_millis(100));
+        let count: i64 = database
+            .connection()
+            .query_row("SELECT count(*) FROM sync_runs", [], |r| r.get(0))
+            .unwrap();
+        manager.stop();
+        assert_eq!(
+            count, 0,
+            "busy device must wait without repeatedly recording failed transfers"
+        );
+
+        let (mut session, snapshot, _) = negotiate_virtual(scenario);
+        session.sync_attempted = true;
+        assert!(!sync_due(&session, &snapshot));
+        handle_message(
+            &mut session,
+            &snapshot,
+            Message::StatusNotification {
+                data: String::new(),
+                info_code: 7,
+            },
+        )
+        .unwrap();
+        assert!(
+            sync_due(&session, &snapshot),
+            "new roast is imported after the filesystem unlocks"
+        );
+    }
+
+    #[test]
+    fn incremental_notification_is_acknowledged_during_idle_and_transfer() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use std::sync::Mutex;
+        struct AckGate {
+            input: std::collections::VecDeque<u8>,
+            writes: Arc<Mutex<Vec<u32>>>,
+            final_frame: Vec<u8>,
+        }
+        impl Read for AckGate {
+            fn read(&mut self, target: &mut [u8]) -> io::Result<usize> {
+                if self.input.is_empty() {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+                let n = target.len().min(self.input.len());
+                for byte in &mut target[..n] {
+                    *byte = self.input.pop_front().unwrap();
+                }
+                Ok(n)
+            }
+        }
+        impl Write for AckGate {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                let frame = sassi::decode_frame(bytes, Some(0x1a2b), 4096).unwrap();
+                self.writes.lock().unwrap().push(frame.kind);
+                if frame.kind == 1 {
+                    self.input.extend(std::mem::take(&mut self.final_frame));
+                }
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let notification =
+            sassi::encode_frame(32, 1, &["live.klog", "128", "", "1", "eA=="], 0x1a2b, 4064)
+                .unwrap();
+        let payload = b" \tlog0027.klog\t202610170000000\t12\r";
+        let final_frame = sassi::encode_frame(
+            6,
+            2,
+            &[LOG_DIRECTORY, "128", "1", "1", &STANDARD.encode(payload)],
+            0x1a2b,
+            4064,
+        )
+        .unwrap();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let mut session = new_session(Box::new(AckGate {
+            input: notification.into(),
+            writes: writes.clone(),
+            final_frame,
+        }));
+        session.crc_seed = Some(0x1a2b);
+        session.maximum_packet_bytes = Some(4064);
+        session.decoder.negotiate(4064, 0x1a2b).unwrap();
+        session.phase = Phase::Ready;
+        session.sync_attempted = true;
+        let bytes = request_transfer_with_timeout(
+            &mut session,
+            |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
+            TransferKind::Directory,
+            Duration::from_millis(100),
+        )
+        .unwrap();
+        assert_eq!(bytes, payload);
+        assert_eq!(*writes.lock().unwrap(), vec![5, 1]);
+        assert!(
+            !session.sync_attempted,
+            "notification schedules a later complete-file import"
+        );
+        session.sync_attempted = true;
+        let snapshot = RwLock::new(disconnected("fixture"));
+        handle_message(
+            &mut session,
+            &snapshot,
+            Message::IncrementalFileChunk(TransferChunk {
+                path: "live.klog".into(),
+                outcome: 0,
+                final_chunk: true,
+                third: String::new(),
+                sequence: 1,
+                bytes: vec![1],
+            }),
+        )
+        .unwrap();
+        assert_eq!(*writes.lock().unwrap(), vec![5, 1, 1]);
+        assert!(!session.sync_attempted);
     }
 
     #[test]
