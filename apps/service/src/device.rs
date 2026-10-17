@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::{self, Read, Write},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -152,6 +152,8 @@ impl<T: Read + Write + Send> SessionTransport for T {}
 struct Session {
     port: Box<dyn SessionTransport>,
     decoder: Decoder,
+    unread_bytes: VecDeque<u8>,
+    received_wire_bytes: u64,
     phase: Phase,
     phase_started: Instant,
     started: Instant,
@@ -279,6 +281,8 @@ fn device_loop(
                 event = "device_session_failed",
                 reason = "negotiation_timeout",
                 phase = ?session.as_ref().map(|active| active.phase),
+                received_wire_bytes = session.as_ref().map(|active| active.received_wire_bytes),
+                buffered_bytes = session.as_ref().map(|active| active.decoder.buffered_bytes()),
                 transport
             );
             *snapshot.write() = degraded("negotiation_timeout");
@@ -431,6 +435,8 @@ fn new_session_with_handshake_delay(
     Session {
         port,
         decoder: Decoder::default(),
+        unread_bytes: VecDeque::new(),
+        received_wire_bytes: 0,
         phase: Phase::AwaitingHandshake,
         phase_started: Instant::now(),
         started: Instant::now(),
@@ -462,27 +468,48 @@ fn poll_session(session: &mut Session, snapshot: &RwLock<DeviceSnapshot>) -> Res
         })?;
         session.next_status_poll = Instant::now() + BUSY_STATUS_INTERVAL;
     }
-    let mut buffer = [0u8; 4096];
-    match session.port.read(&mut buffer) {
-        Ok(0) => Ok(()),
-        Ok(length) => {
-            for event in session.decoder.push(&buffer[..length]) {
-                let decoded =
-                    event.map_err(|error| format!("protocol_{error:?}").to_ascii_lowercase())?;
-                handle_message(session, snapshot, decoded.message)?;
-            }
-            Ok(())
-        }
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
-            ) =>
-        {
-            Ok(())
-        }
-        Err(_) => Err("read_failed".into()),
+    if let Some(decoded) = read_message(session)? {
+        handle_message(session, snapshot, decoded.message)?;
     }
+    Ok(())
+}
+
+// Decode exactly one frame at a time. Retain following bytes across transfer
+// completion and let the session apply a negotiated seed before the next frame.
+fn read_message(session: &mut Session) -> Result<Option<sassi::DecodedMessage>, String> {
+    if session.unread_bytes.is_empty() {
+        let mut buffer = [0u8; 4096];
+        match session.port.read(&mut buffer) {
+            Ok(length) => {
+                session.received_wire_bytes += length as u64;
+                session.unread_bytes.extend(&buffer[..length]);
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut
+                        | io::ErrorKind::WouldBlock
+                        | io::ErrorKind::Interrupted
+                ) =>
+            {
+                return Ok(None)
+            }
+            Err(_) => return Err("read_failed".into()),
+        }
+    }
+    while let Some(byte) = session.unread_bytes.pop_front() {
+        if let Some(event) = session.decoder.push(std::slice::from_ref(&byte)).pop() {
+            return event.map(Some).map_err(|error| {
+                tracing::warn!(event = "sassi_frame_rejected", ?error,
+                    phase = ?session.phase,
+                    frame_kind = session.decoder.last_frame_kind(),
+                    frame_bytes = session.decoder.last_frame_bytes(),
+                    received_wire_bytes = session.received_wire_bytes);
+                format!("protocol_{error:?}").to_ascii_lowercase()
+            });
+        }
+    }
+    Ok(None)
 }
 
 fn sync_due(session: &Session, snapshot: &RwLock<DeviceSnapshot>) -> bool {
@@ -748,11 +775,13 @@ fn synchronize_run(
         session,
         |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
         TransferKind::Directory,
+        LOG_DIRECTORY,
     )?;
     let profile_bytes = request_transfer(
         session,
         |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, PROFILE_DIRECTORY),
         TransferKind::Directory,
+        PROFILE_DIRECTORY,
     )?;
     let mut logs = parse_directory(LOG_DIRECTORY, &log_bytes)?
         .into_iter()
@@ -769,6 +798,11 @@ fn synchronize_run(
         current.log_count = Some(logs.len() as u32);
         current.profile_count = Some(profiles.len() as u32);
     }
+    tracing::info!(
+        event = "sassi_inventory_received",
+        log_count = logs.len(),
+        profile_count = profiles.len()
+    );
     let mut imported = 0;
     let mut updated = 0;
     let mut warnings = 0;
@@ -781,6 +815,7 @@ fn synchronize_run(
             session,
             |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
             TransferKind::File,
+            &entry.path,
         )?;
         match profile_importer.import(KproImportInput {
             bytes: result,
@@ -804,6 +839,7 @@ fn synchronize_run(
             session,
             |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, &entry.path),
             TransferKind::File,
+            &entry.path,
         )?;
         match log_importer.import(KlogImportInput {
             bytes: result,
@@ -849,17 +885,19 @@ fn request_transfer<F>(
     session: &mut Session,
     encode: F,
     kind: TransferKind,
+    requested_path: &str,
 ) -> Result<Vec<u8>, String>
 where
     F: FnOnce(u64, u16, usize) -> Result<Vec<u8>, sassi::CodecError>,
 {
-    request_transfer_with_timeout(session, encode, kind, REQUEST_TIMEOUT)
+    request_transfer_with_timeout(session, encode, kind, requested_path, REQUEST_TIMEOUT)
 }
 
 fn request_transfer_with_timeout<F>(
     session: &mut Session,
     encode: F,
     kind: TransferKind,
+    requested_path: &str,
     timeout: Duration,
 ) -> Result<Vec<u8>, String>
 where
@@ -869,77 +907,70 @@ where
     let mut idle_deadline = Instant::now() + timeout;
     let mut output = Vec::new();
     let mut expected_sequence = 1u32;
-    let mut buffer = [0u8; 4096];
     while Instant::now() < idle_deadline {
-        match session.port.read(&mut buffer) {
-            Ok(0) => continue,
-            Ok(length) => {
-                for event in session.decoder.push(&buffer[..length]) {
-                    let message = event
-                        .map_err(|error| {
-                            tracing::warn!(
-                                event = "sassi_transfer_failed",
-                                ?kind,
-                                expected_sequence,
-                                received_bytes = output.len(),
-                                ?error
-                            );
-                            format!("protocol_{error:?}").to_ascii_lowercase()
-                        })?
-                        .message;
-                    let chunk = match (kind, message) {
-                        (TransferKind::Directory, Message::DirectoryChunk(chunk)) => Some(chunk),
-                        (TransferKind::File, Message::FileChunk(chunk)) => Some(chunk),
-                        (_, Message::StatusNotification { info_code: 6, .. }) => {
-                            return Err("device_busy".into())
-                        }
-                        (_, Message::IncrementalFileChunk(_)) => {
-                            acknowledge_notification(session)?;
-                            None
-                        }
-                        _ => None,
-                    };
-                    let Some(chunk) = chunk else {
-                        continue;
-                    };
-                    accept_chunk(&chunk, expected_sequence)?;
-                    idle_deadline = Instant::now() + timeout;
-                    if chunk.outcome != 0 {
-                        return Err(format!("sassi_outcome_{}", chunk.outcome));
-                    }
-                    expected_sequence += 1;
-                    let maximum_bytes = match kind {
-                        TransferKind::Directory => MAX_DIRECTORY_BYTES,
-                        TransferKind::File => MAX_FILE_BYTES,
-                    };
-                    if output.len().saturating_add(chunk.bytes.len()) > maximum_bytes {
-                        return Err("sassi_transfer_too_large".into());
-                    }
-                    output.extend_from_slice(&chunk.bytes);
-                    if chunk.final_chunk {
-                        return Ok(output);
-                    }
-                    write_frame(session, acknowledgement_frame)?;
-                }
+        let event = read_message(session).map_err(|reason| {
+            tracing::warn!(event = "sassi_transfer_failed", ?kind,
+                requested_path = %requested_path.chars().take(256).collect::<String>(),
+                expected_sequence, received_bytes = output.len(), reason);
+            reason
+        })?;
+        let Some(decoded) = event else {
+            continue;
+        };
+        let chunk = match (kind, decoded.message) {
+            (TransferKind::Directory, Message::DirectoryChunk(chunk)) => Some(chunk),
+            (TransferKind::File, Message::FileChunk(chunk)) => Some(chunk),
+            (_, Message::StatusNotification { info_code: 6, .. }) => {
+                return Err("device_busy".into())
             }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::TimedOut
-                        | io::ErrorKind::WouldBlock
-                        | io::ErrorKind::Interrupted
-                ) =>
-            {
-                continue
+            (_, Message::IncrementalFileChunk(_)) => {
+                acknowledge_notification(session)?;
+                None
             }
-            Err(_) => return Err("read_failed".into()),
+            // A fresh handshake invalidates the in-flight transfer. Never
+            // accept bytes under a new seed or continue a partial import.
+            (_, Message::ConnectionRequest(_)) => {
+                tracing::warn!(event = "sassi_transfer_failed", ?kind,
+                    requested_path = %requested_path.chars().take(256).collect::<String>(),
+                    expected_sequence, received_bytes = output.len(), reason = "device_restarted_during_transfer");
+                return Err("device_restarted_during_transfer".into());
+            }
+            _ => None,
+        };
+        let Some(chunk) = chunk else {
+            continue;
+        };
+        accept_chunk(&chunk, expected_sequence).map_err(|reason| {
+            tracing::warn!(event = "sassi_transfer_failed", ?kind,
+                requested_path = %requested_path.chars().take(256).collect::<String>(),
+                expected_sequence, received_sequence = chunk.sequence,
+                received_bytes = output.len(), reason);
+            reason
+        })?;
+        idle_deadline = Instant::now() + timeout;
+        if chunk.outcome != 0 {
+            return Err(format!("sassi_outcome_{}", chunk.outcome));
         }
+        expected_sequence += 1;
+        let maximum_bytes = match kind {
+            TransferKind::Directory => MAX_DIRECTORY_BYTES,
+            TransferKind::File => MAX_FILE_BYTES,
+        };
+        if output.len().saturating_add(chunk.bytes.len()) > maximum_bytes {
+            return Err("sassi_transfer_too_large".into());
+        }
+        output.extend_from_slice(&chunk.bytes);
+        if chunk.final_chunk {
+            return Ok(output);
+        }
+        write_frame(session, acknowledgement_frame)?;
     }
     tracing::warn!(
         event = "sassi_transfer_failed",
         ?kind,
         expected_sequence,
         received_bytes = output.len(),
+        requested_path = %requested_path.chars().take(256).collect::<String>(),
         reason = "request_timeout"
     );
     Err("request_timeout".into())
@@ -1323,6 +1354,7 @@ mod tests {
             &mut session,
             |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
             TransferKind::Directory,
+            LOG_DIRECTORY,
             Duration::from_millis(100),
         )
         .unwrap();
@@ -1351,6 +1383,143 @@ mod tests {
         assert!(!session.sync_attempted);
     }
 
+    struct CoalescedFrames {
+        input: std::io::Cursor<Vec<u8>>,
+        writes: Arc<std::sync::Mutex<Vec<u32>>>,
+    }
+    impl Read for CoalescedFrames {
+        fn read(&mut self, target: &mut [u8]) -> io::Result<usize> {
+            self.input.read(target)
+        }
+    }
+    impl Write for CoalescedFrames {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let kind = std::str::from_utf8(bytes)
+                .unwrap()
+                .strip_prefix("KL*")
+                .unwrap()
+                .split('|')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            self.writes.lock().unwrap().push(kind);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn final_transfer_preserves_and_acknowledges_coalesced_notification() {
+        let seed = 0x1a2b;
+        let mut wire =
+            sassi::encode_frame(6, 1, &[LOG_DIRECTORY, "128", "1", "1", "eA=="], seed, 4064)
+                .unwrap();
+        wire.extend(
+            sassi::encode_frame(32, 2, &["live.klog", "128", "", "1", "eA=="], seed, 4064).unwrap(),
+        );
+        let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = new_session(Box::new(CoalescedFrames {
+            input: std::io::Cursor::new(wire),
+            writes: writes.clone(),
+        }));
+        session.crc_seed = Some(seed);
+        session.maximum_packet_bytes = Some(4064);
+        session.decoder.negotiate(4064, seed).unwrap();
+        session.phase = Phase::Ready;
+        let result = request_transfer_with_timeout(
+            &mut session,
+            |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
+            TransferKind::Directory,
+            LOG_DIRECTORY,
+            Duration::from_millis(10),
+        )
+        .unwrap();
+        assert_eq!(result, b"x");
+        poll_session(&mut session, &RwLock::new(disconnected("fixture"))).unwrap();
+        assert_eq!(
+            *writes.lock().unwrap(),
+            vec![5, 1],
+            "notification after final response must still receive its ACK"
+        );
+    }
+    #[test]
+    fn coalesced_handshake_updates_seed_before_decoding_following_packet() {
+        let seed = 0x1a2b;
+        let mut wire = sassi::encode_frame(
+            2,
+            1,
+            &[
+                "1",
+                "128",
+                "0000000000",
+                "1",
+                "KN1007B",
+                "kaffelogic.com",
+                "",
+                "4064",
+                "192",
+                "1a2b",
+            ],
+            seed,
+            4064,
+        )
+        .unwrap();
+        wire.extend(sassi::encode_frame(4, 2, &[], seed, 4064).unwrap());
+        let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = new_session(Box::new(CoalescedFrames {
+            input: std::io::Cursor::new(wire),
+            writes: writes.clone(),
+        }));
+        let snapshot = RwLock::new(disconnected("fixture"));
+        for _ in 0..2 {
+            poll_session(&mut session, &snapshot).unwrap();
+        }
+        assert_eq!(session.phase, Phase::AwaitingStatus);
+        assert_eq!(*writes.lock().unwrap(), vec![3, 13]);
+    }
+    #[test]
+    fn new_handshake_during_transfer_aborts_before_import_or_ack() {
+        let seed = 0x1a2b;
+        let wire = sassi::encode_frame(
+            2,
+            1,
+            &[
+                "1",
+                "128",
+                "0000000000",
+                "1",
+                "KN1007B",
+                "kaffelogic.com",
+                "",
+                "4064",
+                "192",
+                "1a2b",
+            ],
+            seed,
+            4064,
+        )
+        .unwrap();
+        let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = new_session(Box::new(CoalescedFrames {
+            input: std::io::Cursor::new(wire),
+            writes: writes.clone(),
+        }));
+        session.crc_seed = Some(0x1234);
+        session.maximum_packet_bytes = Some(4064);
+        session.decoder.negotiate(4064, 0x1234).unwrap();
+        session.phase = Phase::Ready;
+        let result = request_transfer_with_timeout(
+            &mut session,
+            |elapsed, seed, maximum| file_frame(elapsed, seed, maximum, "fixture.klog"),
+            TransferKind::File,
+            "fixture.klog",
+            Duration::from_millis(10),
+        );
+        assert_eq!(result.unwrap_err(), "device_restarted_during_transfer");
+        assert_eq!(*writes.lock().unwrap(), vec![7]);
+    }
     #[test]
     fn virtual_nano_faults_fail_closed_with_stable_reasons() {
         let cases = [
@@ -1400,6 +1569,7 @@ mod tests {
             &mut session,
             |elapsed, seed, maximum| directory_frame(elapsed, seed, maximum, LOG_DIRECTORY),
             TransferKind::Directory,
+            LOG_DIRECTORY,
             Duration::from_millis(5),
         );
         assert_eq!(timeout.unwrap_err(), "request_timeout");

@@ -69,6 +69,8 @@ pub struct Decoder {
     discard_until_terminator: bool,
     maximum_packet_bytes: Option<usize>,
     crc_seed: Option<u16>,
+    last_frame_kind: Option<u32>,
+    last_frame_bytes: usize,
 }
 
 impl Default for Decoder {
@@ -78,6 +80,8 @@ impl Default for Decoder {
             discard_until_terminator: false,
             maximum_packet_bytes: None,
             crc_seed: None,
+            last_frame_kind: None,
+            last_frame_bytes: 0,
         }
     }
 }
@@ -101,6 +105,8 @@ impl Decoder {
         self.discard_until_terminator = false;
         self.maximum_packet_bytes = None;
         self.crc_seed = None;
+        self.last_frame_kind = None;
+        self.last_frame_bytes = 0;
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Vec<Result<DecodedMessage, CodecError>> {
@@ -133,6 +139,12 @@ impl Decoder {
             if *byte == FRAME_TERMINATOR {
                 self.buffer.push(*byte);
                 let frame = std::mem::take(&mut self.buffer);
+                self.last_frame_bytes = frame.len();
+                self.last_frame_kind = std::str::from_utf8(&frame)
+                    .ok()
+                    .and_then(|text| text.strip_prefix("KL*"))
+                    .and_then(|text| text.split('|').next())
+                    .and_then(|kind| kind.parse().ok());
                 events.push(decode_frame(
                     &frame,
                     self.crc_seed,
@@ -142,12 +154,22 @@ impl Decoder {
             }
             self.buffer.push(*byte);
             if self.buffer.len() + 1 > self.maximum_frame_bytes() {
+                self.last_frame_bytes = self.buffer.len();
+                self.last_frame_kind = None;
                 self.buffer.clear();
                 self.discard_until_terminator = true;
                 events.push(Err(CodecError::TooLarge));
             }
         }
         events
+    }
+
+    // Diagnostic metadata only: never retain payloads, paths, seeds or CRCs.
+    pub fn last_frame_kind(&self) -> Option<u32> {
+        self.last_frame_kind
+    }
+    pub fn last_frame_bytes(&self) -> usize {
+        self.last_frame_bytes
     }
 
     pub fn buffered_bytes(&self) -> usize {
@@ -468,6 +490,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rejected_frame_diagnostics_only_retain_numeric_metadata() {
+        let changed = TYPE_2.replace("|128|", "|129|");
+        let mut decoder = Decoder::default();
+        assert_eq!(
+            decoder.push(changed.as_bytes()),
+            vec![Err(CodecError::InvalidCrc)]
+        );
+        assert_eq!(decoder.last_frame_kind(), Some(2));
+        assert_eq!(decoder.last_frame_bytes(), changed.len());
+        assert_eq!(decoder.buffered_bytes(), 0);
+        decoder.reset();
+        assert_eq!(decoder.last_frame_kind(), None);
+        assert_eq!(decoder.last_frame_bytes(), 0);
+    }
     #[test]
     fn decodes_final_busy_transfer() {
         let seed = 0x1d0f;
