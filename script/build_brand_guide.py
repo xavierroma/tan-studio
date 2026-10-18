@@ -21,7 +21,7 @@ ASSETS = ROOT / "sites/share/assets"
 OUT = ROOT / "output/pdf/Tan-Brand-Guide.pdf"
 INK = colors.HexColor("#000000")
 RED = colors.HexColor("#B6151B")
-KRAFT = colors.HexColor("#D6B98E")
+RAW_STOCK = colors.HexColor("#E8E5DC")
 STOCK = colors.HexColor("#FFF9EE")
 WIDTH = A4[0] - 104
 pdfmetrics.registerFont(TTFont("TanMono", str(ASSETS / "fonts/CourierPrime-Regular.ttf")))
@@ -69,7 +69,7 @@ class BrandFigure(Flowable):
             c.drawString(0, 5, "Original plant / black + red / transparent cutouts")
         elif self.kind == "logo-panels":
             w = (WIDTH - 18) / 2
-            for x, col, label in [(0, colors.white, "White label stock"), (w + 18, KRAFT, "Kraft stock")]:
+            for x, col, label in [(0, colors.white, "White label stock"), (w + 18, RAW_STOCK, "Raw stock")]:
                 c.setFillColor(col)
                 c.rect(x, 21, w, 133, fill=1, stroke=0)
                 self.logo(x + (w - 135) / 2, 31, 135)
@@ -80,7 +80,7 @@ class BrandFigure(Flowable):
             w = (WIDTH - 27) / 4
             for i, (col, name, value) in enumerate([
                 (INK, "Ink black", "#000000"), (RED, "Tan Red", "#B6151B"),
-                (KRAFT, "Kraft stock", "#D6B98E"), (colors.white, "White stock", "No printing"),
+                (RAW_STOCK, "Raw stock", "#E8E5DC"), (colors.white, "White stock", "No printing"),
             ]):
                 x = i * (w + 9)
                 c.setFillColor(col)
@@ -132,9 +132,9 @@ def parse_page(text, cover=False):
             else:
                 flow += [BrandFigure(kind), Spacer(1, 9)]
                 if kind == "logo-panels":
-                    web.append('<div class="logo-panels"><figure class="white"><img src="../../sites/share/assets/tan-logo.png" alt="Tan logo on white"></figure><figure class="kraft"><img src="../../sites/share/assets/tan-logo.png" alt="Tan logo on kraft"></figure></div>')
+                    web.append('<div class="logo-panels"><figure class="white"><img src="../../sites/share/assets/tan-logo.png" alt="Tan logo on white"></figure><figure class="raw-stock"><img src="../../sites/share/assets/tan-logo.png" alt="Tan logo on raw stock"></figure></div>')
                 elif kind == "swatches":
-                    web.append('<div class="swatches"><div class="black">Black<br>#000000</div><div class="red">Tan Red<br>#B6151B</div><div class="kraft">Kraft<br>#D6B98E</div><div class="white">White stock<br>Unprinted</div></div>')
+                    web.append('<div class="swatches"><div class="black">Black<br>#000000</div><div class="red">Tan Red<br>#B6151B</div><div class="raw-stock">Raw stock<br>#E8E5DC</div><div class="white">White stock<br>Unprinted</div></div>')
                 elif kind == "type-specimen":
                     web.append('<div class="type-specimen">Vibed<br><span>Tan</span><br>Coffee</div>')
                 else:
@@ -192,12 +192,12 @@ def parse_page(text, cover=False):
 
 def decorate(canvas, doc):
     canvas.saveState()
-    canvas.setFillColor(KRAFT if doc.page == 1 else STOCK)
+    canvas.setFillColor(RAW_STOCK if doc.page == 1 else STOCK)
     canvas.rect(0, 0, *A4, fill=1, stroke=0)
     canvas.setFillColor(INK)
     canvas.setFont("TanMono", 8)
     canvas.drawString(52, A4[1] - 30, "TAN / BRAND GUIDE")
-    canvas.drawString(52, 28, "18 OCT 2026 / v1.0")
+    canvas.drawString(52, 28, "18 OCT 2026 / v1.1")
     canvas.setFillColor(RED)
     canvas.drawRightString(A4[0] - 52, 28, f"{doc.page:02d}")
     canvas.restoreState()
@@ -218,10 +218,10 @@ def main():
                             title="Tan / Brand guide", author="Tan")
     doc.build(story, onFirstPage=decorate, onLaterPages=decorate)
     css = '''@font-face{font-family:TanMono;src:url(../../sites/share/assets/fonts/CourierPrime-Regular.ttf)}
-*{box-sizing:border-box}body{margin:0;background:#e6ddcf;color:#000;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.sheet{background:#fff9ee;max-width:900px;margin:24px auto;padding:60px;position:relative}.sheet:first-child{background:#d6b98e}
+*{box-sizing:border-box}body{margin:0;background:#dedbd2;color:#000;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.sheet{background:#fff9ee;max-width:900px;margin:24px auto;padding:60px;position:relative}.sheet:first-child{background:#e8e5dc}
 h1,h2{font-family:TanMono,monospace;font-weight:400;line-height:1.2}h1{font-size:32px;margin:0 0 24px}h2{font-size:22px;color:#b6151b;margin:28px 0 12px}.sheet:first-child h2{color:#000}p{margin:0 0 14px;overflow-wrap:anywhere}a{color:#b6151b;text-underline-offset:3px}code{font-family:TanMono,monospace;font-size:.88em}
-.cover-logo{width:300px;max-width:100%;height:auto;margin:24px 0 36px}.logo-panels{display:flex;gap:16px}.logo-panels figure{margin:0;padding:20px;flex:1;min-width:0}.logo-panels img{width:170px;max-width:100%;display:block;margin:auto}.white{background:#fff}.kraft{background:#d6b98e}
+.cover-logo{width:300px;max-width:100%;height:auto;margin:24px 0 36px}.logo-panels{display:flex;gap:16px}.logo-panels figure{margin:0;padding:20px;flex:1;min-width:0}.logo-panels img{width:170px;max-width:100%;display:block;margin:auto}.white{background:#fff}.raw-stock{background:#e8e5dc}
 .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:24px 0}.swatches div{padding:24px 10px;font-family:TanMono,monospace}.black{background:#000;color:#fff9ee}.red{background:#b6151b;color:#fff9ee}
 table{border-collapse:collapse;width:100%;margin:18px 0 24px;font-size:13px}td{padding:10px 12px 10px 0;vertical-align:top;border-bottom:1px solid #0003}tr:first-child{font-family:TanMono,monospace;border-bottom:1px solid #000}
 blockquote{font-family:TanMono,monospace;border-left:2px solid #b6151b;margin:20px 0;padding:0 20px}.type-specimen{font:50px/1.12 TanMono,monospace;margin:24px 0}.type-specimen span{color:#b6151b}.component-sheet{width:100%;height:auto}footer{font:11px TanMono,monospace;margin-top:36px}

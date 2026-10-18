@@ -1,6 +1,6 @@
 # Tan / Brand guide
 
-Version 1.0 / 18 October 2026
+Version 1.1 / 18 October 2026
 
 [[cover]]
 
@@ -30,7 +30,7 @@ The output is exactly black #000000, red #B6151B, or fully transparent. Alpha is
 - Give the mark clear space of at least one eighth of its displayed width on every side.
 - Use 64 px or larger for the detailed mark; use 18 mm or larger as a starting point for a physical print test.
 - Favicons are delivery exceptions. Their tiny botanical detail will be reduced; do not invent a new logo to fill the gap.
-- Keep the original aspect ratio. Use the transparent master over white or kraft stock. Never bake either paper color into the logo file.
+- Keep the original aspect ratio. Use the transparent master over white or raw stock. Never bake either paper color into the logo file.
 
 <!--page-->
 # 02 / Color and paper
@@ -41,7 +41,7 @@ The output is exactly black #000000, red #B6151B, or fully transparent. Alpha is
 | --- | --- | --- |
 | Ink black | #000000 | Body text, stems, leaves, rules, primary actions |
 | Tan Red | #B6151B | Cherries, a single headline accent, active or destructive states |
-| Kraft stock | #D6B98E | Public editorial background; not a third ink |
+| Raw stock | #E8E5DC | Neutral off-white editorial background; not a third ink |
 | Light stock | #FFF9EE | Quiet reading and form surfaces; not an ink |
 | White stock | #FFFFFF | The physical label paper; never white pixels in the logo |
 
@@ -51,11 +51,11 @@ Use black for most information. Red is a deliberate accent, not a fill for every
 
 "The paper features subtle fibers, natural grain, light usage marks, and a matte texture, while preserving large areas of unprinted paper whitespace, making the blank space an essential part of the layout."
 
-Use this user-supplied direction for editorial backgrounds. Fibers should be noticed after the content, not before it. No glossy shading, folds, coffee stains, artificial burned edges or texture behind dense form fields. Keep roughly half of an editorial composition unoccupied when the content allows it. Notebook tables prioritize useful history over empty decoration.
+Interpret this user-supplied direction as raw, unbleached paper: neutral off-white, faint uneven grain and generous blank space. Avoid brown kraft tint, decorative fiber strokes and artificial aging. Texture should be noticed after the content, not before it. No glossy shading, folds, coffee stains, artificial burned edges or texture behind dense form fields. Keep roughly half of an editorial composition unoccupied when the content allows it. Notebook tables prioritize useful history over empty decoration.
 
 ## Legibility
 
-Tan Red on flat kraft is about 3.60:1: suitable for large display text, not small body copy. Use black body text on kraft, or red links on light stock with an underline. Target at least 4.5:1 for normal text and 3:1 for large text; check the final textured surface. Follow W3C's contrast guidance, not color alone, for status and errors.
+Tan Red on flat raw stock is about 5.36:1. Use black for body text and underline red links. Both inks support normal text on this surface. Target at least 4.5:1 for normal text and 3:1 for large text; check the final textured surface. Follow W3C's contrast guidance, not color alone, for status and errors.
 
 <!--page-->
 # 03 / Type and composition
@@ -140,7 +140,7 @@ Generate a new illustration only when a new subject is needed. Start from an app
 3. Review the silhouette, subject identity and small-size readability before color conversion.
 4. Map the approved source pixels to black, Tan Red or transparency. Treat pale marks as cutouts, not white paint. Keep the original source unchanged.
 5. Export an indexed PNG master and lossless WebP. Verify the three-state palette, binary alpha and no new geometry. Save the prompt and proof manifest.
-6. Inspect over white, kraft and a checkerboard. Reject white rectangles, pale veins, halos and accidental extra colors. Keep ordinary UI icons separate from these illustrations.
+6. Inspect over white, raw stock and a checkerboard. Reject white rectangles, pale veins, halos and accidental extra colors. Keep ordinary UI icons separate from these illustrations.
 
 <!--page-->
 # 07 / Reusable art direction
@@ -153,7 +153,7 @@ Use the following template for a new brewer or botanical illustration. Replace t
 
 ## B / Editorial paper study
 
-> Place the approved transparent [SUBJECT] artwork on warm uncoated kraft or off-white paper. The paper features subtle fibers, natural grain, light usage marks, and a matte texture, while preserving large areas of unprinted paper whitespace, making the blank space an essential part of the layout. Keep the stamp modest, with broad quiet margins and only the minimum subject detail needed for recognition. Use black and red inks only. No photograph, visible central divider, collage, circular seal, postage perforations, wax seal, glossy gradients or dense ornament. Preserve the original artwork's proportions. Keep any caption area blank; add captions later as real Courier Prime text. Quiet, tactile and restrained, like a useful field record rather than an advertisement.
+> Place the approved transparent [SUBJECT] artwork on neutral off-white uncoated paper. The paper features subtle fibers, natural grain, light usage marks, and a matte texture, while preserving large areas of unprinted paper whitespace, making the blank space an essential part of the layout. Use faint grain only; avoid brown kraft tint, decorative fiber strokes and artificial aging. Keep the stamp modest, with broad quiet margins and only the minimum subject detail needed for recognition. Use black and red inks only. No photograph, visible central divider, collage, circular seal, postage perforations, wax seal, glossy gradients or dense ornament. Preserve the original artwork's proportions. Keep any caption area blank; add captions later as real Courier Prime text. Quiet, tactile and restrained, like a useful field record rather than an advertisement.
 
 ## Captions are real text
 
@@ -167,7 +167,7 @@ Use the actual subject or record name, an optional meaningful number, and a few 
 The project uses a NIIMBOT B21 Pro with the user's 50 x 80 mm black/red white stock. Design the document at that physical size. At a nominal 300 dpi, 50 x 80 mm corresponds to about 591 x 945 px; the app's actual printable area and scaling still need a physical proof.
 
 - Start with at least 2 mm safe margins as a design allowance; confirm registration on the actual roll.
-- On white labels, white means no printing. Do not print a kraft-color or paper-grain background with black/red media.
+- On white labels, white means no printing. Do not print a paper-color or grain background with black/red media.
 - Use the transparent two-ink PNG. The medium supplies its red appearance; an RGB file alone is not a physical color proof.
 - Keep fine rules at least 0.25 mm and small copy about 9 pt as initial test settings. Avoid distressed small text and thin reversed type.
 - Use the supported NIIMBOT app/driver, confirm the selected roll and color behavior, and print one test before a run. Printer automation and a physical two-color test are not verified by this brand document.

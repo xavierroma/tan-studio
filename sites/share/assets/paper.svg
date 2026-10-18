@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600">
-  <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".55" numOctaves="3" seed="7" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 .32 0 0 0 0 .22 0 0 0 0 .1 .333 .333 .333 0 0"/></filter>
-  <filter id="fibers"><feTurbulence type="fractalNoise" baseFrequency=".028 .36" numOctaves="3" seed="11" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 .32 0 0 0 0 .22 0 0 0 0 .1 .333 .333 .333 0 0"/></filter>
-  <rect width="600" height="600" fill="#d6b98e"/>
-  <rect width="600" height="600" filter="url(#grain)" opacity=".13"/>
-  <rect width="600" height="600" filter="url(#fibers)" opacity=".045"/>
-  <g fill="none" stroke="#f3dfbd" stroke-width=".65" opacity=".35" stroke-linecap="round"><path d="M24 47l5-2m112 39l3 5m98-61l7 1m102 42l-3 4m95-17l5 3m104-36l4 1M62 163l2 6m101-37l6-2m110 57l5 3m96-44l-2 5m111-24l6 2m73 60l3-5M31 278l7 1m90-50l3 6m124 38l-4 3m103-46l6-1m102 68l2 4m93-41l5-2M55 379l3-5m112-39l5 2m98 70l2-6m92-49l6 2m103-30l3 4m91 65l-5 2M21 480l5-2m116 38l2 5m97-61l7 1m102 42l-3 4m95-17l5 3m104-36l4 1M62 563l2 6m101-37l6-2m110 57l5 3m96-44l-2 5m111-24l6 2m73 60l3-5"/></g>
+  <filter id="grain">
+    <feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="3" seed="7" stitchTiles="stitch"/>
+    <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .333 .333 .333 0 0"/>
+  </filter>
+  <rect width="600" height="600" fill="#e8e5dc"/>
+  <rect width="600" height="600" filter="url(#grain)" opacity=".035"/>
 </svg>

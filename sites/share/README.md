@@ -1,6 +1,6 @@
 # Tan public site
 
-Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage uses the original coffee branch as the Tan logo, recolored in black and red, above the left-aligned three-line “Vibed / Tan / Coffee” title. The theme uses black and red ink on textured kraft paper. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
+Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage uses the original coffee branch as the Tan logo, recolored in black and red, above the left-aligned three-line “Vibed / Tan / Coffee” title. The theme uses black and red ink on raw off-white stock with faint grain. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
 
 This directory has no notebook imports, credentials, runtime requests, client scripts, or Studio publishing controls. Individually authored gift pages may be added as static directories containing an `index.html`. Only publish content deliberately chosen for public sharing. Store the resulting HTTPS URL on a roast through its existing gift-page link field.
 

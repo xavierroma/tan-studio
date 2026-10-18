@@ -6,7 +6,7 @@ const html = renderToStaticMarkup(
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta name="theme-color" content="#d6b98e" />
+      <meta name="theme-color" content="#e8e5dc" />
       <title>Vibed Tan Coffee</title>
       <meta name="description" content="Vibed Tan Coffee." />
       <link rel="canonical" href="https://tan.coffee/" />
