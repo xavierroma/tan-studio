@@ -1,12 +1,12 @@
 # Tan public site
 
-Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage contains the approved Tan Studio artwork and two brewing recipes. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
+Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage contains the approved Tan Studio masthead and hero artwork. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
 
 This directory has no notebook imports, credentials, runtime requests, client scripts, or Studio publishing controls. Individually authored gift pages may be added as static directories containing an `index.html`. Only publish content deliberately chosen for public sharing. Store the resulting HTTPS URL on a roast through its existing gift-page link field.
 
 ## Build
 
-From the repository root run `bun script/build_public_site.tsx`. Commit the generated `index.html` alongside its source. The build renders the existing shared shadcn Card and Separator components to HTML; the public host needs no Node runtime or install step. Edit recipe values and steps in `recipes.json`, then rebuild. `landing.css` supplies the approved paper-and-ink theme and A5 print layout. The grind scale is a static diagram, not an interactive control.
+From the repository root run `bun script/build_public_site.tsx`. Commit the generated `index.html` alongside its source. The build renders the existing shared shadcn Separator component to HTML; the public host needs no Node runtime or install step. `landing.css` supplies the approved paper-and-ink theme and responsive hero layout.
 
 Special Elite is self-hosted with its license in `assets/fonts`. Stamp illustrations are generated artwork; the Tan logo is the existing brand asset.
 
