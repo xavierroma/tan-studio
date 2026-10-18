@@ -8,7 +8,7 @@ This directory has no notebook imports, credentials, runtime requests, client sc
 
 From the repository root run `bun script/build_public_site.tsx`. Commit the generated `index.html` alongside its source. The build renders the static image-and-heading layout to HTML; the public host needs no Node runtime or install step. `landing.css` supplies the approved paper-and-ink theme and responsive hero layout.
 
-Special Elite is self-hosted with its license in `assets/fonts`. Stamp illustrations are generated artwork; the Tan logo is the existing brand asset.
+Courier Prime Regular is self-hosted with its SIL Open Font License in `assets/fonts`. The live title matches the illustrated field-note lettering with natural monospace spacing, regular weight and a subtle SVG ink mask; it remains selectable HTML text. Stamp illustrations are generated artwork; the Tan logo is the existing brand asset.
 
 ## Preview
 

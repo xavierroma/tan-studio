@@ -13,7 +13,7 @@ const html = renderToStaticMarkup(
       <link rel="icon" type="image/png" href="/assets/tan-studio-logo.png" />
       <link
         rel="preload"
-        href="/assets/fonts/SpecialElite-Regular.ttf"
+        href="/assets/fonts/CourierPrime-Regular.ttf"
         as="font"
         type="font/ttf"
         crossOrigin="anonymous"
