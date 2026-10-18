@@ -1,6 +1,5 @@
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { Separator } from "@tan-studio/ui/components/separator"
 
 const html = renderToStaticMarkup(
   <html lang="en">
@@ -8,8 +7,8 @@ const html = renderToStaticMarkup(
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="theme-color" content="#f6edda" />
-      <title>Tan Studio — Good vibed coffee</title>
-      <meta name="description" content="Tan Roasts. Good vibed coffee." />
+      <title>Vibed Tan Coffee</title>
+      <meta name="description" content="Vibed Tan Coffee." />
       <link rel="canonical" href="https://tan.coffee/" />
       <link rel="icon" type="image/png" href="/assets/tan-studio-logo.png" />
       <link
@@ -23,28 +22,8 @@ const html = renderToStaticMarkup(
     </head>
     <body>
       <div className="page">
-        <header className="masthead">
-          <img
-            src="/assets/tan-studio-logo.png"
-            alt="Tan"
-            width="58"
-            height="58"
-          />
-          <Separator orientation="vertical" />
-          <span>Tan Studio</span>
-        </header>
-        <Separator />
         <main>
           <section className="hero" aria-labelledby="hero-title">
-            <div className="hero-copy">
-              <h1 id="hero-title">
-                Good <br />
-                <span>
-                  <em>vibed</em> coffee
-                </span>
-              </h1>
-              <p>Tan Roasts.</p>
-            </div>
             <img
               className="coffee-branch"
               src="/assets/coffee-branch.webp"
@@ -52,8 +31,22 @@ const html = renderToStaticMarkup(
               width="480"
               height="480"
             />
+            <h1 id="hero-title">
+              Vibed <br />
+              Tan <br />
+              Coffee
+            </h1>
           </section>
         </main>
+        <footer>
+          <img
+            className="brand-icon"
+            src="/assets/tan-studio-logo.png"
+            alt="Tan"
+            width="44"
+            height="44"
+          />
+        </footer>
       </div>
     </body>
   </html>
@@ -63,6 +56,4 @@ await Bun.write(
   new URL("../sites/share/index.html", import.meta.url),
   `<!doctype html>\n${html}\n`
 )
-console.log(
-  "Built sites/share/index.html with the shared shadcn Separator component."
-)
+console.log("Built sites/share/index.html.")

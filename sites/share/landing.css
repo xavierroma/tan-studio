@@ -10,11 +10,9 @@
   color-scheme: light;
   --background: #f6edda;
   --foreground: #203444;
-  --border: #34434a;
   font-family: "Special Elite", "Courier New", monospace;
   color: var(--foreground);
   background: var(--background);
-  font-synthesis: weight style;
 }
 
 * {
@@ -24,154 +22,88 @@ body {
   margin: 0;
   background: url("/assets/paper.svg");
 }
-h1,
-p {
-  margin: 0;
-}
 img {
-  max-width: 100%;
   display: block;
+  max-width: 100%;
 }
 .page {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 24px 48px 12px;
-}
-[data-slot="separator"] {
-  height: 2px;
-  background: var(--border);
-  width: 100%;
-}
-[data-slot="separator"][aria-orientation="vertical"] {
-  width: 2px;
-  height: 54px;
-  flex-shrink: 0;
-}
-.masthead {
+  min-height: 100vh;
+  min-height: 100svh;
   display: flex;
-  align-items: center;
-  gap: 22px;
-  padding: 0 8px 14px;
+  flex-direction: column;
+  padding: 32px 24px 24px;
+  gap: 32px;
 }
-.masthead img {
-  border-radius: 10px;
-}
-.masthead > span {
-  font-size: 40px;
-  line-height: 1;
-  padding-top: 8px;
+main {
+  flex: 1;
+  display: grid;
+  place-items: center;
 }
 .hero {
-  display: grid;
-  grid-template-columns: 62% 38%;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  min-height: 390px;
-  padding: 12px 0 8px;
-}
-.hero-copy {
-  position: relative;
-  z-index: 1;
-  padding: 20px 0;
-}
-h1 {
-  font-size: clamp(64px, 8.3vw, 108px);
-  font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: -0.065em;
-}
-h1 > span {
-  white-space: nowrap;
-}
-h1 em {
-  font-style: italic;
-}
-.hero p {
-  font-size: 32px;
-  margin-top: 20px;
-  line-height: 1.3;
+  gap: 24px;
 }
 .coffee-branch {
-  width: 100%;
-  height: 370px;
-  object-fit: contain;
+  width: clamp(180px, 23vw, 260px);
+  height: auto;
+}
+h1 {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(64px, 7vw, 92px);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+}
+footer {
+  display: flex;
+  justify-content: center;
+}
+.brand-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
 }
 
-@media (min-width: 1400px) {
+@media (max-height: 650px) {
   .page {
-    max-width: 1320px;
+    padding-block: 24px 20px;
+    gap: 24px;
   }
   .hero {
-    min-height: 420px;
+    gap: 18px;
   }
   .coffee-branch {
-    height: 400px;
-  }
-}
-
-@media (max-width: 900px) {
-  .page {
-    padding: 22px 28px 14px;
-  }
-  .masthead > span {
-    font-size: 32px;
-  }
-  .hero {
-    min-height: 300px;
+    width: 140px;
   }
   h1 {
-    font-size: 8.4vw;
+    font-size: 60px;
   }
-  .hero p {
-    font-size: 25px;
-  }
-  .coffee-branch {
-    height: 280px;
+  .brand-icon {
+    width: 36px;
+    height: 36px;
   }
 }
 
-@media (max-width: 680px) {
+@media (max-height: 480px) {
   .page {
-    padding: 18px 20px 14px;
-  }
-  .masthead {
-    gap: 15px;
-    padding: 0 0 13px;
-  }
-  .masthead img {
-    width: 42px;
-    height: 42px;
-    border-radius: 8px;
-  }
-  .masthead > span {
-    font-size: 27px;
-    padding-top: 5px;
-  }
-  [data-slot="separator"][aria-orientation="vertical"] {
-    height: 40px;
+    padding-block: 16px;
+    gap: 16px;
   }
   .hero {
-    min-height: 290px;
-    position: relative;
-    display: flex;
-    align-items: flex-start;
-    padding-top: 18px;
-  }
-  .hero-copy {
-    padding: 10px 0 18px;
-  }
-  h1 {
-    font-size: clamp(43px, 10.3vw, 68px);
-    line-height: 1.13;
-  }
-  .hero p {
-    font-size: 23px;
-    margin-top: 13px;
+    gap: 12px;
   }
   .coffee-branch {
-    position: absolute;
-    right: -5px;
-    bottom: 4px;
-    height: 145px;
-    width: 150px;
+    width: 90px;
+  }
+  h1 {
+    font-size: 40px;
+  }
+  .brand-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
   }
 }
