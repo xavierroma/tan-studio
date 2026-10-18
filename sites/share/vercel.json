@@ -34,6 +34,17 @@
   ],
   "redirects": [
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "share.tan.coffee"
+        }
+      ],
+      "destination": "https://tan.coffee/",
+      "permanent": true
+    },
+    {
       "source": "/:path*",
       "has": [
         {
