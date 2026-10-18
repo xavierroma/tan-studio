@@ -76,8 +76,7 @@ export function LabelComposerScreen() {
     enabled: search.roastId != null,
   })
   const [copy, setCopy] = useState<Record<number, Partial<LabelCopy>>>({})
-  const [layout, setLayout] = useState("estate"),
-    [format, setFormat] = useState("50x80"),
+  const [format, setFormat] = useState("50x80"),
     [note, setNote] = useState<Record<number, string>>({}),
     [grams, setGrams] = useState<Record<number, string>>({}),
     [copies, setCopies] = useState(1),
@@ -132,9 +131,9 @@ export function LabelComposerScreen() {
   const artwork = useMemo(() => {
     if (!source) return null
     try {
-      const main = buildLabel(source, layout, width, height, "front", paper),
+      const main = buildLabel(source, "field", width, height, "front", paper),
         companion = main.small
-          ? buildLabel(source, layout, width, height, "details", paper)
+          ? buildLabel(source, "field", width, height, "details", paper)
           : undefined
       return {
         ...main,
@@ -146,7 +145,7 @@ export function LabelComposerScreen() {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }
-  }, [source, layout, height, paper])
+  }, [source, height, paper])
   const printable: PrintInput | null =
     artwork && !("error" in artwork) ? artwork : null
   const save = useMutation({
@@ -228,7 +227,7 @@ export function LabelComposerScreen() {
               printer: "NIIMBOT B21 Pro",
               content: {
                 schemaVersion: 2,
-                layout,
+                layout: "field",
                 paper,
                 dpi: 300,
                 ...source,
@@ -261,29 +260,6 @@ export function LabelComposerScreen() {
                         #{r.id} · {r.coffee?.name ?? "Coffee —"}
                       </SelectItem>
                     ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="label-layout">Layout</FieldLabel>
-              <Select
-                value={layout}
-                onValueChange={(v) => v && setLayout(v)}
-                items={[
-                  { value: "estate", label: "Estate editorial" },
-                  { value: "broadside", label: "Roastery broadside" },
-                ]}
-              >
-                <SelectTrigger id="label-layout">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="estate">Estate editorial</SelectItem>
-                    <SelectItem value="broadside">
-                      Roastery broadside
-                    </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>

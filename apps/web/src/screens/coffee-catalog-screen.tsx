@@ -1,5 +1,10 @@
 import { ResourceLink } from "@/components/notebook"
-import { brewsForCoffee, dateText, latestTasting } from "@/lib/notebook"
+import {
+  brewsForCoffee,
+  dateText,
+  latestTasting,
+  workingCoffees,
+} from "@/lib/notebook"
 import { useNotebookHistory } from "@/lib/notebook-queries"
 import { Button } from "@tan-studio/ui/components/button"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
@@ -27,6 +32,12 @@ import { DataTable, DataTableSortHeader } from "@/components/data-table"
 import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
 import { listCoffees, queryKeys, type Coffee } from "@/lib/api"
+
+const greenItems = (usedUp: number) => [
+  { value: "left", label: "Green left" },
+  { value: "empty", label: `Used up (${usedUp})` },
+  { value: "all", label: "All coffees" },
+]
 
 function selectItems(values: Array<string | null | undefined>, all: string) {
   return [
@@ -78,13 +89,15 @@ export function CoffeeCatalogScreen() {
     coffees.data?.map((coffee) => coffee.process) ?? [],
     "Every process"
   )
-  const filtered =
-    coffees.data?.filter(
-      (coffee) =>
-        (!search.provider || coffee.provider === search.provider) &&
-        (!search.country || coffee.country === search.country) &&
-        (!search.process || coffee.process === search.process)
-    ) ?? []
+  // Default view: lots with green left, newest first. A sort in the URL wins.
+  const filtered = workingCoffees(coffees.data ?? [], search.green).filter(
+    (coffee) =>
+      (!search.provider || coffee.provider === search.provider) &&
+      (!search.country || coffee.country === search.country) &&
+      (!search.process || coffee.process === search.process)
+  )
+  const usedUp =
+    coffees.data?.filter((coffee) => coffee.remainingMassMg <= 0).length ?? 0
   const columns: ColumnDef<Coffee>[] = [
     {
       id: "id",
@@ -465,7 +478,7 @@ export function CoffeeCatalogScreen() {
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         {coffees.isPending ? (
           <Skeleton className="h-72" />
-        ) : coffees.data?.length || search.q ? (
+        ) : coffees.data?.length || search.q || search.green ? (
           <DataTable
             preferenceKey="coffees"
             defaultHidden={[
@@ -497,7 +510,7 @@ export function CoffeeCatalogScreen() {
             data={filtered}
             state={search}
             updateState={updateSearch}
-            defaultSorting={[{ id: "id", desc: false }]}
+            defaultSorting={[{ id: "createdAt", desc: true }]}
             noun="coffee"
             getRowId={(coffee) => String(coffee.id)}
             search={{
@@ -558,6 +571,32 @@ export function CoffeeCatalogScreen() {
                     </SelectContent>
                   </Select>
                 ))}
+                <Select
+                  items={greenItems(usedUp)}
+                  value={search.green ?? "left"}
+                  onValueChange={(next) =>
+                    updateSearch({
+                      green:
+                        next === "all" || next === "empty" ? next : undefined,
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Filter by green coffee left"
+                    className="w-full lg:w-44"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {greenItems(usedUp).map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </>
             }
           />

@@ -23,6 +23,7 @@ import { useState } from "react"
 import { toast } from "sonner"
 
 import { AttachmentPanel } from "@/components/attachment-panel"
+import { coffeeListSearch } from "@/lib/notebook"
 import { CoffeeSpecCharts } from "@/components/coffee-spec-charts"
 import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
@@ -38,17 +39,6 @@ import {
   type Coffee,
   type CoffeeCreate,
 } from "@/lib/api"
-
-const coffeeListSearch = {
-  q: undefined,
-  coffeeId: undefined,
-  provider: undefined,
-  country: undefined,
-  process: undefined,
-  sort: undefined,
-  hidden: undefined,
-  density: undefined,
-} as const
 
 function grams(value: FormDataEntryValue | null) {
   const parsed = Number(value)

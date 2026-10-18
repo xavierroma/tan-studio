@@ -32,7 +32,7 @@ use crate::{
     },
     db::Database,
     device::NanoDeviceManager,
-    error::{ApiError, ApiResult, ProblemDetails},
+    error::{expected_revision, ApiError, ApiResult, ProblemDetails},
     kpro::{self, Document as KproDocument},
     lan_bridge,
     object_store::{CloudStorageSettings, ObjectStore},
@@ -2943,18 +2943,6 @@ fn json_to_sql(value: &Value) -> ApiResult<rusqlite::types::Value> {
     })
 }
 
-fn expected_revision(headers: &HeaderMap) -> ApiResult<i64> {
-    let value = headers
-        .get(header::IF_MATCH)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(ApiError::revision)?;
-    value
-        .strip_prefix("\"revision:")
-        .and_then(|value| value.strip_suffix('"'))
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(ApiError::revision)
-}
 
 fn resolve_roast_id(connection: &rusqlite::Connection, reference: &str) -> ApiResult<String> {
     if let Some(number) = numeric_reference(reference) {
@@ -3843,6 +3831,218 @@ mod tests {
             attachment["id"].as_i64().unwrap(),
             attachment["revision"].as_i64().unwrap(),
         )
+    }
+
+    async fn raw_if_match_request(
+        app: &Router,
+        method: Method,
+        path: &str,
+        content_type: &str,
+        body: Body,
+        if_match: Option<&str>,
+    ) -> (StatusCode, Value) {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(header::HOST, "127.0.0.1:4317")
+            .header(header::ORIGIN, "http://127.0.0.1:1420")
+            .header(header::AUTHORIZATION, "Bearer test-contract-token")
+            .header("x-tan-studio-client", "tan-studio-browser-dev")
+            .header(header::CONTENT_TYPE, content_type);
+        if let Some(value) = if_match {
+            request = request.header(header::IF_MATCH, value);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 2 * 1024 * 1024)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    /// The MCP attach flow: create, upload a PDF with the returned revision, link
+    /// to a coffee. A malformed If-Match says what to send; a stale one reports the
+    /// current revision. Neither stores bytes nor duplicates the attachment.
+    #[tokio::test]
+    async fn pdf_attachment_upload_guides_if_match_and_reports_stale_revisions() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let (status, coffee) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/coffees",
+            Some(json!({"name": "Fictional Upload Lot", "provider": "Sample Importer"})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{coffee}");
+        let coffee_id = coffee["id"].as_i64().unwrap();
+        let (status, attachment) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/attachments",
+            Some(json!({
+                "title": "Fictional spec sheet",
+                "filename": "fictional-spec.pdf",
+                "mediaType": "application/pdf",
+                "links": [{"resourceType": "coffee", "resourceId": coffee_id}]
+            })),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{attachment}");
+        let id = attachment["id"].as_i64().unwrap();
+        assert_eq!(attachment["revision"], 1);
+        let content_path = format!("/api/v1/attachments/{id}/content");
+        let pdf = b"%PDF-1.4\n%fictional spec sheet\n%%EOF\n";
+
+        // The bare revision a client just received is not an entity tag: the
+        // error names what was sent and the exact form to send instead.
+        let (status, problem) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &content_path,
+            "application/octet-stream",
+            Body::from(pdf.as_slice()),
+            Some("1"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{problem}");
+        assert_eq!(problem["code"], "revision_header_invalid");
+        assert_eq!(problem["currentRevision"], 1);
+        let detail = problem["detail"].as_str().unwrap();
+        assert!(detail.contains("If-Match 1 is not a revision tag"), "{detail}");
+        assert!(detail.contains("\"revision:N\""), "{detail}");
+
+        let (status, uploaded) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &content_path,
+            "application/octet-stream",
+            Body::from(pdf.as_slice()),
+            Some("\"revision:1\""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{uploaded}");
+        assert_eq!(uploaded["revision"], 2);
+        assert_eq!(uploaded["byteLength"], pdf.len());
+        assert!(uploaded["sha256"].is_string(), "{uploaded}");
+
+        // Retrying with the revision from before the upload is stale: the problem
+        // carries the current revision, and the stored bytes are untouched.
+        let (status, stale) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &content_path,
+            "application/octet-stream",
+            Body::from(b"%PDF-1.4\n%other\n%%EOF\n".as_slice()),
+            Some("\"revision:1\""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{stale}");
+        assert_eq!(stale["code"], "revision_precondition_failed");
+        assert_eq!(stale["currentRevision"], 2);
+        assert!(stale["detail"]
+            .as_str()
+            .unwrap()
+            .contains("If-Match: \"revision:2\""));
+
+        let (_, _, unchanged) =
+            api_binary_request(&app, Method::GET, &content_path, Body::empty(), None).await;
+        assert_eq!(unchanged.as_ref(), pdf);
+
+        // Recovery: re-read the record, confirm the reported revision, then retry
+        // with it. The same attachment is updated; nothing is duplicated.
+        let (status, reread) = api_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments/{id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(reread["revision"], stale["currentRevision"]);
+        let revised_pdf = b"%PDF-1.4\n%fictional spec sheet, revised\n%%EOF\n";
+        let (status, retried) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &content_path,
+            "application/octet-stream",
+            Body::from(revised_pdf.as_slice()),
+            Some(&format!("\"revision:{}\"", stale["currentRevision"])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{retried}");
+        assert_eq!(retried["id"], id);
+        assert_eq!(retried["revision"], 3);
+        let sha256 = retried["sha256"].as_str().unwrap().to_owned();
+
+        let links_path = format!("/api/v1/attachments/{id}/links");
+        let links_body = || {
+            Body::from(
+                json!({"links": [{"resourceType": "coffee", "resourceId": coffee_id}]})
+                    .to_string(),
+            )
+        };
+        let (status, links) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &links_path,
+            "application/json",
+            links_body(),
+            Some("\"revision:1\""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{links}");
+        assert_eq!(links["currentRevision"], 3);
+        let (status, relinked) = raw_if_match_request(
+            &app,
+            Method::PUT,
+            &links_path,
+            "application/json",
+            links_body(),
+            Some(&format!("\"revision:{}\"", links["currentRevision"])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{relinked}");
+        assert_eq!(relinked["revision"], 4);
+
+        let (status, _, downloaded) = api_binary_request(
+            &app,
+            Method::GET,
+            &content_path,
+            Body::empty(),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(downloaded.as_ref(), revised_pdf);
+
+        let (status, listed) = api_request(
+            &app,
+            Method::GET,
+            &format!("/api/v1/attachments?resourceType=coffee&resourceId={coffee_id}"),
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let items = listed["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1, "{listed}");
+        assert_eq!(items[0]["id"], id);
+        assert_eq!(items[0]["sha256"], sha256.as_str());
+        assert_eq!(items[0]["revision"], 4);
+        assert_eq!(items[0]["links"][0]["resourceId"], coffee_id);
+        device.stop();
     }
 
     /// An attachment record whose bytes are gone reads as pending rather than as a

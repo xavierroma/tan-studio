@@ -3,6 +3,7 @@ import createClient from "openapi-fetch"
 import type { paths } from "./generated/api"
 import type { TanStudioConfig } from "./config"
 import {
+  headerValue,
   operationInput,
   operationPath,
   type ApiOperation,
@@ -132,7 +133,7 @@ export class OpenApiTanStudioGateway implements TanStudioGateway {
     }
     const headers = new Headers(this.apiHeaders)
     for (const [name, value] of Object.entries(args.headers ?? {}))
-      headers.set(name, value)
+      headers.set(name, headerValue(name, value))
     const body = operation.binaryRequest
       ? Buffer.from(args.contentBase64!, "base64")
       : args.body === undefined
@@ -441,6 +442,7 @@ function unwrap<T>(result: {
       `Tan Studio request failed (${result.response.status})`,
     retryable: details?.retryable ?? result.response.status >= 500,
     status: result.response.status,
+    currentRevision: details?.currentRevision ?? undefined,
   })
 }
 

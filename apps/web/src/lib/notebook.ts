@@ -1,6 +1,14 @@
 import type { Brew, Note, RoastSummary } from "@/lib/api"
 
+export const pantryListSearch = {
+  q: undefined,
+  rest: undefined,
+  sort: undefined,
+  hidden: undefined,
+  density: undefined,
+}
 export const coffeeListSearch = {
+  green: undefined,
   q: undefined,
   coffeeId: undefined,
   provider: undefined,
@@ -70,4 +78,22 @@ export function brewsForCoffee(
   return brews
     .filter((b) => ids.has(b.roastId))
     .toSorted((a, b) => b.brewedAt.localeCompare(a.brewedAt))
+}
+export type GreenStock = "all" | "empty" | undefined
+/**
+ * The working coffee view: lots with green coffee left, newest added first.
+ * Used-up lots stay in the notebook and remain reachable with "all" or "empty".
+ */
+export function workingCoffees<
+  T extends { id: number; createdAt: string; remainingMassMg: number },
+>(coffees: T[], green: GreenStock = undefined) {
+  return coffees
+    .filter((c) =>
+      green === "all"
+        ? true
+        : green === "empty"
+          ? c.remainingMassMg <= 0
+          : c.remainingMassMg > 0
+    )
+    .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
 }

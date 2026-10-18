@@ -1,5 +1,5 @@
 use axum::{
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -27,6 +27,10 @@ pub struct ProblemDetails {
     pub retryable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_errors: Option<Vec<FieldError>>,
+    /// For a stale revision: the resource's revision now. Re-read the resource,
+    /// confirm the change still applies, then send `If-Match: "revision:N"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_revision: Option<i64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +44,7 @@ pub struct ApiError {
     pub instance: String,
     pub correlation_id: String,
     pub field_errors: Option<Vec<FieldError>>,
+    pub current_revision: Option<i64>,
 }
 
 impl ApiError {
@@ -58,6 +63,7 @@ impl ApiError {
             instance: String::new(),
             correlation_id: "unknown".into(),
             field_errors: None,
+            current_revision: None,
         }
     }
 
@@ -104,6 +110,42 @@ impl ApiError {
         )
     }
 
+    /// If-Match was missing or not a revision tag. Says exactly what to send.
+    pub fn revision_header(received: Option<&str>) -> Self {
+        Self::new(
+            StatusCode::PRECONDITION_FAILED,
+            "revision_header_invalid",
+            "If-Match is not a revision tag",
+            match received {
+                None => "Send the resource's current revision as If-Match: \"revision:N\" (with the quotes).".to_owned(),
+                Some(value) => format!(
+                    "If-Match {value} is not a revision tag. Send the resource's current revision as If-Match: \"revision:N\" (with the quotes)."
+                ),
+            },
+        )
+    }
+
+    /// Adds the resource's current revision to a revision error.
+    pub fn with_current_revision(mut self, current: i64) -> Self {
+        self.current_revision = Some(current);
+        self
+    }
+
+    /// The revision sent is no longer current. Carries the current revision so a
+    /// client can re-read the resource and decide; it is never applied implicitly.
+    pub fn stale_revision(kind: &str, id: i64, sent: i64, current: i64) -> Self {
+        let mut error = Self::new(
+            StatusCode::PRECONDITION_FAILED,
+            "revision_precondition_failed",
+            "Revision precondition failed",
+            format!(
+                "The {kind} {id} is at revision {current}, not {sent}. Fetch it again, confirm the change still applies, then retry with If-Match: \"revision:{current}\"."
+            ),
+        );
+        error.current_revision = Some(current);
+        error
+    }
+
     pub fn with_request(
         mut self,
         instance: impl Into<String>,
@@ -131,6 +173,7 @@ impl IntoResponse for ApiError {
             correlation_id: self.correlation_id.clone(),
             retryable: self.retryable,
             field_errors: self.field_errors,
+            current_revision: self.current_revision,
         };
         let mut response = (status, Json(body)).into_response();
         response.headers_mut().insert(
@@ -157,3 +200,53 @@ impl From<rusqlite::Error> for ApiError {
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
+
+/// Reads the strong entity tag `"revision:N"` from If-Match. Only that exact form
+/// is accepted, so a revision is never inferred from a loosely formatted value.
+pub fn expected_revision(headers: &HeaderMap) -> ApiResult<i64> {
+    let value = headers.get(header::IF_MATCH).map(|value| value.to_str());
+    let Some(value) = value else {
+        return Err(ApiError::revision_header(None));
+    };
+    let Ok(value) = value else {
+        return Err(ApiError::revision_header(Some("(not text)")));
+    };
+    value
+        .strip_prefix("\"revision:")
+        .and_then(|value| value.strip_suffix('"'))
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| ApiError::revision_header(Some(value)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_if_match(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::IF_MATCH, value.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn if_match_accepts_only_the_strong_revision_tag() {
+        assert_eq!(expected_revision(&with_if_match("\"revision:7\"")).unwrap(), 7);
+        for value in ["7", "\"7\"", "revision:7", "W/\"revision:7\"", "\"revision:0\""] {
+            let error = expected_revision(&with_if_match(value)).unwrap_err();
+            assert_eq!(error.status, StatusCode::PRECONDITION_FAILED);
+            assert_eq!(error.code, "revision_header_invalid");
+            assert!(error.detail.contains("\"revision:N\""), "{value}: {}", error.detail);
+            assert!(error.detail.contains(value), "{value}: {}", error.detail);
+        }
+        let missing = expected_revision(&HeaderMap::new()).unwrap_err();
+        assert!(missing.detail.contains("\"revision:N\""));
+    }
+
+    #[test]
+    fn stale_revision_reports_the_current_revision() {
+        let error = ApiError::stale_revision("attachment", 4, 1, 2);
+        assert_eq!(error.current_revision, Some(2));
+        assert!(error.detail.contains("If-Match: \"revision:2\""));
+    }
+}

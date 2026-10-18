@@ -12,6 +12,7 @@ import {
 
 import { AppErrorScreen, AppPendingScreen } from "@/components/app-error-screen"
 import { AppShell } from "@/components/app-shell"
+import { pantryListSearch } from "@/lib/notebook"
 
 function integer(value: unknown) {
   if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
@@ -44,25 +45,9 @@ const rootRoute = createRootRoute({
         <Button
           nativeButton={false}
           role="link"
-          render={
-            <Link
-              to="/roasts"
-              search={{
-                q: undefined,
-                status: undefined,
-                profileId: undefined,
-                coffeeId: undefined,
-                archived: undefined,
-                sort: undefined,
-                hidden: undefined,
-                density: undefined,
-                rest: undefined,
-                view: undefined,
-              }}
-            />
-          }
+          render={<Link to="/pantry" search={pantryListSearch} />}
         >
-          Roasts
+          Pantry
         </Button>
       </div>
     </div>
@@ -72,22 +57,9 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  // Studio opens on the pantry: the usual session starts there, before brewing.
   beforeLoad: () => {
-    throw redirect({
-      to: "/roasts",
-      search: {
-        q: undefined,
-        status: undefined,
-        profileId: undefined,
-        coffeeId: undefined,
-        archived: undefined,
-        sort: undefined,
-        hidden: undefined,
-        density: undefined,
-        rest: undefined,
-        view: undefined,
-      },
-    })
+    throw redirect({ to: "/pantry", search: pantryListSearch })
   },
 })
 
@@ -228,6 +200,10 @@ const coffeesRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({
     q: typeof search.q === "string" ? search.q : undefined,
     coffeeId: integer(search.coffeeId),
+    green:
+      search.green === "all" || search.green === "empty"
+        ? (search.green as "all" | "empty")
+        : undefined,
     provider: typeof search.provider === "string" ? search.provider : undefined,
     country: typeof search.country === "string" ? search.country : undefined,
     process: typeof search.process === "string" ? search.process : undefined,
@@ -296,6 +272,13 @@ const brewsRoute = createRoute({
       throw redirect({
         to: "/settings",
         search: { section: undefined },
+      })
+    }
+    // Older links selected a brew in the list to manage its files.
+    if (search.brewId) {
+      throw redirect({
+        to: "/brews/$brewId",
+        params: { brewId: String(search.brewId) },
       })
     }
   },

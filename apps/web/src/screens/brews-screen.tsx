@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { PlusIcon } from "lucide-react"
 
-import { AttachmentPanel } from "@/components/attachment-panel"
 import { BrewDataTable } from "@/components/brew-data-table"
 import { PageHeader } from "@/components/page-header"
 import { listBrews, queryKeys } from "@/lib/api"
@@ -16,7 +15,6 @@ export function BrewsScreen() {
     queryFn: ({ signal }) => listBrews(search.roastId, signal),
   })
   if (brews.error) throw brews.error
-  const selectedBrew = brews.data?.find((brew) => brew.id === search.brewId)
   const updateSearch = (patch: Partial<typeof search>, replace = true) =>
     void navigate({
       search: (current) => ({ ...current, ...patch }),
@@ -68,15 +66,7 @@ export function BrewsScreen() {
             density: search.density,
           }}
           updateSearch={updateSearch}
-          onAttach={(brew) => updateSearch({ brewId: brew.id }, false)}
         />
-        {selectedBrew ? (
-          <AttachmentPanel
-            resourceType="brew"
-            resourceId={selectedBrew.id}
-            title={`Brew #${selectedBrew.id} images and files`}
-          />
-        ) : null}
       </div>
     </div>
   )

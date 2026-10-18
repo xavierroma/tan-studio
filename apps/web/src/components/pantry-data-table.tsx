@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
-import { ArchiveIcon } from "lucide-react"
+import { ArchiveIcon, CoffeeIcon } from "lucide-react"
 
 import {
   DataTable,
@@ -150,19 +150,37 @@ function pantryColumns(
       id: "actions",
       header: "",
       cell: ({ row }) => (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          disabled={archivingRoastId === row.original.roast.id}
-          aria-label={`Archive roast ${row.original.roast.id}`}
-          title="Archive"
-          onClick={() =>
-            onArchive(row.original.roast.id, row.original.roast.revision)
-          }
-        >
-          <ArchiveIcon />
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            nativeButton={false}
+            role="link"
+            variant="outline"
+            size="sm"
+            aria-label={`Record a brew from roast ${row.original.roast.id}`}
+            render={
+              <Link
+                to="/brews/new"
+                search={{ roastId: row.original.roast.id }}
+              />
+            }
+          >
+            <CoffeeIcon data-icon="inline-start" />
+            Brew
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={archivingRoastId === row.original.roast.id}
+            aria-label={`Archive roast ${row.original.roast.id}`}
+            title="Archive"
+            onClick={() =>
+              onArchive(row.original.roast.id, row.original.roast.revision)
+            }
+          >
+            <ArchiveIcon />
+          </Button>
+        </div>
       ),
       enableHiding: false,
       enableSorting: false,

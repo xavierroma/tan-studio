@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { Brew, Note, RoastSummary } from "@/lib/api"
-import { brewsForCoffee, latestTasting, roastNotes } from "./notebook"
+import {
+  brewsForCoffee,
+  latestTasting,
+  roastNotes,
+  workingCoffees,
+} from "./notebook"
 const note = (
   id: number,
   kind: string,
@@ -85,5 +90,25 @@ describe("notebook relationships", () => {
       note(3, "observation", [], "2026-10-14T12:00:00Z"),
     ])
     expect(latestTasting(b)?.id).toBe(2)
+  })
+  it("lists coffees with green left, newest added first, by default", () => {
+    const coffee = (
+      id: number,
+      createdAt: string,
+      remainingMassMg: number
+    ) => ({
+      id,
+      createdAt,
+      remainingMassMg,
+    })
+    const coffees = [
+      coffee(1, "2026-08-01T00:00:00Z", 250_000),
+      coffee(2, "2026-10-01T00:00:00Z", 0),
+      coffee(3, "2026-09-01T00:00:00Z", 1_500),
+    ]
+    expect(workingCoffees(coffees).map((c) => c.id)).toEqual([3, 1])
+    expect(workingCoffees(coffees, "empty").map((c) => c.id)).toEqual([2])
+    expect(workingCoffees(coffees, "all").map((c) => c.id)).toEqual([2, 3, 1])
+    expect(coffees.map((c) => c.id)).toEqual([1, 2, 3])
   })
 })

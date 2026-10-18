@@ -41,18 +41,10 @@ export function BrewEditorScreen() {
       toast.success(`Brew #${brew.id} saved`)
       void queryClient.invalidateQueries({ queryKey: ["brews"] })
       void queryClient.invalidateQueries({ queryKey: queryKeys.pantry() })
+      // The brew page holds tasting notes and files for the new record.
       void navigate({
-        to: "/brews",
-        search: {
-          roastId: brew.roastId,
-          brewId: brew.id,
-          tab: undefined,
-          q: undefined,
-          method: undefined,
-          sort: undefined,
-          hidden: undefined,
-          density: undefined,
-        },
+        to: "/brews/$brewId",
+        params: { brewId: String(brew.id) },
       })
     },
     onError: (error) => toast.error(error.message),

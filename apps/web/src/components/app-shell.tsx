@@ -1,10 +1,12 @@
 import { SessionControls } from "@/components/session-controls"
-import { getBrew, listCoffees, listRoasts, queryKeys } from "@/lib/api"
+import { listCoffees, queryKeys } from "@/lib/api"
 import {
   brewListSearch,
   coffeeListSearch,
   massText,
+  pantryListSearch,
   roastListSearch,
+  workingCoffees,
 } from "@/lib/notebook"
 import { Button } from "@tan-studio/ui/components/button"
 import { Label } from "@tan-studio/ui/components/label"
@@ -35,36 +37,11 @@ import { useState, type CSSProperties } from "react"
 
 function CoffeeRail({ pathname }: { pathname: string }) {
   const [search, setSearch] = useState("")
-  const match = pathname.match(/^\/(coffees|roasts|brews)\/(\d+)/),
-    type = match?.[1],
-    id = Number(match?.[2] ?? 0)
+  const selectedId = Number(pathname.match(/^\/coffees\/(\d+)/)?.[1] ?? 0)
   const coffees = useQuery({
     queryKey: queryKeys.coffees(),
     queryFn: ({ signal }) => listCoffees(undefined, signal),
   })
-  const brew = useQuery({
-    queryKey: queryKeys.brew(type === "brews" ? id : 0),
-    queryFn: ({ signal }) => getBrew(id, signal),
-    enabled: type === "brews",
-  })
-  const roastId = type === "roasts" ? id : brew.data?.roastId
-  // Active and archived lists together hold every roast's coffee reference,
-  // so the rail does not need a per-roast request to highlight its coffee.
-  const activeRoasts = useQuery({
-    queryKey: queryKeys.roasts(),
-    queryFn: ({ signal }) => listRoasts({}, signal),
-    enabled: roastId != null,
-  })
-  const archivedRoasts = useQuery({
-    queryKey: queryKeys.roasts({ archived: true }),
-    queryFn: ({ signal }) => listRoasts({ archived: true }, signal),
-    enabled: roastId != null,
-  })
-  const roast = [
-    ...(activeRoasts.data ?? []),
-    ...(archivedRoasts.data ?? []),
-  ].find((r) => r.id === roastId)
-  const selectedId = type === "coffees" ? id : roast?.coffee?.id
   return (
     <Sidebar
       collapsible="none"
@@ -97,8 +74,9 @@ function CoffeeRail({ pathname }: { pathname: string }) {
       </SidebarHeader>
       <SidebarContent>
         <SidebarMenu aria-label="Coffees">
-          {coffees.data
-            ?.filter((c) =>
+          {workingCoffees(coffees.data ?? [], "all")
+            .filter((c) => c.remainingMassMg > 0 || c.id === selectedId)
+            .filter((c) =>
               [c.name, c.country, c.process, c.provider]
                 .join(" ")
                 .toLocaleLowerCase()
@@ -195,11 +173,9 @@ function SettingsRail() {
 }
 export function AppShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const record =
-    /^\/(coffees|roasts|brews)\/\d+/.test(pathname) ||
-    pathname === "/roast" ||
-    pathname === "/profiles" ||
-    pathname === "/settings"
+  // The coffee rail is for moving between coffees; roast, brew and other
+  // record pages carry their own breadcrumbs and related-record links.
+  const record = /^\/coffees\/\d+/.test(pathname) || pathname === "/settings"
   return (
     <TooltipProvider>
       <div className="notebook-app">
@@ -208,8 +184,8 @@ export function AppShell() {
         </a>
         <header className="notebook-header">
           <Link
-            to="/coffees"
-            search={coffeeListSearch}
+            to="/pantry"
+            search={pantryListSearch}
             className="notebook-brand"
             aria-label="Tan Studio home"
           >
@@ -221,6 +197,14 @@ export function AppShell() {
             aria-label="Primary navigation"
           >
             <NavigationMenuList>
+              <NavigationMenuItem>
+                <NavigationMenuLink
+                  active={pathname === "/pantry"}
+                  render={<Link to="/pantry" search={pantryListSearch} />}
+                >
+                  Pantry
+                </NavigationMenuLink>
+              </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuLink
                   active={pathname.startsWith("/coffees")}
@@ -280,22 +264,6 @@ export function AppShell() {
                     }
                   >
                     Prepare a roast
-                  </NavigationMenuLink>
-                  <NavigationMenuLink
-                    render={
-                      <Link
-                        to="/pantry"
-                        search={{
-                          q: undefined,
-                          rest: undefined,
-                          sort: undefined,
-                          hidden: undefined,
-                          density: undefined,
-                        }}
-                      />
-                    }
-                  >
-                    Pantry
                   </NavigationMenuLink>
                   <NavigationMenuLink
                     render={

@@ -104,6 +104,7 @@ export interface GatewayErrorDetails {
   code: string
   correlationId?: string | undefined
   fieldErrors?: ProblemDetails["fieldErrors"] | undefined
+  currentRevision?: number | undefined
   message: string
   retryable: boolean
   status: number
@@ -115,6 +116,7 @@ export class TanStudioGatewayError extends Error {
   readonly retryable: boolean
   readonly status: number
   readonly fieldErrors: ProblemDetails["fieldErrors"] | undefined
+  readonly currentRevision: number | undefined
 
   constructor(details: GatewayErrorDetails) {
     super(details.message)
@@ -124,5 +126,6 @@ export class TanStudioGatewayError extends Error {
     this.retryable = details.retryable
     this.status = details.status
     this.fieldErrors = details.fieldErrors
+    this.currentRevision = details.currentRevision
   }
 }
