@@ -1,0 +1,68 @@
+[
+  {
+    "id": "v60",
+    "no": "01",
+    "name": "V60",
+    "serves": "One large cup",
+    "coffee": "20 g",
+    "water": "300 g",
+    "temperature": "96°C",
+    "time": "~2:30",
+    "grind": "Medium",
+    "image": "assets/v60-stamp.webp",
+    "steps": [
+      [
+        "1",
+        "Set up",
+        "Rinse the paper filter with hot water; empty the server."
+      ],
+      ["2", "Dose", "Add 20 g freshly ground coffee. Level the bed and tare."],
+      ["3", "Bloom", "Start the timer. Pour 40 g water; wait 30 seconds."],
+      [
+        "4",
+        "Pour",
+        "At 0:30, pour to 120 g total. Continue in 40-60 g pulses to 300 g. Keep the bed wet; finish near 2:30."
+      ]
+    ],
+    "grindScale": {
+      "min": "Fine",
+      "max": "Coarse",
+      "position": 0.5,
+      "label": "Medium",
+      "ticks": 5
+    }
+  },
+  {
+    "id": "chemex",
+    "no": "02",
+    "name": "Chemex",
+    "serves": "Two cups",
+    "coffee": "30 g",
+    "water": "500 g",
+    "temperature": "96°C",
+    "time": "~4:00",
+    "grind": "Medium-coarse",
+    "image": "assets/chemex-stamp.webp",
+    "steps": [
+      [
+        "1",
+        "Set up",
+        "Place the filter with three layers facing the spout. Rinse and empty the brewer."
+      ],
+      ["2", "Dose", "Add 30 g freshly ground coffee. Level the bed and tare."],
+      ["3", "Bloom", "Start the timer. Pour 60 g water; wait 45 seconds."],
+      [
+        "4",
+        "Pour",
+        "Pour in circles to 300 g total. Let the water level drop, then continue to 500 g. Let drain near 4:00."
+      ]
+    ],
+    "grindScale": {
+      "min": "Fine",
+      "max": "Coarse",
+      "position": 0.75,
+      "label": "Medium-coarse",
+      "ticks": 5
+    }
+  }
+]

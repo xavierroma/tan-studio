@@ -1,0 +1,515 @@
+@font-face {
+  font-family: "Special Elite";
+  src: url("/assets/fonts/SpecialElite-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+  --background: #f6edda;
+  --foreground: #203444;
+  --card: transparent;
+  --card-foreground: var(--foreground);
+  --border: #34434a;
+  --muted-foreground: var(--foreground);
+  font-family: "Special Elite", "Courier New", monospace;
+  color: var(--foreground);
+  background: var(--background);
+  font-synthesis: weight style;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: url("/assets/paper.svg");
+}
+h1,
+h2,
+h3,
+p,
+figure,
+dl,
+dd {
+  margin: 0;
+}
+img {
+  max-width: 100%;
+  display: block;
+}
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 48px 12px;
+}
+[data-slot="separator"] {
+  height: 2px;
+  background: var(--border);
+  width: 100%;
+}
+[data-slot="separator"][aria-orientation="vertical"] {
+  width: 2px;
+  height: 54px;
+  flex-shrink: 0;
+}
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 8px 14px;
+}
+.masthead img {
+  border-radius: 10px;
+}
+.masthead > span {
+  font-size: 40px;
+  line-height: 1;
+  padding-top: 8px;
+}
+.hero {
+  display: grid;
+  grid-template-columns: 62% 38%;
+  align-items: center;
+  min-height: 390px;
+  padding: 12px 0 8px;
+}
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  padding: 20px 0;
+}
+h1 {
+  font-size: clamp(64px, 8.3vw, 108px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.065em;
+}
+h1 > span {
+  white-space: nowrap;
+}
+h1 em {
+  font-style: italic;
+}
+.hero p {
+  font-size: 32px;
+  margin-top: 20px;
+  line-height: 1.3;
+}
+.coffee-branch {
+  width: 100%;
+  height: 370px;
+  object-fit: contain;
+}
+h2 {
+  font-size: 48px;
+  line-height: 1.1;
+  font-weight: 400;
+  padding: 18px 0 14px;
+  letter-spacing: -0.035em;
+}
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+[data-slot="card"] {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 2px solid var(--border);
+  border-radius: 0;
+  padding: 16px 18px 18px;
+  overflow: hidden;
+}
+.recipe-top {
+  position: relative;
+  height: 278px;
+}
+[data-slot="card-header"] {
+  position: relative;
+  z-index: 1;
+  padding: 0 4px;
+  width: max-content;
+  max-width: 100%;
+}
+h3 {
+  font-size: 40px;
+  font-weight: 400;
+  line-height: 1.12;
+}
+[data-slot="card-description"] {
+  font-size: 20px;
+  line-height: 1.35;
+}
+.recipe figure {
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+.recipe figure img {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 63%;
+  height: 260px;
+  object-fit: contain;
+}
+.recipe figcaption {
+  position: absolute;
+  bottom: 12px;
+  left: 5px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 13px 0 12px;
+  border-block: 1px dashed var(--border);
+}
+.metrics > div {
+  text-align: center;
+  border-left: 1px solid #7f8580;
+  padding: 0 4px;
+}
+.metrics > div:first-child {
+  border: 0;
+}
+.metrics dt {
+  font-size: 16px;
+  line-height: 1.4;
+}
+.metrics dd {
+  font-size: 21px;
+  margin-top: 8px;
+  white-space: nowrap;
+}
+.grind {
+  padding: 12px 16px 10px;
+  border-bottom: 1px dashed var(--border);
+}
+.grind-label-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr) 0;
+  height: 35px;
+}
+.grind-label-row > span {
+  position: relative;
+}
+.grind-label {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 14px;
+  text-align: center;
+}
+.grind-label b {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 400;
+}
+.grind-axis {
+  display: flex;
+  justify-content: space-between;
+  height: 16px;
+  position: relative;
+}
+.grind-axis::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+.grind-axis > span {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+.grind-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding-top: 5px;
+  margin-inline: -8px;
+}
+.steps {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 12px;
+}
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 18px 78px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.steps li::before {
+  content: counter(step);
+}
+.steps strong {
+  font-weight: 400;
+}
+footer {
+  padding-top: 12px;
+}
+footer p {
+  text-align: center;
+  font-size: 14px;
+  padding-top: 10px;
+}
+
+@media (min-width: 1400px) {
+  .page {
+    max-width: 1320px;
+  }
+  .hero {
+    min-height: 420px;
+  }
+  .coffee-branch {
+    height: 400px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page {
+    padding: 22px 28px 14px;
+  }
+  .masthead > span {
+    font-size: 32px;
+  }
+  .hero {
+    min-height: 300px;
+  }
+  h1 {
+    font-size: 8.4vw;
+  }
+  .hero p {
+    font-size: 25px;
+  }
+  .coffee-branch {
+    height: 280px;
+  }
+  h2 {
+    font-size: 40px;
+  }
+  .recipe-grid {
+    gap: 16px;
+  }
+  [data-slot="card"] {
+    padding: 14px;
+  }
+  .recipe-top {
+    height: 250px;
+  }
+  h3 {
+    font-size: 33px;
+  }
+  [data-slot="card-description"] {
+    font-size: 16px;
+  }
+  .recipe figure img {
+    width: 70%;
+    top: 40px;
+    height: 190px;
+  }
+  .recipe figcaption {
+    font-size: 12px;
+  }
+  .metrics dd {
+    font-size: 16px;
+  }
+  .metrics dt {
+    font-size: 12px;
+  }
+  .steps li {
+    grid-template-columns: 14px 60px minmax(0, 1fr);
+    font-size: 13px;
+    gap: 5px;
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    padding: 18px 20px 14px;
+  }
+  .masthead {
+    gap: 15px;
+    padding: 0 0 13px;
+  }
+  .masthead img {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+  }
+  .masthead > span {
+    font-size: 27px;
+    padding-top: 5px;
+  }
+  [data-slot="separator"][aria-orientation="vertical"] {
+    height: 40px;
+  }
+  .hero {
+    min-height: 290px;
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 18px;
+  }
+  .hero-copy {
+    padding: 10px 0 18px;
+  }
+  h1 {
+    font-size: clamp(43px, 10.3vw, 68px);
+    line-height: 1.13;
+  }
+  .hero p {
+    font-size: 23px;
+    margin-top: 13px;
+  }
+  .coffee-branch {
+    position: absolute;
+    right: -5px;
+    bottom: 4px;
+    height: 145px;
+    width: 150px;
+  }
+  h2 {
+    font-size: 35px;
+    padding-block: 19px 12px;
+  }
+  .recipe-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  [data-slot="card"] {
+    padding: 17px 15px 19px;
+  }
+  .recipe-top {
+    height: 265px;
+  }
+  h3 {
+    font-size: 36px;
+  }
+  [data-slot="card-description"] {
+    font-size: 17px;
+  }
+  .recipe figure img {
+    top: 32px;
+    width: 72%;
+    height: 212px;
+  }
+  .recipe figcaption {
+    left: 0;
+    bottom: 9px;
+    font-size: 12px;
+  }
+  .metrics dd {
+    font-size: 17px;
+  }
+  .grind {
+    padding-inline: 10px;
+  }
+  .steps {
+    gap: 13px;
+  }
+  .steps li {
+    grid-template-columns: 15px 66px minmax(0, 1fr);
+    font-size: 14px;
+    gap: 5px;
+  }
+}
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 12mm;
+  }
+  :root,
+  body {
+    color: #172b3a;
+    background: white;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .page {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+  .masthead,
+  .hero,
+  main > [data-slot="separator"],
+  .page > [data-slot="separator"],
+  h2,
+  footer {
+    display: none;
+  }
+  .recipe-grid {
+    display: block;
+  }
+  [data-slot="card"] {
+    break-inside: avoid;
+    break-after: page;
+    padding: 5mm;
+    border-width: 1px;
+  }
+  [data-slot="card"]:last-child {
+    break-after: auto;
+  }
+  .recipe-top {
+    height: 62mm;
+  }
+  h3 {
+    font-size: 29pt;
+  }
+  [data-slot="card-description"] {
+    font-size: 12pt;
+  }
+  .recipe figure img {
+    height: 58mm;
+    width: 62%;
+    top: 0;
+  }
+  .recipe figcaption {
+    font-size: 9pt;
+    bottom: 3mm;
+  }
+  .metrics {
+    padding-block: 3mm;
+  }
+  .metrics dt {
+    font-size: 9pt;
+  }
+  .metrics dd {
+    font-size: 12pt;
+    margin-top: 2mm;
+  }
+  .grind {
+    padding: 3mm;
+  }
+  .grind-label,
+  .grind-ends {
+    font-size: 9pt;
+  }
+  .steps {
+    margin-top: 3mm;
+    gap: 3mm;
+  }
+  .steps li {
+    font-size: 9pt;
+    line-height: 1.4;
+    grid-template-columns: 4mm 17mm 1fr;
+    gap: 2mm;
+  }
+}
