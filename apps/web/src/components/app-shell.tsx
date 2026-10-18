@@ -153,6 +153,7 @@ function SettingsRail() {
             { value: "notebook" as const, label: "Labels & tables" },
             { value: "devices" as const, label: "Devices" },
             { value: "access" as const, label: "Access" },
+            { value: "agents" as const, label: "Agents" },
           ].map((item) => (
             <SidebarMenuItem key={item.value ?? "brewing"}>
               <SidebarMenuButton

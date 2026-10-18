@@ -62,7 +62,7 @@ export function AgentCredentialSettings() {
     })
   }
   return (
-    <Card className="mt-6 max-w-4xl">
+    <Card id="agent-connections" className="mt-6 max-w-4xl scroll-mt-24">
       <CardHeader>
         <CardTitle>
           <h2>Agent connections</h2>
@@ -70,9 +70,8 @@ export function AgentCredentialSettings() {
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         <p className="text-muted-foreground text-sm">
-          Give each remote agent its own expiring access to this notebook.
-          Read-only access cannot change records. Revoking access stops new
-          requests immediately.
+          One credential per agent. Read only cannot change records; revoking
+          stops access immediately.
         </p>
         {credentials.error ? (
           <p role="alert">Could not load agent connections. Try again.</p>

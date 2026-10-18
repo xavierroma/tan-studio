@@ -19,6 +19,9 @@ STUDIO = ROOT / "apps/web/public"
 STUDIO_ICONS = [(32, "favicon-32x32.png"), (180, "apple-touch-icon.png"),
                 (192, "tan-studio-192.png"), (512, "tan-studio-512.png")]
 ICO_SIZES = [16, 32, 48, 64]
+# The downloadable Codex plugin uses the same nearest-neighbour icons.
+PLUGIN_ICONS = [(180, ROOT / "plugins/tan-studio-hosted/assets/icon.png"),
+                (192, ROOT / "plugins/tan-studio-hosted/assets/logo.png")]
 # Jar-label artwork embeds the plant as two ink layers so print separation can
 # put black and Tan Red on their own planes. 432 px spans 18 mm at ~600 dpi.
 LABEL_LOGO = ROOT / "apps/web/src/lib/labels/logo.ts"
@@ -129,6 +132,9 @@ def verify_studio(mapped, icon):
     for size, name in STUDIO_ICONS:
         with Image.open(STUDIO / name) as image:
             same(image, icon(size), name)
+    for size, path in PLUGIN_ICONS:
+        with Image.open(path) as image:
+            same(image, icon(size), path.name)
     with Image.open(STUDIO / "favicon.ico") as ico:
         assert sorted(ico.info["sizes"]) == [(size, size) for size in ICO_SIZES], "favicon.ico frames"
         for size in ICO_SIZES:
@@ -158,6 +164,8 @@ def main():
         mapped.convert("RGBA").save(STUDIO / "tan-logo.webp", "WEBP", lossless=True, method=6)
         for size, name in STUDIO_ICONS:
             icon(size).save(STUDIO / name, bits=2, optimize=True)
+        for size, path in PLUGIN_ICONS:
+            icon(size).save(path, bits=2, optimize=True)
         # Every ICO frame is supplied explicitly so Pillow never resamples (antialiases) one.
         frames = [icon(size).convert("RGBA") for size in ICO_SIZES]
         frames[-1].save(STUDIO / "favicon.ico", format="ICO",

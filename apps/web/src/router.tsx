@@ -332,7 +332,9 @@ const settingsRoute = createRoute({
           ? ("notebook" as const)
           : search.section === "access"
             ? ("access" as const)
-            : undefined,
+            : search.section === "agents"
+              ? ("agents" as const)
+              : undefined,
   }),
   component: lazyRouteComponent(
     () => import("@/screens/settings-screen"),
