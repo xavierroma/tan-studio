@@ -1,0 +1,43 @@
+/* Tan brand aliases. Opt-in for future Studio work; not a global UI migration. */
+:root {
+  --tan-ink: #000000;
+  --tan-red: #b6151b;
+  --tan-kraft: #d6b98e;
+  --tan-light-stock: #fff9ee;
+  --tan-white-stock: #ffffff;
+  --tan-font-brand: "Courier Prime", "Courier New", monospace;
+  --tan-font-ui: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --tan-radius: 3px;
+  --tan-space-1: 4px;
+  --tan-space-2: 8px;
+  --tan-space-3: 12px;
+  --tan-space-4: 16px;
+  --tan-space-6: 24px;
+  --tan-space-8: 32px;
+  --tan-space-12: 48px;
+}
+
+/* Apply deliberately to an approved Studio scope; keep shadcn behaviors intact. */
+.tan-brand-scope {
+  --background: var(--tan-light-stock);
+  --foreground: var(--tan-ink);
+  --card: var(--tan-light-stock);
+  --card-foreground: var(--tan-ink);
+  --popover: var(--tan-light-stock);
+  --popover-foreground: var(--tan-ink);
+  --primary: var(--tan-ink);
+  --primary-foreground: var(--tan-light-stock);
+  --secondary: var(--tan-light-stock);
+  --secondary-foreground: var(--tan-ink);
+  --muted: var(--tan-light-stock);
+  --muted-foreground: var(--tan-ink);
+  --accent: var(--tan-light-stock);
+  --accent-foreground: var(--tan-ink);
+  --destructive: var(--tan-red);
+  --border: color-mix(in srgb, var(--tan-ink) 25%, transparent);
+  --input: var(--border);
+  --ring: var(--tan-ink);
+  --radius: var(--tan-radius);
+  --font-heading: var(--tan-font-brand);
+  --font-sans: var(--tan-font-ui);
+}

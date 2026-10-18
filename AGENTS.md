@@ -15,3 +15,7 @@ Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Visual design
+
+For branding or UI work, read `docs/brand/brand-guide.md` and `docs/brand/README.md`. Reuse shared shadcn primitives whenever an equivalent exists. Keep record fields and relationships grounded in the runtime contract. The original plant is the adopted Tan logo: palette-only edits use `script/build_brand_assets.py`, not image regeneration. Reusable art contains black, red and transparent pixels; paper texture belongs to the layout, not the logo file.
