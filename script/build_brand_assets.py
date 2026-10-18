@@ -1,0 +1,95 @@
+"""Map the approved original plant pixels to black, red or transparency.
+
+No generation, tracing, warping, white ink, soft alpha or lossy compression.
+Requires Pillow. Run from any directory; --check verifies existing exports.
+"""
+
+from pathlib import Path
+from collections import Counter
+import hashlib
+import json
+import sys
+
+from PIL import Image
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "docs/brand/source/coffee-branch-original.png"
+ASSETS = ROOT / "sites/share/assets"
+RED = (182, 21, 27)
+ALLOWED = {(0, 0, 0, 0), (0, 0, 0, 255), (*RED, 255)}
+
+
+def mapped_index(pixel):
+    r, g, b, a = pixel
+    if a < 128:
+        return 0
+    # Cherries and existing red registration marks retain their source position.
+    if r >= 80 and r - g >= 35 and r - b >= 25 and r > 1.35 * g and r > 1.35 * b:
+        return 2
+    # Pale veins, highlights and paper-like remnants become actual holes.
+    if 0.2126 * r + 0.7152 * g + 0.0722 * b >= 140:
+        return 0
+    return 1
+
+
+def palette_image(size, indices):
+    image = Image.frombytes("P", size, bytes(indices))
+    image.putpalette(bytes([0, 0, 0, 0, 0, 0, *RED]))
+    image.info["transparency"] = bytes([0, 255, 255])
+    return image
+
+
+def verify(path):
+    with Image.open(path) as image:
+        counts = Counter(image.convert("RGBA").get_flattened_data())
+        assert set(counts) <= ALLOWED, f"Unexpected pixel states in {path.name}"
+        return {
+            "size": list(image.size),
+            "black_pixels": counts[(0, 0, 0, 255)],
+            "red_pixels": counts[(*RED, 255)],
+            "transparent_pixels": counts[(0, 0, 0, 0)],
+            "opaque_white_pixels": 0,
+            "pixel_states": len(counts),
+        }
+
+
+def main():
+    check = "--check" in sys.argv
+    with Image.open(SOURCE) as source:
+        source = source.convert("RGBA")
+        mapped = palette_image(source.size, map(mapped_index, source.get_flattened_data()))
+    if not check:
+        mapped.save(ASSETS / "tan-logo.png", bits=2, optimize=True)
+        mapped.convert("RGBA").save(ASSETS / "tan-logo.webp", "WEBP", lossless=True, method=6)
+        # Nearest-neighbour delivery sizes preserve the same three pixel states.
+        for size, name in [(128, "tan-favicon.png"), (180, "tan-touch-icon.png")]:
+            icon = mapped.copy()
+            icon.thumbnail((size, size), Image.Resampling.NEAREST)
+            canvas = palette_image((size, size), [0] * size * size)
+            canvas.paste(icon, ((size - icon.width) // 2, (size - icon.height) // 2))
+            canvas.save(ASSETS / name, bits=2, optimize=True)
+    names = ["tan-logo.png", "tan-logo.webp", "tan-favicon.png", "tan-touch-icon.png"]
+    report = {
+        "source": str(SOURCE.relative_to(ROOT)),
+        "source_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+        "method": "Deterministic pixel classification; original dimensions and positions retained",
+        "rules": {"alpha_cutoff": 128, "pale_luminance_cutoff": 140,
+                  "red": "r >= 80, r-g >= 35, r-b >= 25, r > 1.35*g, r > 1.35*b"},
+        "ink_black": "#000000", "ink_red": "#B6151B", "alpha_values": [0, 255],
+        "exports": {name: verify(ASSETS / name) for name in names},
+    }
+    with Image.open(ASSETS / "tan-logo.png") as result:
+        assert result.size == mapped.size
+        assert result.convert("RGBA").tobytes() == mapped.convert("RGBA").tobytes()
+    with Image.open(ASSETS / "tan-logo.webp") as web:
+        assert web.convert("RGBA").tobytes() == mapped.convert("RGBA").tobytes()
+    target = ROOT / "docs/brand/palette-proof.json"
+    if not check:
+        target.write_text(json.dumps(report, indent=2) + "\n")
+    else:
+        assert json.loads(target.read_text()) == report
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()

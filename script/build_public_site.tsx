@@ -10,8 +10,8 @@ const html = renderToStaticMarkup(
       <title>Vibed Tan Coffee</title>
       <meta name="description" content="Vibed Tan Coffee." />
       <link rel="canonical" href="https://tan.coffee/" />
-      <link rel="icon" type="image/png" href="/assets/tan-favicon.png" />
-      <link rel="apple-touch-icon" href="/assets/tan-touch-icon.png" />
+      <link rel="icon" type="image/png" href="/assets/tan-favicon.png?v=2ink" />
+      <link rel="apple-touch-icon" href="/assets/tan-touch-icon.png?v=2ink" />
       <link
         rel="preload"
         href="/assets/fonts/CourierPrime-Regular.ttf"

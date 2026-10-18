@@ -1,0 +1,62 @@
+{
+  "source": "docs/brand/source/coffee-branch-original.png",
+  "source_sha256": "b1526cdb81ef0e48ba5a6eccf53813f1e6fd7a6a179a9c0588a0e3f6fb94ccc2",
+  "method": "Deterministic pixel classification; original dimensions and positions retained",
+  "rules": {
+    "alpha_cutoff": 128,
+    "pale_luminance_cutoff": 140,
+    "red": "r >= 80, r-g >= 35, r-b >= 25, r > 1.35*g, r > 1.35*b"
+  },
+  "ink_black": "#000000",
+  "ink_red": "#B6151B",
+  "alpha_values": [
+    0,
+    255
+  ],
+  "exports": {
+    "tan-logo.png": {
+      "size": [
+        1389,
+        1132
+      ],
+      "black_pixels": 390118,
+      "red_pixels": 134166,
+      "transparent_pixels": 1048064,
+      "opaque_white_pixels": 0,
+      "pixel_states": 3
+    },
+    "tan-logo.webp": {
+      "size": [
+        1389,
+        1132
+      ],
+      "black_pixels": 390118,
+      "red_pixels": 134166,
+      "transparent_pixels": 1048064,
+      "opaque_white_pixels": 0,
+      "pixel_states": 3
+    },
+    "tan-favicon.png": {
+      "size": [
+        128,
+        128
+      ],
+      "black_pixels": 3286,
+      "red_pixels": 1146,
+      "transparent_pixels": 11952,
+      "opaque_white_pixels": 0,
+      "pixel_states": 3
+    },
+    "tan-touch-icon.png": {
+      "size": [
+        180,
+        180
+      ],
+      "black_pixels": 6599,
+      "red_pixels": 2261,
+      "transparent_pixels": 23540,
+      "opaque_white_pixels": 0,
+      "pixel_states": 3
+    }
+  }
+}
