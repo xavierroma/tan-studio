@@ -7,7 +7,7 @@ import {
   EmptyTitle,
 } from "@tan-studio/ui/components/empty"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { FlameIcon, PlusIcon } from "lucide-react"
 
@@ -48,6 +48,8 @@ export function RoastLibraryScreen() {
         },
         signal
       ),
+    // Keep the table (and its filters) mounted while a new query loads.
+    placeholderData: keepPreviousData,
   })
   const profiles = useQuery({
     queryKey: queryKeys.profiles(),
@@ -61,6 +63,13 @@ export function RoastLibraryScreen() {
   if (error) throw error
 
   const roastItems = roasts.data ?? []
+  const filtered = Boolean(
+    search.q ||
+    search.status ||
+    search.profileId ||
+    search.coffeeId ||
+    search.archived
+  )
 
   const updateSearch = (patch: Partial<RoastSearch>) => {
     void navigate({
@@ -92,24 +101,24 @@ export function RoastLibraryScreen() {
 
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
         {roasts.isPending || profiles.isPending || coffees.isPending ? (
-          <Skeleton className="h-72 rounded-xl" />
+          <Skeleton className="h-72" />
         ) : null}
 
-        {!roasts.isPending && roastItems.length === 0 ? (
-          <Empty className="min-h-72 border">
+        {!roasts.isPending && roastItems.length === 0 && !filtered ? (
+          <Empty className="notebook-empty">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <FlameIcon />
               </EmptyMedia>
-              <EmptyTitle>No roasts found</EmptyTitle>
+              <EmptyTitle>No roasts yet</EmptyTitle>
               <EmptyDescription>
-                Prepare a roast or synchronize the connected Nano.
+                Prepare a roast or synchronize the Nano.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}
 
-        {roastItems.length > 0 ? (
+        {!roasts.isPending && (roastItems.length > 0 || filtered) ? (
           <RoastDataTable
             data={roastItems}
             profiles={profiles.data ?? []}

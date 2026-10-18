@@ -11,6 +11,7 @@ import {
 } from "@tan-studio/ui/components/select"
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetFooter,
   SheetHeader,
@@ -104,7 +105,7 @@ export function BrewDetailScreen() {
   if (brew.isPending || !brew.data) {
     return (
       <div className="p-3 sm:p-7">
-        <Skeleton className="h-[38rem] rounded-xl" />
+        <Skeleton className="h-[38rem]" />
       </div>
     )
   }
@@ -191,7 +192,7 @@ export function BrewDetailScreen() {
                   key={item.revision}
                   id="edit-brew-form"
                   onSubmit={submitEdit}
-                  className="px-4"
+                  className="min-h-0 flex-1 overflow-y-auto px-4 py-1"
                 >
                   <FieldGroup>
                     <Field>
@@ -332,7 +333,10 @@ export function BrewDetailScreen() {
                     </Field>
                   </FieldGroup>
                 </form>
-                <SheetFooter>
+                <SheetFooter className="flex-row justify-end border-t">
+                  <SheetClose render={<Button variant="outline" />}>
+                    Cancel
+                  </SheetClose>
                   <Button
                     type="submit"
                     form="edit-brew-form"
@@ -355,7 +359,7 @@ export function BrewDetailScreen() {
               {roast.coffee.name}
             </ResourceLink>
           ) : (
-            <span>Unassigned</span>
+            <span>Not assigned</span>
           )}
         </div>
         <div>
@@ -365,7 +369,7 @@ export function BrewDetailScreen() {
             {roast?.roastedAt ? ` · ${dateText(roast.roastedAt)}` : ""}
           </ResourceLink>
           <p>
-            {roast?.profile?.name ?? "Profile —"} · Level{" "}
+            {roast?.profile?.name ?? "No profile"} · Level{" "}
             {levelText(roast?.levelThousandths)}
           </p>
         </div>
@@ -384,7 +388,7 @@ export function BrewDetailScreen() {
             "Water temperature",
             item.waterTemperatureMilliC == null
               ? "—"
-              : `${item.waterTemperatureMilliC / 1000}°C`,
+              : `${item.waterTemperatureMilliC / 1000} °C`,
           ],
         ].map(([k, v]) => (
           <div key={k}>

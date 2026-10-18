@@ -10,7 +10,13 @@ import { Button } from "@tan-studio/ui/components/button"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArchiveIcon, ArchiveRestoreIcon, PencilIcon } from "lucide-react"
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  CoffeeIcon,
+  PencilIcon,
+  TagIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -145,7 +151,7 @@ export function RoastDetailScreen() {
   if (roast.isPending || !roast.data)
     return (
       <div className="p-7">
-        <Skeleton className="h-[38rem] rounded-xl" />
+        <Skeleton className="h-[38rem]" />
       </div>
     )
 
@@ -207,6 +213,14 @@ export function RoastDetailScreen() {
             <Button
               nativeButton={false}
               role="link"
+              render={<Link to="/brews/new" search={{ roastId: item.id }} />}
+            >
+              <CoffeeIcon data-icon="inline-start" />
+              Record a brew
+            </Button>
+            <Button
+              nativeButton={false}
+              role="link"
               variant={"outline"}
               render={
                 <Link
@@ -216,7 +230,16 @@ export function RoastDetailScreen() {
               }
             >
               <PencilIcon data-icon="inline-start" />
-              Edit roast
+              Edit
+            </Button>
+            <Button
+              nativeButton={false}
+              role="link"
+              variant={"outline"}
+              render={<Link to="/labels" search={{ roastId: item.id }} />}
+            >
+              <TagIcon data-icon="inline-start" />
+              Jar label
             </Button>
             <Button
               variant="outline"
@@ -233,27 +256,6 @@ export function RoastDetailScreen() {
           </>
         }
       />
-      <div className="flex flex-wrap items-center gap-3 pb-6">
-        <Button
-          nativeButton={false}
-          role="link"
-          variant={"outline"}
-          render={<Link to="/brews/new" search={{ roastId: item.id }} />}
-        >
-          Record a brew
-        </Button>
-        <Button
-          nativeButton={false}
-          role="link"
-          variant={"outline"}
-          render={<Link to="/labels" search={{ roastId: item.id }} />}
-        >
-          Jar label
-        </Button>
-        <a href="#roast-media" className="notebook-link text-xs">
-          Images & files ↓
-        </a>
-      </div>
       <div className="notebook-lineage">
         <div>
           <small>Coffee</small>
@@ -262,7 +264,16 @@ export function RoastDetailScreen() {
               {item.coffee.name}
             </ResourceLink>
           ) : (
-            <span>Unassigned</span>
+            <span>
+              Not assigned ·{" "}
+              <Link
+                to="/roasts/$roastId/edit"
+                params={{ roastId: String(item.id) }}
+                className="notebook-link text-sm"
+              >
+                Assign coffee
+              </Link>
+            </span>
           )}
           {context.data?.coffee ? (
             <p>
@@ -280,7 +291,7 @@ export function RoastDetailScreen() {
               {item.profile.name}
             </ResourceLink>
           ) : (
-            <span>Unassigned</span>
+            <span>Not assigned</span>
           )}
         </div>
       </div>
@@ -429,15 +440,13 @@ export function RoastDetailScreen() {
         </dl>
       </NotebookSection>
       <Card
-        className="mt-6 overflow-hidden"
+        className="mt-8 overflow-hidden"
         aria-labelledby="roast-chart-title"
       >
         <CardContent className="p-0">
-          <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+          <div className="flex items-center justify-between gap-3 py-3">
             <div>
-              <h2 id="roast-chart-title" className="font-semibold">
-                Roast curve
-              </h2>
+              <h2 id="roast-chart-title">Roast curve</h2>
             </div>
             <Badge variant="secondary">
               {item.sampleStream?.rowCount.toLocaleString() ?? 0} samples
@@ -469,8 +478,8 @@ export function RoastDetailScreen() {
               showFanAxis
             />
           ) : (
-            <p className="text-muted-foreground p-8 text-center text-sm">
-              Telemetry appears after the Nano log is synchronized.
+            <p className="text-muted-foreground py-6 text-sm">
+              No telemetry yet. Synchronize the Nano log.
             </p>
           )}
         </CardContent>

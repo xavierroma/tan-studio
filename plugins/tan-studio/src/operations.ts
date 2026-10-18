@@ -9,6 +9,7 @@ interface Parameter {
   name: string
   in: "path" | "query" | "header"
   required?: boolean
+  description?: string
   schema: JsonSchema
 }
 interface OperationContract {
@@ -46,9 +47,26 @@ export interface ApiOperation {
 export interface ApiArguments {
   path?: Record<string, string | number>
   query?: Record<string, JsonValue>
-  headers?: Record<string, string>
+  headers?: Record<string, string | number>
   body?: JsonValue
   contentBase64?: string
+}
+
+const isIfMatch = (name: string) => name.toLowerCase() === "if-match"
+
+/**
+ * The service accepts only the strong tag `"revision:N"`. Callers usually hold the
+ * record's numeric `revision`, so unambiguous spellings of one revision number
+ * (`3`, `"3"`, `revision:3`) become that tag. The service still compares the
+ * exact revision; anything else passes through and is rejected with guidance.
+ */
+export function revisionTag(value: string | number): string {
+  const match = /^\s*"?(?:revision:)?([1-9]\d*)"?\s*$/u.exec(String(value))
+  return match ? `"revision:${match[1]}"` : String(value)
+}
+
+export function headerValue(name: string, value: string | number): string {
+  return isIfMatch(name) ? revisionTag(value) : String(value)
 }
 
 // JSON imports widen OpenAPI literal types; conversion is checked against every operation in tests.
@@ -80,7 +98,14 @@ function operation(
     const fields: Record<string, z.ZodType> = {}
     const selected = parameters.filter((p) => p.in === location)
     for (const parameter of selected) {
-      const field = schema(parameter.schema)
+      const base =
+        location === "header" && isIfMatch(parameter.name)
+          ? // Models see the record's numeric revision; accept it as-is too.
+            z.union([z.string().min(1), z.number().int().positive()])
+          : schema(parameter.schema)
+      const field = parameter.description
+        ? base.describe(parameter.description)
+        : base
       fields[parameter.name] = parameter.required ? field : field.optional()
     }
     if (selected.length) {

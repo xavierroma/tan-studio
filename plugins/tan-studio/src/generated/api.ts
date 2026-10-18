@@ -1136,6 +1136,12 @@ export interface components {
         ProblemDetails: {
             code: string;
             correlationId: string;
+            /**
+             * Format: int64
+             * @description For a stale revision: the resource's revision now. Re-read the resource,
+             *     confirm the change still applies, then send `If-Match: "revision:N"`.
+             */
+            currentRevision?: number | null;
             detail: string;
             fieldErrors?: components["schemas"]["FieldError"][] | null;
             instance: string;
@@ -1778,6 +1784,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -1842,6 +1852,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -1885,6 +1899,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2000,6 +2018,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2219,6 +2241,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2580,6 +2606,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2609,6 +2639,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2644,6 +2678,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -2813,6 +2851,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -3003,6 +3045,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path: {
@@ -3112,6 +3158,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path?: never;
@@ -3191,6 +3241,10 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                /**
+                 * @description The current revision as a quoted entity tag, exactly "revision:N" (for example "revision:3"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.
+                 * @example "revision:1"
+                 */
                 "If-Match": string;
             };
             path?: never;

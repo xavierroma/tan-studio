@@ -199,7 +199,7 @@ export function LiveRoastScreen() {
                   </Button>
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="destructive"
                     disabled={discard.isPending}
                     onClick={() => discard.mutate()}
                   >
@@ -209,10 +209,7 @@ export function LiveRoastScreen() {
               </AlertDescription>
             </Alert>
           ) : null}
-          <form
-            onSubmit={submit}
-            className="bg-card rounded-xl border p-4 sm:p-5"
-          >
+          <form onSubmit={submit} className="bg-card border p-4 sm:p-5">
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="roast-profile">Profile</FieldLabel>

@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@tan-studio/ui/components/table"
 import { Link, useRouter } from "@tanstack/react-router"
+import { ArrowLeftIcon } from "lucide-react"
 import { Fragment, isValidElement, type ReactNode } from "react"
 
 export function ResourceLink({
@@ -111,7 +112,8 @@ export function NotebookBreadcrumbs({ items }: { items: ReactNode[] }) {
             void router.navigate({ to: "/coffees", search: coffeeListSearch })
         }}
       >
-        ← Back
+        <ArrowLeftIcon data-icon="inline-start" />
+        Back
       </Button>
       <Separator orientation="vertical" />
       <Breadcrumb>
@@ -311,9 +313,9 @@ export function BrewHistory({
                   {massText(b.coffeeMassMg)} / {massText(b.waterMassMg)} water
                   <small>
                     {b.waterTemperatureMilliC == null
-                      ? "Temperature —"
-                      : `${b.waterTemperatureMilliC / 1000}°C`}{" "}
-                    · {b.grinderSetting}
+                      ? "Temperature not recorded"
+                      : `${b.waterTemperatureMilliC / 1000} °C`}
+                    {b.grinderSetting ? ` · grind ${b.grinderSetting}` : ""}
                   </small>
                 </TableCell>
                 <TableCell data-label="Tasting notes">
@@ -406,7 +408,7 @@ export function RoastHistory({
                       {r.profile.name}
                     </ResourceLink>
                   ) : (
-                    "Profile —"
+                    "No profile"
                   )}
                   <small>Level {levelText(r.levelThousandths)}</small>
                 </TableCell>

@@ -461,7 +461,7 @@ export function TanBridgeSetupPanel() {
                   {bridge.revokedAt ? null : (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
                       disabled={revoke.isPending}
                       onClick={() => revoke.mutate(Number(bridge.id))}

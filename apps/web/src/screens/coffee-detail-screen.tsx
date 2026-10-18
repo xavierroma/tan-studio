@@ -17,6 +17,7 @@ import { Button } from "@tan-studio/ui/components/button"
 import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
+import { FlameIcon, NotebookPenIcon, PencilIcon } from "lucide-react"
 import { useState } from "react"
 
 export function CoffeeDetailScreen() {
@@ -36,7 +37,7 @@ export function CoffeeDetailScreen() {
     notes = linkedNotes(history.notes, "coffee", id)
   const price =
     c.priceMinor == null
-      ? "—"
+      ? "Not recorded"
       : c.currencyCode
         ? new Intl.NumberFormat(undefined, {
             style: "currency",
@@ -60,40 +61,44 @@ export function CoffeeDetailScreen() {
           />
         }
         actions={
-          <Button variant="outline" onClick={() => setAddingNote(true)}>
-            Add note
-          </Button>
+          <>
+            <Button
+              nativeButton={false}
+              role="link"
+              render={
+                <Link
+                  to="/roast"
+                  search={{ coffeeId: id, profileId: undefined }}
+                />
+              }
+            >
+              <FlameIcon data-icon="inline-start" />
+              Prepare a roast
+            </Button>
+            <Button
+              nativeButton={false}
+              role="link"
+              variant="outline"
+              render={
+                <Link to="/coffees/$coffeeId/edit" params={{ coffeeId }} />
+              }
+            >
+              <PencilIcon data-icon="inline-start" />
+              Edit
+            </Button>
+            <Button variant="outline" onClick={() => setAddingNote(true)}>
+              <NotebookPenIcon data-icon="inline-start" />
+              Add note
+            </Button>
+          </>
         }
       />
-      <div className="flex flex-wrap items-center gap-3 pb-6">
-        <Button
-          nativeButton={false}
-          role="link"
-          variant={"outline"}
-          render={<Link to="/coffees/$coffeeId/edit" params={{ coffeeId }} />}
-        >
-          Edit coffee
-        </Button>
-        <Button
-          nativeButton={false}
-          role="link"
-          variant={"outline"}
-          render={
-            <Link to="/roast" search={{ coffeeId: id, profileId: undefined }} />
-          }
-        >
-          Prepare a roast
-        </Button>
-        <a href="#coffee-media" className="notebook-link text-xs">
-          Images & files ↓
-        </a>
-      </div>
       <dl className="notebook-facts">
         {[
           ["Green remaining", massText(c.remainingMassMg)],
-          ["Variety", c.variety || "—"],
-          ["Harvest", c.harvest || "—"],
-          ["Provider", c.provider || "—"],
+          ["Roasts", String(roasts.length)],
+          ["Variety", c.variety || "Not recorded"],
+          ["Provider", c.provider || "Not recorded"],
         ].map(([k, v]) => (
           <div key={k}>
             <dt>{k}</dt>
@@ -102,10 +107,11 @@ export function CoffeeDetailScreen() {
         ))}
       </dl>
       <nav className="notebook-jump-links" aria-label="Coffee sections">
-        <a href="#coffee-roasts">Roasts ({roasts.length}) ↓</a>
-        <a href="#coffee-brews">Brews ({brews.length}) ↓</a>
-        <a href="#coffee-notes">Coffee notes ({notes.length}) ↓</a>
-        <a href="#coffee-details">Details ↓</a>
+        <a href="#coffee-roasts">Roasts</a>
+        <a href="#coffee-brews">Brews</a>
+        <a href="#coffee-notes">Notes ({notes.length})</a>
+        <a href="#coffee-details">Details</a>
+        <a href="#coffee-media">Images & files</a>
       </nav>
       <NotebookSection
         title="Roast history"
@@ -141,13 +147,14 @@ export function CoffeeDetailScreen() {
         <NotebookSection title="Coffee details" id="coffee-details">
           <dl className="notebook-details">
             {[
+              ["Harvest", c.harvest],
               ["Producer", c.producer],
               ["Farm", c.farm],
               ["Washing station", c.washingStation],
               [
                 "Altitude",
                 c.altitudeMinM == null && c.altitudeMaxM == null
-                  ? "—"
+                  ? "Not recorded"
                   : `${c.altitudeMinM?.toLocaleString() ?? "—"}–${c.altitudeMaxM?.toLocaleString() ?? "—"} m`,
               ],
               ["Provider product", c.providerProductId],
@@ -159,7 +166,7 @@ export function CoffeeDetailScreen() {
             ].map(([k, v]) => (
               <div key={k}>
                 <dt>{k}</dt>
-                <dd>{v || "—"}</dd>
+                <dd>{v || "Not recorded"}</dd>
               </div>
             ))}
             {c.providerUrl ? (

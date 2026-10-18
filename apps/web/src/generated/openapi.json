@@ -439,10 +439,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -537,10 +539,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -606,10 +610,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -846,10 +852,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -1218,10 +1226,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -1865,10 +1875,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "responses": {
@@ -1905,10 +1917,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -1964,10 +1978,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -2262,10 +2278,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -2615,10 +2633,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -2800,10 +2820,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -2898,10 +2920,12 @@
           {
             "name": "If-Match",
             "in": "header",
+            "description": "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.",
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "example": "\"revision:1\""
           }
         ],
         "requestBody": {
@@ -4767,6 +4791,14 @@
           },
           "correlationId": {
             "type": "string"
+          },
+          "currentRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "For a stale revision: the resource's revision now. Re-read the resource,\nconfirm the change still applies, then send `If-Match: \"revision:N\"`."
           },
           "detail": {
             "type": "string"

@@ -51,16 +51,16 @@ export function PantryScreen() {
     <div className="min-h-screen">
       <PageHeader title="Pantry" />
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
-        {pantry.isPending ? <Skeleton className="h-72 rounded-xl" /> : null}
+        {pantry.isPending ? <Skeleton className="h-72" /> : null}
         {!pantry.isPending && items.length === 0 ? (
-          <Empty className="min-h-72 border">
+          <Empty className="notebook-empty">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ArchiveIcon />
               </EmptyMedia>
-              <EmptyTitle>Your pantry is empty</EmptyTitle>
+              <EmptyTitle>Pantry is empty</EmptyTitle>
               <EmptyDescription>
-                Completed roasts with coffee remaining appear here.
+                Completed roasts with coffee left appear here.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

@@ -1,4 +1,4 @@
-import type { LabelArtwork } from "./artwork"
+import { LABEL_RED, type LabelArtwork } from "./artwork"
 export type PrintInput = LabelArtwork & {
   widthMicrometers: number
   heightMicrometers: number
@@ -16,20 +16,34 @@ export type RasterArtwork = {
   dpi: number
   side: string
 }
-function proColorPlanes(svg: string) {
+/**
+ * Splits label artwork into black and red print planes. Red is anything filled
+ * or stroked with LABEL_RED, or tagged data-ink="red" (the logo's red layer),
+ * at any depth. Each plane is drawn in black so one threshold rasterizes both.
+ */
+export function proColorPlanes(svg: string) {
   const p = new DOMParser().parseFromString(svg, "image/svg+xml"),
-    root = p.documentElement
-  const isRed = (e: Element) =>
-    e.getAttribute("fill") === "#a32225" ||
-    e.getAttribute("stroke") === "#a32225"
+    root = p.documentElement,
+    redSelector = `[fill="${LABEL_RED}"],[stroke="${LABEL_RED}"],[data-ink="red"]`,
+    meta = "defs,title,desc"
   const black = root.cloneNode(true) as Element,
     red = root.cloneNode(true) as Element
-  for (const c of [...black.children]) if (isRed(c)) c.remove()
-  for (const c of [...red.children])
-    if (!["defs", "title", "desc"].includes(c.tagName) && !isRed(c)) c.remove()
-  for (const e of red.querySelectorAll('[fill="#a32225"],[stroke="#a32225"]')) {
-    if (e.getAttribute("fill") === "#a32225") e.setAttribute("fill", "#000")
-    if (e.getAttribute("stroke") === "#a32225") e.setAttribute("stroke", "#000")
+  for (const e of [...black.querySelectorAll(redSelector)]) e.remove()
+  const keep = new Set<Element>()
+  for (const e of red.querySelectorAll("*"))
+    if (
+      e.closest(meta) ||
+      e.closest(redSelector) ||
+      e.querySelector(redSelector)
+    )
+      keep.add(e)
+  for (const e of [...red.querySelectorAll("*")])
+    // Clones are detached from the document: test containment in this plane.
+    if (!keep.has(e) && red.contains(e)) e.remove()
+  for (const e of red.querySelectorAll(redSelector)) {
+    if (e.getAttribute("fill") === LABEL_RED) e.setAttribute("fill", "#000")
+    if (e.getAttribute("stroke") === LABEL_RED) e.setAttribute("stroke", "#000")
+    if (e.tagName === "image") e.setAttribute("filter", "url(#ink-black)")
   }
   const serializer = new XMLSerializer()
   return {

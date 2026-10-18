@@ -10,6 +10,7 @@ import {
   apiOperationsByName,
   apiToolName,
   operationInput,
+  revisionTag,
 } from "../src/operations"
 
 const config = {
@@ -197,6 +198,90 @@ test("attachment binary content round trips exact bytes with its declared revisi
     contentBase64: bytes.toString("base64"),
     mediaType: "image/jpeg",
   })
+})
+
+test("If-Match accepts the record's numeric revision and sends the strong tag", () => {
+  expect(revisionTag(2)).toBe('"revision:2"')
+  for (const value of ["2", '"2"', "revision:2", '"revision:2"', " 2 "])
+    expect(revisionTag(value)).toBe('"revision:2"')
+  // Anything that is not one revision number is left for the service to reject.
+  for (const value of ['W/"revision:2"', "0", "latest", "2,3", '"revision:-1"'])
+    expect(revisionTag(value)).toBe(value)
+})
+
+test("hosted PDF upload sends the revision the create call returned", async () => {
+  const pdf = Buffer.from("%PDF-1.4\n%fictional\n%%EOF\n")
+  const requests: Request[] = []
+  const api = new OpenApiTanStudioGateway(config, async (request) => {
+    const req = new Request(request)
+    requests.push(req)
+    return Response.json({ id: 48, revision: 2, byteLength: pdf.length })
+  })
+  await withClient(
+    api,
+    async (client) => {
+      const tool = (await client.listTools()).tools.find(
+        (t) => t.name === "tan_api_put_attachment_content"
+      )
+      expect(JSON.stringify(tool?.inputSchema)).toContain('\\"revision:N\\"')
+      const result = await client.callTool({
+        name: "tan_api_put_attachment_content",
+        arguments: {
+          path: { id: 48 },
+          headers: { "If-Match": 1 },
+          contentBase64: pdf.toString("base64"),
+        },
+      })
+      expect(result.isError).toBeFalsy()
+    },
+    { hosted: true, write: true }
+  )
+  expect(requests[0]!.headers.get("If-Match")).toBe('"revision:1"')
+  expect(Buffer.from(await requests[0]!.arrayBuffer())).toEqual(pdf)
+})
+
+test("a stale revision tool error carries the current revision and no blind retry", async () => {
+  const api = new OpenApiTanStudioGateway(config, async () =>
+    Response.json(
+      {
+        type: "https://tan.studio/problems/revision-precondition-failed",
+        title: "Revision precondition failed",
+        status: 412,
+        detail:
+          'The attachment 48 is at revision 2, not 1. Fetch it again, confirm the change still applies, then retry with If-Match: "revision:2".',
+        instance: "/api/v1/attachments/48/content",
+        code: "revision_precondition_failed",
+        correlationId: "test-correlation",
+        retryable: false,
+        currentRevision: 2,
+      },
+      { status: 412 }
+    )
+  )
+  await withClient(
+    api,
+    async (client) => {
+      const result = (await client.callTool({
+        name: "tan_api_put_attachment_content",
+        arguments: {
+          path: { id: 48 },
+          headers: { "If-Match": 1 },
+          contentBase64: Buffer.from("%PDF").toString("base64"),
+        },
+      })) as { isError?: boolean; content: Array<{ text: string }> }
+      expect(result.isError).toBe(true)
+      const error = JSON.parse(result.content[0]!.text)
+      expect(error).toMatchObject({
+        error: "revision_precondition_failed",
+        status: 412,
+        retryable: false,
+        currentRevision: 2,
+      })
+      expect(error.recovery).toContain("Fetch the record again")
+      expect(error.recovery).toContain('"revision:2"')
+    },
+    { hosted: true, write: true }
+  )
 })
 
 test("DELETE retains revision and returns an explicit empty success", async () => {

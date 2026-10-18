@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::{
     api::ApiState,
     core_contract::*,
-    error::{ApiError, ApiResult, ProblemDetails},
+    error::{expected_revision, ApiError, ApiResult, ProblemDetails},
     object_store::ObjectStoreError,
 };
 
@@ -70,7 +70,7 @@ pub async fn profiles_get(
     Ok(Json(get_profile(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/profiles/{id}", tag = "profiles", operation_id = "updateProfile", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = ProfilePatch, responses((status = 200, body = ProfileResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/profiles/{id}", tag = "profiles", operation_id = "updateProfile", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = ProfilePatch, responses((status = 200, body = ProfileResource), (status = 412, body = ProblemDetails)))]
 pub async fn profiles_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -227,7 +227,7 @@ pub async fn coffees_get(
     Ok(Json(get_coffee(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/coffees/{id}", tag = "coffees", operation_id = "updateCoffee", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = CoffeePatch, responses((status = 200, body = CoffeeResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/coffees/{id}", tag = "coffees", operation_id = "updateCoffee", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = CoffeePatch, responses((status = 200, body = CoffeeResource), (status = 412, body = ProblemDetails)))]
 pub async fn coffees_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -375,7 +375,7 @@ pub async fn roasts_get(
     Ok(Json(get_roast(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/roasts/{id}", tag = "roasts", operation_id = "updateRoast", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = RoastPatch, responses((status = 200, body = RoastResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/roasts/{id}", tag = "roasts", operation_id = "updateRoast", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = RoastPatch, responses((status = 200, body = RoastResource), (status = 412, body = ProblemDetails)))]
 pub async fn roasts_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -780,7 +780,7 @@ pub async fn brews_get(
     Ok(Json(get_brew(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/brews/{id}", tag = "brews", operation_id = "updateBrew", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = BrewPatch, responses((status = 200, body = BrewResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/brews/{id}", tag = "brews", operation_id = "updateBrew", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = BrewPatch, responses((status = 200, body = BrewResource), (status = 412, body = ProblemDetails)))]
 pub async fn brews_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -891,7 +891,7 @@ pub async fn notes_get(
     Ok(Json(get_note(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/notes/{id}", tag = "notes", operation_id = "updateNote", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = NotePatch, responses((status = 200, body = NoteResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/notes/{id}", tag = "notes", operation_id = "updateNote", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = NotePatch, responses((status = 200, body = NoteResource), (status = 412, body = ProblemDetails)))]
 pub async fn notes_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -924,7 +924,7 @@ pub async fn notes_patch(
     Ok(Json(get_note(&connection, id)?))
 }
 
-#[utoipa::path(put, path = "/api/v1/notes/{id}/links", tag = "notes", operation_id = "replaceNoteLinks", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = NoteLinksPut, responses((status = 200, body = NoteResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(put, path = "/api/v1/notes/{id}/links", tag = "notes", operation_id = "replaceNoteLinks", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = NoteLinksPut, responses((status = 200, body = NoteResource), (status = 412, body = ProblemDetails)))]
 pub async fn notes_put_links(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -954,7 +954,7 @@ pub async fn notes_put_links(
     Ok(Json(get_note(&connection, id)?))
 }
 
-#[utoipa::path(delete, path = "/api/v1/notes/{id}", tag = "notes", operation_id = "deleteNote", params(("id" = i64, Path), ("If-Match" = String, Header)), responses((status = 204), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(delete, path = "/api/v1/notes/{id}", tag = "notes", operation_id = "deleteNote", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), responses((status = 204), (status = 412, body = ProblemDetails)))]
 pub async fn notes_delete(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
@@ -1075,14 +1075,14 @@ pub async fn attachments_get(
     Ok(Json(get_attachment(&state.database.connection(), id)?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/attachments/{id}", tag = "attachments", operation_id = "updateAttachment", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = AttachmentPatch, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/attachments/{id}", tag = "attachments", operation_id = "updateAttachment", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = AttachmentPatch, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
 pub async fn attachments_patch(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
     Json(input): Json<AttachmentPatch>,
 ) -> ApiResult<Json<AttachmentResource>> {
-    let expected = expected_revision(&headers)?;
+    let expected = attachment_revision(&state, id, &headers)?;
     let connection = state.database.connection();
     let current = get_attachment(&connection, id)?;
     let title = input.title.unwrap_or(current.title);
@@ -1105,19 +1105,19 @@ pub async fn attachments_patch(
         params![title.trim(), filename.trim(), media_type.trim().to_ascii_lowercase(), source_url.as_deref().map(str::trim), description.trim(), optional_instant(captured_at.as_deref())?, now_ms(), id, expected],
     )?;
     if changed == 0 {
-        return Err(ApiError::revision());
+        return Err(stale_attachment(&connection, id, expected)?);
     }
     Ok(Json(get_attachment(&connection, id)?))
 }
 
-#[utoipa::path(put, path = "/api/v1/attachments/{id}/links", tag = "attachments", operation_id = "replaceAttachmentLinks", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body = AttachmentLinksPut, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(put, path = "/api/v1/attachments/{id}/links", tag = "attachments", operation_id = "replaceAttachmentLinks", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = AttachmentLinksPut, responses((status = 200, body = AttachmentResource), (status = 412, body = ProblemDetails)))]
 pub async fn attachments_put_links(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
     Json(input): Json<AttachmentLinksPut>,
 ) -> ApiResult<Json<AttachmentResource>> {
-    let expected = expected_revision(&headers)?;
+    let expected = attachment_revision(&state, id, &headers)?;
     let mut connection = state.database.connection();
     let transaction = connection.transaction()?;
     let attachment = get_attachment(&transaction, id)?;
@@ -1127,7 +1127,7 @@ pub async fn attachments_put_links(
         params![now_ms(), id, expected],
     )?;
     if changed == 0 {
-        return Err(ApiError::revision());
+        return Err(stale_attachment(&transaction, id, expected)?);
     }
     transaction.execute("DELETE FROM attachment_links WHERE attachment_id=?", [id])?;
     insert_attachment_links(&transaction, id, &input.links)?;
@@ -1202,14 +1202,14 @@ pub async fn entity_profile_image_put(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[utoipa::path(put, path = "/api/v1/attachments/{id}/content", tag = "attachments", operation_id = "putAttachmentContent", params(("id" = i64, Path), ("If-Match" = String, Header)), request_body(content = String, content_type = "application/octet-stream"), responses((status = 200, body = AttachmentResource), (status = 413, body = ProblemDetails), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(put, path = "/api/v1/attachments/{id}/content", tag = "attachments", operation_id = "putAttachmentContent", params(("id" = i64, Path), ("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body(content = String, content_type = "application/octet-stream"), responses((status = 200, body = AttachmentResource), (status = 413, body = ProblemDetails), (status = 412, body = ProblemDetails)))]
 pub async fn attachments_put_content(
     State(state): State<ApiState>,
     Path(id): Path<i64>,
     headers: HeaderMap,
     body: Body,
 ) -> ApiResult<Json<AttachmentResource>> {
-    let expected = expected_revision(&headers)?;
+    let expected = attachment_revision(&state, id, &headers)?;
     let declared_length = headers
         .get(header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
@@ -1218,7 +1218,12 @@ pub async fn attachments_put_content(
         let connection = state.database.connection();
         let current = get_attachment(&connection, id)?;
         if current.revision != expected {
-            return Err(ApiError::revision());
+            return Err(ApiError::stale_revision(
+                "attachment",
+                id,
+                expected,
+                current.revision,
+            ));
         }
         current.sha256
     };
@@ -1236,7 +1241,9 @@ pub async fn attachments_put_content(
             params![stored.byte_length as i64, stored.sha256, now_ms(), id, expected],
         )?;
         if changed == 0 {
-            return Err(ApiError::revision());
+            // A concurrent write won the race. The stored object is left in place:
+            // another upload may reference the same content hash at any moment.
+            return Err(stale_attachment(&connection, id, expected)?);
         }
         get_attachment(&connection, id)?
     };
@@ -1369,7 +1376,7 @@ pub async fn settings_get(State(state): State<ApiState>) -> ApiResult<Json<Setti
     Ok(Json(get_settings(&state.database.connection())?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/settings", tag = "settings", operation_id = "updateSettings", params(("If-Match" = String, Header)), request_body = SettingsPatch, responses((status = 200, body = SettingsResource), (status = 412, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/settings", tag = "settings", operation_id = "updateSettings", params(("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = SettingsPatch, responses((status = 200, body = SettingsResource), (status = 412, body = ProblemDetails)))]
 pub async fn settings_patch(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -1410,7 +1417,7 @@ pub async fn ui_preferences_get(
     Ok(Json(get_ui_preferences(&state.database.connection())?))
 }
 
-#[utoipa::path(patch, path = "/api/v1/ui-preferences", tag = "ui-preferences", operation_id = "updateUiPreferences", params(("If-Match" = String, Header)), request_body = UiPreferencesPatch, responses((status = 200, body = UiPreferencesResource), (status = 412, body = ProblemDetails), (status = 422, body = ProblemDetails)))]
+#[utoipa::path(patch, path = "/api/v1/ui-preferences", tag = "ui-preferences", operation_id = "updateUiPreferences", params(("If-Match" = String, Header, description = "The current revision as a quoted entity tag, exactly \"revision:N\" (for example \"revision:3\"), where N is the resource's revision field. A missing or malformed value returns 412 revision_header_invalid; a stale one returns 412 revision_precondition_failed.", example = json!("\"revision:1\""))), request_body = UiPreferencesPatch, responses((status = 200, body = UiPreferencesResource), (status = 412, body = ProblemDetails), (status = 422, body = ProblemDetails)))]
 pub async fn ui_preferences_patch(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -2232,6 +2239,25 @@ fn validate_table_preferences(value: &Value) -> ApiResult<()> {
     Ok(())
 }
 
+/// Reads If-Match for an attachment write. A missing or malformed header names
+/// the attachment's current revision so the client can correct it.
+fn attachment_revision(state: &ApiState, id: i64, headers: &HeaderMap) -> ApiResult<i64> {
+    expected_revision(headers).or_else(|error| {
+        let current = get_attachment(&state.database.connection(), id)?;
+        Err(error.with_current_revision(current.revision))
+    })
+}
+
+/// The stale-revision error for an attachment, carrying its current revision.
+fn stale_attachment(
+    connection: &rusqlite::Connection,
+    id: i64,
+    sent: i64,
+) -> ApiResult<ApiError> {
+    let current = get_attachment(connection, id)?;
+    Ok(ApiError::stale_revision("attachment", id, sent, current.revision))
+}
+
 fn attachment_size_error() -> ApiError {
     ApiError::new(
         StatusCode::PAYLOAD_TOO_LARGE,
@@ -2446,16 +2472,6 @@ fn rest_priority(state: &str) -> i32 {
         "resting" => 2,
         _ => 3,
     }
-}
-fn expected_revision(headers: &HeaderMap) -> ApiResult<i64> {
-    headers
-        .get(header::IF_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("\"revision:"))
-        .and_then(|v| v.strip_suffix('"'))
-        .and_then(|v| v.parse().ok())
-        .filter(|v| *v > 0)
-        .ok_or_else(ApiError::revision)
 }
 fn optional_instant(value: Option<&str>) -> ApiResult<Option<i64>> {
     value.map(parse_instant).transpose()

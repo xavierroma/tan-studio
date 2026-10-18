@@ -1,7 +1,6 @@
 import { ResourceLink } from "@/components/notebook"
 import { latestTasting } from "@/lib/notebook"
 import { useNotebookHistory } from "@/lib/notebook-queries"
-import { Button } from "@tan-studio/ui/components/button"
 import {
   Select,
   SelectContent,
@@ -11,7 +10,6 @@ import {
   SelectValue,
 } from "@tan-studio/ui/components/select"
 import type { ColumnDef } from "@tanstack/react-table"
-import { PaperclipIcon } from "lucide-react"
 
 import {
   DataTable,
@@ -37,12 +35,10 @@ export function BrewDataTable({
   data,
   search,
   updateSearch,
-  onAttach,
 }: {
   data: Brew[]
   search: BrewTableSearch
   updateSearch: (patch: Partial<BrewTableSearch>) => void
-  onAttach: (brew: Brew) => void
 }) {
   const history = useNotebookHistory()
   const methods = [
@@ -85,13 +81,6 @@ export function BrewDataTable({
               #{row.original.id} · {row.original.method}
             </ResourceLink>
             <small>{date(row.original.brewedAt)}</small>
-            <Button
-              className="notebook-link text-xs"
-              type="button"
-              onClick={() => onAttach(row.original)}
-            >
-              Add files
-            </Button>
           </div>
         </div>
       ),
@@ -143,9 +132,11 @@ export function BrewDataTable({
           {row.original.waterMassMg / 1000} g water
           <small>
             {row.original.waterTemperatureMilliC == null
-              ? "Temperature —"
-              : `${row.original.waterTemperatureMilliC / 1000}°C`}{" "}
-            · {row.original.grinderSetting}
+              ? "Temperature not recorded"
+              : `${row.original.waterTemperatureMilliC / 1000} °C`}
+            {row.original.grinderSetting
+              ? ` · grind ${row.original.grinderSetting}`
+              : ""}
           </small>
         </div>
       ),
@@ -164,23 +155,6 @@ export function BrewDataTable({
         <span className="whitespace-nowrap">{date(row.original.brewedAt)}</span>
       ),
       meta: { label: "When", mobile: "detail" },
-    },
-    {
-      id: "media",
-      header: "Media",
-      cell: ({ row }) => (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => onAttach(row.original)}
-        >
-          <PaperclipIcon data-icon="inline-start" />
-          Attach
-        </Button>
-      ),
-      enableSorting: false,
-      meta: { label: "Media", mobile: "detail" },
     },
     {
       id: "tasting",

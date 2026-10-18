@@ -64,6 +64,16 @@ export function failure(error: unknown): CallToolResult {
                 ? { correlationId: error.correlationId }
                 : {}),
               ...(error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}),
+              ...(error.currentRevision !== undefined
+                ? {
+                    currentRevision: error.currentRevision,
+                    // Never retry blindly: the record changed since it was read.
+                    recovery:
+                      error.code === "revision_header_invalid"
+                        ? `Send If-Match "revision:${error.currentRevision}" if that is the revision you read; otherwise fetch the record again first.`
+                        : `Fetch the record again and confirm the change still applies, then retry with If-Match "revision:${error.currentRevision}".`,
+                  }
+                : {}),
             },
             null,
             2

@@ -22,6 +22,7 @@ import {
 } from "@tan-studio/ui/components/select"
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetFooter,
   SheetHeader,
@@ -254,7 +255,7 @@ export function ProfileEditorScreen() {
   if (list.isPending)
     return (
       <div className="p-7">
-        <Skeleton className="h-[38rem] rounded-xl" />
+        <Skeleton className="h-[38rem]" />
       </div>
     )
   if (!selectedId)
@@ -262,7 +263,7 @@ export function ProfileEditorScreen() {
   if (!profile.data)
     return (
       <div className="p-7">
-        <Skeleton className="h-[38rem] rounded-xl" />
+        <Skeleton className="h-[38rem]" />
       </div>
     )
 
@@ -333,7 +334,7 @@ export function ProfileEditorScreen() {
               <form
                 id="child-profile-form"
                 onSubmit={submitChild}
-                className="px-4"
+                className="min-h-0 flex-1 overflow-y-auto px-4 py-1"
               >
                 <FieldGroup>
                   <Field>
@@ -394,7 +395,10 @@ export function ProfileEditorScreen() {
                   </Field>
                 </FieldGroup>
               </form>
-              <SheetFooter>
+              <SheetFooter className="flex-row justify-end border-t">
+                <SheetClose render={<Button variant="outline" />}>
+                  Cancel
+                </SheetClose>
                 <Button
                   type="submit"
                   form="child-profile-form"
