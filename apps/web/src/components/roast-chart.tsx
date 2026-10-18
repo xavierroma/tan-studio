@@ -12,6 +12,7 @@ import { CanvasRenderer } from "echarts/renderers"
 import { Checkbox } from "@tan-studio/ui/components/checkbox"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { sliderZoomTheme } from "@/lib/chart-theme"
 import type { ChartChannel, ChartPoint, RoastDetail } from "@/types"
 
 echarts.use([
@@ -48,78 +49,116 @@ type SeriesKey =
   | "power_kW"
   | "actual_fan_RPM"
 
+type LineDash = "solid" | "dashed" | "dotted" | number[]
+
+const dashArray = (dash: LineDash) =>
+  dash === "dashed"
+    ? "6 4"
+    : dash === "dotted"
+      ? "1.5 3"
+      : Array.isArray(dash)
+        ? dash.join(" ")
+        : undefined
+
 const seriesDefinitions: ReadonlyArray<{
   key: SeriesKey
   label: string
   axis: 0 | 1 | 2 | 3
-  colorIndex: number
-  dashed?: boolean
+  /** Two inks only; series stay distinct by dash, width and derived opacity. */
+  ink: "red" | "black"
+  dash: LineDash
+  width: number
+  opacity: number
   value(point: ChartPoint): number | null | undefined
 }> = [
   {
     key: "spot_temp",
     label: "Spot temp",
     axis: 0,
-    colorIndex: 4,
+    ink: "red",
+    dash: "dotted",
+    width: 1.5,
+    opacity: 1,
     value: (point) => point.spotTemperatureC,
   },
   {
     key: "temp",
     label: "Temp",
     axis: 0,
-    colorIndex: 0,
+    ink: "red",
+    dash: "solid",
+    width: 2.5,
+    opacity: 1,
     value: (point) => point.temperatureC,
   },
   {
     key: "mean_temp",
     label: "Mean temp",
     axis: 0,
-    colorIndex: 1,
+    ink: "black",
+    dash: "solid",
+    width: 1.5,
+    opacity: 0.7,
     value: (point) => point.meanTemperatureC,
   },
   {
     key: "profile",
     label: "Profile",
     axis: 0,
-    colorIndex: 2,
-    dashed: true,
+    ink: "black",
+    dash: "dashed",
+    width: 1.7,
+    opacity: 1,
     value: (point) => point.profileC,
   },
   {
     key: "profile_ROR",
     label: "Profile rate of rise",
     axis: 1,
-    colorIndex: 2,
-    dashed: true,
+    ink: "black",
+    dash: "dashed",
+    width: 1.5,
+    opacity: 1,
     value: (point) => point.profileRorCPerMin,
   },
   {
     key: "actual_ROR",
     label: "Actual rate of rise",
     axis: 1,
-    colorIndex: 3,
+    ink: "red",
+    dash: "solid",
+    width: 2.5,
+    opacity: 1,
     value: (point) => point.rorCPerMin,
   },
   {
     key: "desired_ROR",
     label: "Target rate of rise",
     axis: 1,
-    colorIndex: 4,
-    dashed: true,
+    ink: "red",
+    dash: "dotted",
+    width: 1.5,
+    opacity: 1,
     value: (point) => point.desiredRorCPerMin,
   },
   {
     key: "power_kW",
     label: "Power kW",
     axis: 2,
-    colorIndex: 5,
+    ink: "black",
+    dash: "solid",
+    width: 1.5,
+    opacity: 0.55,
     value: (point) => point.powerKw,
   },
   {
     key: "actual_fan_RPM",
     label: "Actual fan RPM",
     axis: 3,
-    colorIndex: 6,
+    ink: "black",
+    dash: [8, 3, 2, 3],
+    width: 1.3,
+    opacity: 0.5,
     value: (point) => point.actualFanRpm,
   },
 ]
@@ -202,19 +241,14 @@ export function RoastChart({
     if (!node) return
 
     const chart = echarts.init(node, undefined, { renderer: "canvas" })
-    const foreground = cssToken("--foreground", "#3e3027")
-    const muted = cssToken("--muted-foreground", "#796d62")
-    const border = cssToken("--border", "#ded2c1")
-    const card = cssToken("--card", "#fffcf7")
-    const colors = [
-      cssToken("--chart-1", "#b86f55"),
-      cssToken("--chart-2", "#4e8982"),
-      cssToken("--chart-3", "#7e9678"),
-      cssToken("--chart-4", "#c29555"),
-      cssToken("--chart-5", "#967aa1"),
-      cssToken("--warning", "#a97836"),
-      muted,
-    ]
+    const foreground = cssToken("--foreground", "#000000")
+    const muted = cssToken("--muted-foreground", "#57544c")
+    const border = cssToken("--border", "#00000029")
+    const card = cssToken("--card", "#fff9ee")
+    const inks = {
+      red: cssToken("--tan-red", "#b6151b"),
+      black: foreground,
+    }
     const hasVisibleRate = seriesDefinitions
       .filter((series) => series.axis === 1 && visible.has(series.key))
       .some((series) =>
@@ -295,8 +329,7 @@ export function RoastChart({
           xAxisIndex: hasLowerPanel ? [0, 1] : [0],
           height: 16,
           bottom: 8,
-          borderColor: border,
-          fillerColor: cssToken("--accent", "#eee1cf"),
+          ...sliderZoomTheme({ foreground, muted, border, card }),
           showDetail: false,
         },
       ],
@@ -420,14 +453,12 @@ export function RoastChart({
               series.value(point),
             ]),
             lineStyle: {
-              color: colors[series.colorIndex],
-              width:
-                series.key === "temp" || series.key === "actual_ROR"
-                  ? 2.5
-                  : 1.7,
-              type: series.dashed ? "dashed" : "solid",
+              color: inks[series.ink],
+              width: series.width,
+              type: series.dash,
+              opacity: series.opacity,
             },
-            itemStyle: { color: colors[series.colorIndex] },
+            itemStyle: { color: inks[series.ink], opacity: series.opacity },
             // The axis tooltip and crosshair remain active; only the visual
             // emphasis transition is disabled so inspection cannot hide lines.
             emphasis: { disabled: true },
@@ -466,7 +497,7 @@ export function RoastChart({
                                 name: "Pre-crack",
                                 xAxis: 0,
                                 itemStyle: {
-                                  color: cssToken("--accent", "#eee1cf"),
+                                  color: cssToken("--accent", "#f0eadf"),
                                   opacity: 0.1,
                                 },
                               },
@@ -479,7 +510,7 @@ export function RoastChart({
                                   : "Development",
                                 xAxis: firstCrack.elapsedMs,
                                 itemStyle: {
-                                  color: cssToken("--chart-1", "#b86f55"),
+                                  color: cssToken("--chart-1", "#b6151b"),
                                   opacity: firstCrack.estimated ? 0.08 : 0.12,
                                 },
                               },
@@ -496,7 +527,7 @@ export function RoastChart({
                                 name: "Cooldown",
                                 xAxis: durationMs,
                                 itemStyle: {
-                                  color: cssToken("--muted", "#eee8de"),
+                                  color: cssToken("--muted", "#f2ece2"),
                                   opacity: 0.28,
                                 },
                               },
@@ -536,13 +567,13 @@ export function RoastChart({
   return (
     <div>
       <div
-        className="flex flex-wrap gap-x-4 gap-y-2 border-b px-5 py-3"
+        className="flex flex-wrap gap-x-4 gap-y-2 border-b py-3"
         aria-label="Visible roast chart channels"
       >
         {availableSeries.map((series) => (
           <label
             key={series.key}
-            className="text-muted-foreground flex cursor-pointer items-center gap-2 text-xs"
+            className="text-foreground flex cursor-pointer items-center gap-2 text-xs"
           >
             <Checkbox
               checked={visible.has(series.key)}
@@ -555,6 +586,26 @@ export function RoastChart({
                 })
               }
             />
+            <svg
+              width="22"
+              height="8"
+              viewBox="0 0 22 8"
+              aria-hidden="true"
+              className="shrink-0"
+            >
+              <line
+                x1="1"
+                y1="4"
+                x2="21"
+                y2="4"
+                stroke={
+                  series.ink === "red" ? "var(--tan-red)" : "currentColor"
+                }
+                strokeWidth={series.width}
+                strokeOpacity={series.opacity}
+                strokeDasharray={dashArray(series.dash)}
+              />
+            </svg>
             {series.label}
           </label>
         ))}

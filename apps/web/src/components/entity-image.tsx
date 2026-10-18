@@ -29,12 +29,15 @@ export function EntityImage({
   alt = "",
   className = "size-12",
   imageClassName = "object-cover",
+  placeholder = false,
 }: {
   attachmentId?: number | null | undefined
   entityType: EntityType
   alt?: string
   className?: string
   imageClassName?: string
+  /** Show the icon tile when no image is attached (editors only). */
+  placeholder?: boolean
 }) {
   const image = useQuery({
     queryKey: ["attachment-content", attachmentId ?? "placeholder"],
@@ -54,20 +57,21 @@ export function EntityImage({
   }, [image.data])
   const url = object?.blob === image.data ? object?.url : null
   const Icon = icons[entityType]
+  if (attachmentId == null && !placeholder) return null
 
   return (
     <Avatar
-      className={`rounded-sm border after:rounded-sm ${className}`}
+      className={`rounded-[3px] border after:rounded-[3px] ${className}`}
       aria-hidden={alt ? undefined : true}
     >
       {url ? (
         <AvatarImage
           src={url}
           alt={alt}
-          className={`rounded-sm ${imageClassName}`}
+          className={`rounded-[3px] ${imageClassName}`}
         />
       ) : null}
-      <AvatarFallback className="rounded-sm">
+      <AvatarFallback className="bg-muted rounded-[3px]">
         <Icon className="size-1/2" />
       </AvatarFallback>
     </Avatar>

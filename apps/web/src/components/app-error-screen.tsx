@@ -26,7 +26,7 @@ export function AppPendingScreen() {
         <Skeleton className="h-8 w-72 max-w-full" />
         <Skeleton className="h-4 w-[32rem] max-w-full" />
       </div>
-      <Skeleton className="h-[28rem] w-full rounded-xl" />
+      <Skeleton className="h-[28rem] w-full" />
     </div>
   )
 }

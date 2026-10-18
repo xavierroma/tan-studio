@@ -10,6 +10,7 @@ import * as echarts from "echarts/core"
 import { CanvasRenderer } from "echarts/renderers"
 import { useEffect, useRef } from "react"
 
+import { sliderZoomTheme } from "@/lib/chart-theme"
 import type { ChartPoint } from "@/types"
 
 echarts.use([
@@ -40,6 +41,10 @@ function timeLabel(value: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
+// ECharts takes the literal "solid" or a mutable numeric dash array.
+const lineType = (dash: "solid" | readonly number[]): "solid" | number[] =>
+  typeof dash === "string" ? dash : [...dash]
+
 export function ProfileComparisonChart({
   curves,
   height = 460,
@@ -52,17 +57,21 @@ export function ProfileComparisonChart({
   useEffect(() => {
     if (!node.current) return
     const chart = echarts.init(node.current, undefined, { renderer: "canvas" })
-    const foreground = cssToken("--foreground", "#3e3027")
-    const muted = cssToken("--muted-foreground", "#796d62")
-    const border = cssToken("--border", "#ded2c1")
-    const card = cssToken("--card", "#fffcf7")
-    const palette = [
-      cssToken("--chart-1", "#b86f55"),
-      cssToken("--chart-2", "#4e8982"),
-      cssToken("--chart-3", "#7e9678"),
-      cssToken("--chart-4", "#c29555"),
-      cssToken("--chart-5", "#967aa1"),
-    ]
+    const foreground = cssToken("--foreground", "#000000")
+    const muted = cssToken("--muted-foreground", "#57544c")
+    const border = cssToken("--border", "#00000029")
+    const card = cssToken("--card", "#fff9ee")
+    const red = cssToken("--tan-red", "#b6151b")
+    // Two inks only. The selected profile plus up to three comparisons each get
+    // their own temperature dash and fan dash; every stroke stays at or above
+    // 0.85 opacity so it keeps well over 3:1 contrast on light stock. The
+    // legend draws each series with its own line style.
+    const curveStyles = [
+      { color: red, temp: "solid", fan: [1, 3] },
+      { color: foreground, temp: "solid", fan: [1, 3] },
+      { color: foreground, temp: [10, 5], fan: [6, 3, 1, 3] },
+      { color: red, temp: [10, 5], fan: [6, 3, 1, 3] },
+    ] as const
     const maxX = Math.max(
       60_000,
       ...curves.flatMap((curve) => curve.points.map((point) => point.elapsedMs))
@@ -74,7 +83,6 @@ export function ProfileComparisonChart({
         description:
           "Overlaid Kaffelogic profile temperature and fan curves for comparison.",
       },
-      color: palette,
       textStyle: {
         color: foreground,
         fontFamily: "Geist Variable, sans-serif",
@@ -88,7 +96,11 @@ export function ProfileComparisonChart({
       legend: {
         type: "scroll",
         bottom: 30,
-        textStyle: { color: muted },
+        textStyle: { color: foreground },
+        itemWidth: 28,
+        pageIconColor: foreground,
+        pageIconInactiveColor: border,
+        pageTextStyle: { color: muted },
       },
       grid: { top: 26, right: 66, bottom: 88, left: 58 },
       dataZoom: [
@@ -97,7 +109,7 @@ export function ProfileComparisonChart({
           type: "slider",
           height: 16,
           bottom: 6,
-          borderColor: border,
+          ...sliderZoomTheme({ foreground, muted, border, card }),
           showDetail: false,
         },
       ],
@@ -136,7 +148,9 @@ export function ProfileComparisonChart({
         },
       ],
       series: curves.flatMap((curve, index) => {
-        const color = palette[index % palette.length]
+        const style =
+          curveStyles[Math.min(index, curveStyles.length - 1)] ?? curveStyles[0]
+        const color = style.color
         return [
           {
             name: `#${curve.id} ${curve.name} · temperature`,
@@ -148,7 +162,11 @@ export function ProfileComparisonChart({
               point.elapsedMs,
               point.temperatureC,
             ]),
-            lineStyle: { color, width: index === 0 ? 3 : 2 },
+            lineStyle: {
+              color,
+              width: index === 0 ? 3 : 2,
+              type: lineType(style.temp),
+            },
             itemStyle: { color },
             emphasis: { disabled: true },
           },
@@ -162,8 +180,13 @@ export function ProfileComparisonChart({
               point.elapsedMs,
               point.actualFanRpm,
             ]),
-            lineStyle: { color, width: 1.5, type: "dashed", opacity: 0.8 },
-            itemStyle: { color },
+            lineStyle: {
+              color,
+              width: 1.6,
+              type: lineType(style.fan),
+              opacity: 0.85,
+            },
+            itemStyle: { color, opacity: 0.85 },
             emphasis: { disabled: true },
           },
         ]

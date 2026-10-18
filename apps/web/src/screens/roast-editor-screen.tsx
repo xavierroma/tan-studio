@@ -122,7 +122,7 @@ export function RoastEditorScreen() {
   if (roast.isPending || !roast.data) {
     return (
       <div className="p-7">
-        <Skeleton className="mx-auto h-[38rem] max-w-6xl rounded-xl" />
+        <Skeleton className="mx-auto h-[38rem] max-w-6xl" />
       </div>
     )
   }

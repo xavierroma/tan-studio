@@ -1,5 +1,5 @@
 import { SessionControls } from "@/components/session-controls"
-import { getBrew, getRoast, listCoffees, queryKeys } from "@/lib/api"
+import { getBrew, listCoffees, listRoasts, queryKeys } from "@/lib/api"
 import {
   brewListSearch,
   coffeeListSearch,
@@ -48,12 +48,23 @@ function CoffeeRail({ pathname }: { pathname: string }) {
     enabled: type === "brews",
   })
   const roastId = type === "roasts" ? id : brew.data?.roastId
-  const roast = useQuery({
-    queryKey: queryKeys.roast(roastId ?? 0),
-    queryFn: ({ signal }) => getRoast(roastId!, signal),
+  // Active and archived lists together hold every roast's coffee reference,
+  // so the rail does not need a per-roast request to highlight its coffee.
+  const activeRoasts = useQuery({
+    queryKey: queryKeys.roasts(),
+    queryFn: ({ signal }) => listRoasts({}, signal),
     enabled: roastId != null,
   })
-  const selectedId = type === "coffees" ? id : roast.data?.coffee?.id
+  const archivedRoasts = useQuery({
+    queryKey: queryKeys.roasts({ archived: true }),
+    queryFn: ({ signal }) => listRoasts({ archived: true }, signal),
+    enabled: roastId != null,
+  })
+  const roast = [
+    ...(activeRoasts.data ?? []),
+    ...(archivedRoasts.data ?? []),
+  ].find((r) => r.id === roastId)
+  const selectedId = type === "coffees" ? id : roast?.coffee?.id
   return (
     <Sidebar
       collapsible="none"
@@ -70,7 +81,7 @@ function CoffeeRail({ pathname }: { pathname: string }) {
             size="sm"
             render={<Link to="/coffees" search={coffeeListSearch} />}
           >
-            View table ↗
+            Table
           </Button>
         </div>
         <Label className="sr-only" htmlFor="notebook-coffee-search">
@@ -110,7 +121,7 @@ function CoffeeRail({ pathname }: { pathname: string }) {
                     <strong>{c.name}</strong>
                     <span>
                       {[c.country, c.process].filter(Boolean).join(" · ") ||
-                        "Origin —"}
+                        "Origin not recorded"}
                     </span>
                     <small>
                       <span>{c.roastCount} roasts</span>
@@ -121,8 +132,21 @@ function CoffeeRail({ pathname }: { pathname: string }) {
               </SidebarMenuItem>
             ))}
         </SidebarMenu>
-        {coffees.isPending ? <Skeleton className="h-24 w-full" /> : null}
-        {coffees.error ? <p role="status">Coffees unavailable.</p> : null}
+        {coffees.isPending ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        ) : null}
+        {coffees.error ? (
+          <p role="alert" className="text-muted-foreground px-2 text-sm">
+            Coffees could not be loaded.
+          </p>
+        ) : null}
+        {coffees.data?.length === 0 ? (
+          <p className="text-muted-foreground px-2 text-sm">No coffees yet.</p>
+        ) : null}
       </SidebarContent>
       <SidebarFooter>
         <Button
@@ -189,7 +213,7 @@ export function AppShell() {
             className="notebook-brand"
             aria-label="Tan Studio home"
           >
-            <img src="/tan-studio-logo.png" width="38" height="38" alt="" />
+            <img src="/tan-logo.webp" width="56" height="46" alt="" />
             <span>Tan Studio</span>
           </Link>
           <NavigationMenu

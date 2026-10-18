@@ -198,7 +198,7 @@ export function AgentCredentialSettings() {
               {!agent.revokedAtMs ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="destructive"
                   disabled={revoke.isPending}
                   onClick={() => revoke.mutate(agent.id)}
                 >

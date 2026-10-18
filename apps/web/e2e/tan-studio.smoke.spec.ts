@@ -436,7 +436,12 @@ test("brew detail saves edits through the revision-guarded API", async ({
     recipe: { bloomSeconds: 45, technique: "Three pulses" },
   })
   await page.reload()
-  await expect(page.getByText("V60 pulse · Roast #14")).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Brew #901 / V60 pulse" })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "Roast #14" }).first()
+  ).toBeVisible()
   await page.getByRole("button", { name: "Edit" }).click()
   await expect(page.getByLabel("Method")).toHaveValue("V60 pulse")
   await expect(page.getByLabel("Coffee · g")).toHaveValue("15.5")

@@ -2,9 +2,9 @@ import { ResourceLink } from "@/components/notebook"
 import { brewsForCoffee, dateText, latestTasting } from "@/lib/notebook"
 import { useNotebookHistory } from "@/lib/notebook-queries"
 import { Button } from "@tan-studio/ui/components/button"
+import { Skeleton } from "@tan-studio/ui/components/skeleton"
 import {
   Empty,
-  EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@tan-studio/ui/components/select"
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import type { ColumnDef } from "@tanstack/react-table"
 import { BeanIcon, ExternalLinkIcon, PlusIcon } from "lucide-react"
@@ -46,6 +46,8 @@ export function CoffeeCatalogScreen() {
   const coffees = useQuery({
     queryKey: queryKeys.coffees(search.q),
     queryFn: ({ signal }) => listCoffees(search.q, signal),
+    // Keep the table (and its search field) mounted while a new query loads.
+    placeholderData: keepPreviousData,
   })
   const updateSearch = (patch: Partial<typeof search>, replace = true) =>
     void navigate({
@@ -461,7 +463,9 @@ export function CoffeeCatalogScreen() {
         }
       />
       <div className="flex flex-col gap-5 px-3 py-4 sm:px-7 sm:py-6">
-        {coffees.data?.length ? (
+        {coffees.isPending ? (
+          <Skeleton className="h-72" />
+        ) : coffees.data?.length || search.q ? (
           <DataTable
             preferenceKey="coffees"
             defaultHidden={[
@@ -558,15 +562,12 @@ export function CoffeeCatalogScreen() {
             }
           />
         ) : (
-          <Empty className="min-h-72 border">
+          <Empty className="notebook-empty">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <BeanIcon />
               </EmptyMedia>
               <EmptyTitle>No coffees yet</EmptyTitle>
-              <EmptyDescription>
-                Add the green coffee you plan to roast.
-              </EmptyDescription>
             </EmptyHeader>
             <Button
               nativeButton={false}

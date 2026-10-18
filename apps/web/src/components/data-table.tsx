@@ -367,6 +367,16 @@ export function DataTable<TData, TValue>({
                 ))}
               </TableHeader>
               <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={table.getVisibleLeafColumns().length}
+                      className="text-muted-foreground py-6"
+                    >
+                      No matching {noun}s.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
@@ -387,6 +397,11 @@ export function DataTable<TData, TValue>({
           </div>
 
           <div className="divide-y md:hidden">
+            {rows.length === 0 ? (
+              <p className="text-muted-foreground py-6 text-sm">
+                No matching {noun}s.
+              </p>
+            ) : null}
             {rows.map((row) => {
               const cells = row
                 .getVisibleCells()
@@ -409,7 +424,7 @@ export function DataTable<TData, TValue>({
               return (
                 <article
                   key={row.id}
-                  className={density === "expanded" ? "p-5" : "p-4"}
+                  className={`notebook-data-card ${density === "expanded" ? "py-4" : "py-3"}`}
                 >
                   <div className="flex items-start gap-4">
                     {image
@@ -420,7 +435,7 @@ export function DataTable<TData, TValue>({
                       : null}
                     <div className="min-w-0 flex-1">
                       {primary ? (
-                        <div className="text-base font-semibold">
+                        <div className="text-[15px]">
                           {flexRender(
                             primary.column.columnDef.cell,
                             primary.getContext()
@@ -451,7 +466,7 @@ export function DataTable<TData, TValue>({
             })}
           </div>
 
-          <div className="text-muted-foreground border-t px-4 py-3 text-xs">
+          <div className="text-muted-foreground border-t py-3 text-xs">
             {rows.length.toLocaleString()} {noun}
             {rows.length === 1 ? "" : "s"}
           </div>

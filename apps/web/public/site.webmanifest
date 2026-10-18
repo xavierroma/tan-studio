@@ -1,11 +1,11 @@
 {
   "name": "Tan Studio",
   "short_name": "Tan Studio",
-  "description": "A local-first workspace for Kaffeelogic roasting",
+  "description": "A local-first Kaffelogic Nano 7 notebook",
   "start_url": "/roasts",
   "display": "standalone",
-  "background_color": "#f6f0e7",
-  "theme_color": "#f6f0e7",
+  "background_color": "#e8e5dc",
+  "theme_color": "#e8e5dc",
   "icons": [
     {
       "src": "/tan-studio-192.png",

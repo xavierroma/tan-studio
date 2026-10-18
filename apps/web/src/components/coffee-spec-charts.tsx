@@ -49,18 +49,18 @@ const radarDimensions = [
 ] as const
 
 const flavorDimensions = [
-  ["body", "Body", "#6f9e60"],
-  ["floral", "Floral", "#f4aaa8"],
-  ["honey", "Honey", "#f3ce62"],
-  ["sugars", "Sugars", "#f2bd82"],
-  ["caramel", "Caramel", "#cfa83d"],
-  ["fruits", "Fruits", "#df474b"],
-  ["citrus", "Citrus", "#efb168"],
-  ["berry", "Berry", "#7561a5"],
-  ["cocoa", "Cocoa", "#bf5d43"],
-  ["nuts", "Nuts", "#994946"],
-  ["rustic", "Rustic", "#9b873e"],
-  ["spice", "Spice", "#92bf82"],
+  ["body", "Body"],
+  ["floral", "Floral"],
+  ["honey", "Honey"],
+  ["sugars", "Sugars"],
+  ["caramel", "Caramel"],
+  ["fruits", "Fruits"],
+  ["citrus", "Citrus"],
+  ["berry", "Berry"],
+  ["cocoa", "Cocoa"],
+  ["nuts", "Nuts"],
+  ["rustic", "Rustic"],
+  ["spice", "Spice"],
 ] as const
 
 type CuppingValues = Record<(typeof cuppingDimensions)[number][0], number>
@@ -148,11 +148,11 @@ function CuppingRadar({
   useEffect(() => {
     if (!node.current) return
     const chart = echarts.init(node.current, undefined, { renderer: "canvas" })
-    const foreground = cssToken("--foreground", "#241d18")
-    const muted = cssToken("--muted-foreground", "#796d62")
-    const border = cssToken("--border", "#ded2c1")
-    const card = cssToken("--card", "#fffcf7")
-    const blue = "#506ad4"
+    const foreground = cssToken("--foreground", "#000000")
+    const muted = cssToken("--muted-foreground", "#57544c")
+    const border = cssToken("--border", "#00000029")
+    const card = cssToken("--card", "#fff9ee")
+    const red = cssToken("--tan-red", "#b6151b")
     const values = radarDimensions.map(([key]) => data.values[key])
 
     chart.setOption({
@@ -200,9 +200,9 @@ function CuppingRadar({
           symbol: "circle",
           symbolSize: 4,
           data: [{ value: values }],
-          lineStyle: { color: blue, width: 3 },
-          itemStyle: { color: blue },
-          areaStyle: { color: blue, opacity: 0.06 },
+          lineStyle: { color: red, width: 2 },
+          itemStyle: { color: red },
+          areaStyle: { color: red, opacity: 0.06 },
           label: {
             show: true,
             color: foreground,
@@ -231,8 +231,8 @@ function CuppingRadar({
       <p className="text-muted-foreground text-center text-sm">
         Cupper&apos;s correction {data.correction.toFixed(1)}
       </p>
-      <p className="text-center text-2xl font-semibold">
-        Score: {data.score.toFixed(1)}
+      <p className="text-center font-[family-name:var(--tan-font-brand)] text-2xl">
+        Score {data.score.toFixed(1)}
       </p>
     </div>
   )
@@ -250,10 +250,10 @@ function FlavorPolar({
   useEffect(() => {
     if (!node.current) return
     const chart = echarts.init(node.current, undefined, { renderer: "canvas" })
-    const foreground = cssToken("--foreground", "#241d18")
-    const muted = cssToken("--muted-foreground", "#796d62")
-    const border = cssToken("--border", "#ded2c1")
-    const card = cssToken("--card", "#fffcf7")
+    const foreground = cssToken("--foreground", "#000000")
+    const muted = cssToken("--muted-foreground", "#57544c")
+    const border = cssToken("--border", "#00000029")
+    const card = cssToken("--card", "#fff9ee")
 
     chart.setOption({
       animation: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -302,11 +302,17 @@ function FlavorPolar({
           type: "bar",
           coordinateSystem: "polar",
           barWidth: "100%",
-          data: flavorDimensions.map(([key, label, color]) => ({
+          data: flavorDimensions.map(([key, label]) => ({
             name: label,
             value: values[key],
-            itemStyle: { color, opacity: 0.92 },
           })),
+          // One ink; light-stock gaps keep adjacent categories readable.
+          itemStyle: {
+            color: foreground,
+            opacity: 0.78,
+            borderColor: card,
+            borderWidth: 1,
+          },
         },
       ],
     })
@@ -326,21 +332,6 @@ function FlavorPolar({
         role="img"
         aria-label={`${coffeeName} provider flavor intensity polar chart`}
       />
-      <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
-        {flavorDimensions.map(([key, label, color]) => (
-          <span
-            key={key}
-            className="text-muted-foreground inline-flex items-center gap-1.5 text-xs"
-          >
-            <span
-              className="size-2.5 rounded-full"
-              style={{ backgroundColor: color }}
-              aria-hidden="true"
-            />
-            {label}
-          </span>
-        ))}
-      </div>
     </div>
   )
 }
@@ -356,9 +347,9 @@ export function CoffeeSpecCharts({
   if (!data) return null
 
   return (
-    <Card className="" aria-labelledby="provider-cupping-title">
+    <Card className="mt-8" aria-labelledby="provider-cupping-title">
       <CardContent className="p-0">
-        <h2 id="provider-cupping-title" className="font-semibold">
+        <h2 id="provider-cupping-title" className="py-3">
           Provider cupping profile
         </h2>
         <div className="mt-4 grid gap-8 xl:grid-cols-2">

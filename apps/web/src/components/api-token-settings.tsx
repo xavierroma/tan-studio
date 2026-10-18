@@ -161,7 +161,7 @@ export function ApiTokenSettings() {
               {token.revokedAt ? null : (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="destructive"
                   size="sm"
                   disabled={revoke.isPending}
                   onClick={() => revoke.mutate(token.id)}

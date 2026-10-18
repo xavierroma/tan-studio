@@ -122,7 +122,7 @@ export function BrewEditorScreen() {
         {defaults ? (
           <form
             onSubmit={submit}
-            className="bg-card mx-auto max-w-4xl rounded-xl border p-4 sm:p-6"
+            className="bg-card mx-auto max-w-4xl border p-4 sm:p-6"
           >
             <FieldGroup>
               <Field>

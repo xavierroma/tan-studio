@@ -15,6 +15,10 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs/brand/source/coffee-branch-original.png"
 ASSETS = ROOT / "sites/share/assets"
+STUDIO = ROOT / "apps/web/public"
+STUDIO_ICONS = [(32, "favicon-32x32.png"), (180, "apple-touch-icon.png"),
+                (192, "tan-studio-192.png"), (512, "tan-studio-512.png")]
+ICO_SIZES = [16, 32, 48, 64]
 RED = (182, 21, 27)
 ALLOWED = {(0, 0, 0, 0), (0, 0, 0, 255), (*RED, 255)}
 
@@ -53,21 +57,54 @@ def verify(path):
         }
 
 
+def verify_studio(mapped, icon):
+    """Studio copies must equal the mapped master or its nearest-neighbour icons exactly."""
+    def same(image, expected, label):
+        rgba = image.convert("RGBA")
+        assert set(rgba.get_flattened_data()) <= ALLOWED, f"Unexpected pixel states in {label}"
+        assert rgba.size == expected.size, f"Unexpected size in {label}"
+        assert rgba.tobytes() == expected.convert("RGBA").tobytes(), f"{label} differs from the master"
+
+    for name in ["tan-logo.png", "tan-logo.webp"]:
+        with Image.open(STUDIO / name) as image:
+            same(image, mapped, name)
+    for size, name in STUDIO_ICONS:
+        with Image.open(STUDIO / name) as image:
+            same(image, icon(size), name)
+    with Image.open(STUDIO / "favicon.ico") as ico:
+        assert sorted(ico.info["sizes"]) == [(size, size) for size in ICO_SIZES], "favicon.ico frames"
+        for size in ICO_SIZES:
+            same(ico.ico.getimage((size, size)), icon(size), f"favicon.ico {size}px")
+
+
 def main():
     check = "--check" in sys.argv
     with Image.open(SOURCE) as source:
         source = source.convert("RGBA")
         mapped = palette_image(source.size, map(mapped_index, source.get_flattened_data()))
+    # Nearest-neighbour delivery sizes preserve the same three pixel states.
+    def icon(size):
+        art = mapped.copy()
+        art.thumbnail((size, size), Image.Resampling.NEAREST)
+        canvas = palette_image((size, size), [0] * size * size)
+        canvas.paste(art, ((size - art.width) // 2, (size - art.height) // 2))
+        return canvas
+
     if not check:
         mapped.save(ASSETS / "tan-logo.png", bits=2, optimize=True)
         mapped.convert("RGBA").save(ASSETS / "tan-logo.webp", "WEBP", lossless=True, method=6)
-        # Nearest-neighbour delivery sizes preserve the same three pixel states.
         for size, name in [(128, "tan-favicon.png"), (180, "tan-touch-icon.png")]:
-            icon = mapped.copy()
-            icon.thumbnail((size, size), Image.Resampling.NEAREST)
-            canvas = palette_image((size, size), [0] * size * size)
-            canvas.paste(icon, ((size - icon.width) // 2, (size - icon.height) // 2))
-            canvas.save(ASSETS / name, bits=2, optimize=True)
+            icon(size).save(ASSETS / name, bits=2, optimize=True)
+        # Studio delivery copies of the same master; never part of the public proof.
+        mapped.save(STUDIO / "tan-logo.png", bits=2, optimize=True)
+        mapped.convert("RGBA").save(STUDIO / "tan-logo.webp", "WEBP", lossless=True, method=6)
+        for size, name in STUDIO_ICONS:
+            icon(size).save(STUDIO / name, bits=2, optimize=True)
+        # Every ICO frame is supplied explicitly so Pillow never resamples (antialiases) one.
+        frames = [icon(size).convert("RGBA") for size in ICO_SIZES]
+        frames[-1].save(STUDIO / "favicon.ico", format="ICO",
+                        sizes=[(size, size) for size in ICO_SIZES], append_images=frames[:-1])
+    verify_studio(mapped, icon)
     names = ["tan-logo.png", "tan-logo.webp", "tan-favicon.png", "tan-touch-icon.png"]
     report = {
         "source": str(SOURCE.relative_to(ROOT)),

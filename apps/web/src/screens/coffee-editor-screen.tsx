@@ -494,7 +494,8 @@ export function CoffeeEditorScreen() {
                 attachmentId={item.profileImageAttachmentId}
                 entityType="coffee"
                 alt={item.name}
-                className="size-28 rounded-xl sm:size-36"
+                className="size-28 sm:size-36"
+                placeholder
               />
               <div className="min-w-0">
                 <p className="text-muted-foreground text-sm">
