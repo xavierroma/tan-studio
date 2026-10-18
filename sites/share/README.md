@@ -1,6 +1,6 @@
 # Tan public site
 
-Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage contains the coffee-branch artwork above the three-line “Vibed / Tan / Coffee” title, with the Tan icon centered at the bottom. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
+Independent static HTML at https://tan.coffee, hosted in the `tan-studio-share` Vercel project in team `xroma`. The homepage uses the original coffee branch as the Tan logo, recolored in black and red, above the left-aligned three-line “Vibed / Tan / Coffee” title. The theme uses black and red ink on textured kraft paper. The fictional gift example lives at `/123-karl-roast` and is excluded from search indexing. `share.tan.coffee` redirects to `tan.coffee`, retaining the requested path and query.
 
 This directory has no notebook imports, credentials, runtime requests, client scripts, or Studio publishing controls. Individually authored gift pages may be added as static directories containing an `index.html`. Only publish content deliberately chosen for public sharing. Store the resulting HTTPS URL on a roast through its existing gift-page link field.
 
@@ -8,7 +8,7 @@ This directory has no notebook imports, credentials, runtime requests, client sc
 
 From the repository root run `bun script/build_public_site.tsx`. Commit the generated `index.html` alongside its source. The build renders the static image-and-heading layout to HTML; the public host needs no Node runtime or install step. `landing.css` supplies the approved paper-and-ink theme and responsive hero layout.
 
-Courier Prime Regular is self-hosted with its SIL Open Font License in `assets/fonts`. The live title matches the illustrated field-note lettering with natural monospace spacing, regular weight and a subtle SVG ink mask; it remains selectable HTML text. Stamp illustrations are generated artwork; the Tan logo is the existing brand asset.
+Courier Prime Regular is self-hosted with its SIL Open Font License in `assets/fonts`. The live title uses regular weight, left alignment, natural typewriter spacing and a subtle SVG ink mask; it remains selectable HTML text. `assets/tan-logo.png` is the transparent master; `tan-logo.webp` is the web export. The favicon and touch icon use the same botanical mark. The original plant was edited with built-in imagegen to change its ink palette while preserving its composition; the exact prompt is `assets/tan-logo.prompt.txt`. No sun is part of the adopted mark. Earlier artwork is retained as source history.
 
 ## Preview
 

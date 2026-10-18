@@ -6,11 +6,12 @@ const html = renderToStaticMarkup(
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta name="theme-color" content="#f6edda" />
+      <meta name="theme-color" content="#d6b98e" />
       <title>Vibed Tan Coffee</title>
       <meta name="description" content="Vibed Tan Coffee." />
       <link rel="canonical" href="https://tan.coffee/" />
-      <link rel="icon" type="image/png" href="/assets/tan-studio-logo.png" />
+      <link rel="icon" type="image/png" href="/assets/tan-favicon.png" />
+      <link rel="apple-touch-icon" href="/assets/tan-touch-icon.png" />
       <link
         rel="preload"
         href="/assets/fonts/CourierPrime-Regular.ttf"
@@ -25,28 +26,19 @@ const html = renderToStaticMarkup(
         <main>
           <section className="hero" aria-labelledby="hero-title">
             <img
-              className="coffee-branch"
-              src="/assets/coffee-branch.webp"
-              alt="Coffee cherries and leaves, stamped in green and burnt orange ink"
-              width="480"
-              height="480"
+              className="tan-logo"
+              src="/assets/tan-logo.webp"
+              alt="Tan — coffee branch in black and red"
+              width="1389"
+              height="1132"
             />
             <h1 id="hero-title">
               Vibed <br />
-              Tan <br />
+              <span className="red-ink">Tan</span> <br />
               Coffee
             </h1>
           </section>
         </main>
-        <footer>
-          <img
-            className="brand-icon"
-            src="/assets/tan-studio-logo.png"
-            alt="Tan"
-            width="44"
-            height="44"
-          />
-        </footer>
       </div>
     </body>
   </html>

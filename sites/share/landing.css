@@ -8,8 +8,9 @@
 
 :root {
   color-scheme: light;
-  --background: #f6edda;
-  --foreground: #203444;
+  --background: #d6b98e;
+  --foreground: #111111;
+  --red-ink: #b6151b;
   font-family: "Courier Prime", "Courier New", monospace;
   font-synthesis: none;
   color: var(--foreground);
@@ -32,84 +33,68 @@ img {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  padding: 32px 24px 24px;
-  gap: 32px;
+  padding: clamp(24px, 6vw, 72px);
 }
 main {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  width: min(100%, 960px);
+  margin-inline: auto;
 }
 .hero {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 24px;
+  align-items: flex-start;
+  gap: 28px;
 }
-.coffee-branch {
+.tan-logo {
   width: clamp(180px, 23vw, 260px);
   height: auto;
 }
 h1 {
   margin: 0;
-  text-align: center;
+  text-align: left;
   font-size: clamp(64px, 7vw, 92px);
   font-weight: 400;
   line-height: 1.08;
-  letter-spacing: 0;
-  color: #4e5961;
+  letter-spacing: 0.025em;
+  color: var(--foreground);
   -webkit-text-stroke: 0.003em currentColor;
   mask-image: url("/assets/type-ink.svg");
   mask-size: 180px 180px;
   mask-repeat: repeat;
 }
-footer {
-  display: flex;
-  justify-content: center;
-}
-.brand-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
+.red-ink {
+  color: var(--red-ink);
 }
 
 @media (max-height: 650px) {
   .page {
     padding-block: 24px 20px;
-    gap: 24px;
   }
   .hero {
     gap: 18px;
   }
-  .coffee-branch {
+  .tan-logo {
     width: 140px;
   }
   h1 {
     font-size: 60px;
-  }
-  .brand-icon {
-    width: 36px;
-    height: 36px;
   }
 }
 
 @media (max-height: 480px) {
   .page {
     padding-block: 16px;
-    gap: 16px;
   }
   .hero {
     gap: 12px;
   }
-  .coffee-branch {
+  .tan-logo {
     width: 90px;
   }
   h1 {
     font-size: 40px;
-  }
-  .brand-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
   }
 }
