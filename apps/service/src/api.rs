@@ -4047,6 +4047,253 @@ mod tests {
 
     /// An attachment record whose bytes are gone reads as pending rather than as a
     /// server error, and the operator can upload them again.
+    /// Green coffee left is derived from the roasts that ran, never accumulated:
+    /// planned and discarded roasts consume nothing, completed and interrupted
+    /// roasts consume their green input (not yield) even when archived, roast
+    /// edits and reassignment recalculate exactly, and manual corrections are
+    /// literal when sent and preserved when omitted.
+    #[tokio::test]
+    async fn green_remaining_follows_run_roasts_and_manual_corrections() {
+        let directory = tempdir().unwrap();
+        let database = Database::open(&directory.path().join("studio.sqlite")).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let get = |path: String| {
+            let app = app.clone();
+            async move {
+                let (status, body) = api_request(&app, Method::GET, &path, None, None).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                body
+            }
+        };
+        let patch = |path: String, body: Value, revision: i64| {
+            let app = app.clone();
+            async move { api_request(&app, Method::PATCH, &path, Some(body), Some(revision)).await }
+        };
+        let (status, profile) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/profiles",
+            Some(json!({"name": "Fictional inventory profile"})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{profile}");
+        let profile_id = profile["id"].as_i64().unwrap();
+        let create_coffee = |body: Value| {
+            let app = app.clone();
+            async move {
+                let (status, coffee) =
+                    api_request(&app, Method::POST, "/api/v1/coffees", Some(body), None).await;
+                assert_eq!(status, StatusCode::CREATED, "{coffee}");
+                coffee
+            }
+        };
+        // Omitted remaining means the whole purchase is green; explicit 0 stays 0.
+        let lot = create_coffee(json!({"name": "Fictional Ridge Lot", "purchasedMassMg": 1_000_000})).await;
+        assert_eq!(lot["remainingMassMg"], 1_000_000);
+        assert_eq!(lot["roastedGreenMassMg"], 0);
+        let empty = create_coffee(json!({"name": "Fictional Empty Lot", "purchasedMassMg": 250_000, "remainingMassMg": 0})).await;
+        assert_eq!(empty["remainingMassMg"], 0);
+        let small = create_coffee(json!({"name": "Fictional Sample Lot", "purchasedMassMg": 40_000})).await;
+        let lot_id = lot["id"].as_i64().unwrap();
+        let small_id = small["id"].as_i64().unwrap();
+        let coffee = |id: i64| get(format!("/api/v1/coffees/{id}"));
+        let roast = |id: i64| get(format!("/api/v1/roasts/{id}"));
+        let plan = |green: i64| {
+            let app = app.clone();
+            async move {
+                let (status, roast) = api_request(
+                    &app,
+                    Method::POST,
+                    "/api/v1/roasts",
+                    Some(json!({"profileId": profile_id, "coffeeId": lot_id, "greenInputMassMg": green})),
+                    None,
+                )
+                .await;
+                assert_eq!(status, StatusCode::CREATED, "{roast}");
+                roast
+            }
+        };
+
+        // A plan consumes nothing; completing it consumes its green input, not its yield.
+        let first = plan(120_000).await;
+        let first_id = first["id"].as_i64().unwrap();
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 1_000_000);
+        let lot_revision = coffee(lot_id).await["revision"].as_i64().unwrap();
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{first_id}"),
+            json!({"status": "completed", "result": "success", "roastedYieldMassMg": 100_000}),
+            first["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let after = coffee(lot_id).await;
+        assert_eq!(after["remainingMassMg"], 880_000);
+        assert_eq!(after["roastedGreenMassMg"], 120_000);
+        // The derived balance moved, so the coffee's revision moved too.
+        assert!(after["revision"].as_i64().unwrap() > lot_revision);
+        // Reads never accumulate.
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 880_000);
+        let (status, listed) = api_request(&app, Method::GET, "/api/v1/coffees", None, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed = listed["items"].as_array().unwrap().iter().find(|c| c["id"] == lot_id).unwrap().clone();
+        assert_eq!(listed["remainingMassMg"], 880_000);
+        assert_eq!(get(format!("/api/v1/coffees/{lot_id}/context")).await["coffee"]["remainingMassMg"], 880_000);
+
+        // An explicitly discarded plan consumes nothing; un-discarding counts it.
+        let discarded = plan(100_000).await;
+        let discarded_id = discarded["id"].as_i64().unwrap();
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{discarded_id}"),
+            json!({"status": "interrupted", "result": "aborted", "discarded": true}),
+            discarded["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["discardedAt"].is_string());
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 880_000);
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{discarded_id}"),
+            json!({"discarded": true, "status": "completed"}),
+            body["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+        // A real interruption without a log still used its beans.
+        let aborted = plan(50_000).await;
+        let aborted_id = aborted["id"].as_i64().unwrap();
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{aborted_id}"),
+            json!({"status": "interrupted", "result": "fault", "durationMs": 240_000}),
+            aborted["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["discardedAt"].is_null());
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 830_000);
+        // Only an unrun plan can be discarded: not a real interruption, not a
+        // manually completed roast without a log.
+        for (id, revision) in [
+            (aborted_id, body["revision"].as_i64().unwrap()),
+            (first_id, roast(first_id).await["revision"].as_i64().unwrap()),
+        ] {
+            let (status, body) = patch(
+                format!("/api/v1/roasts/{id}"),
+                json!({"status": "interrupted", "discarded": true}),
+                revision,
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        }
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 830_000);
+
+        // Archiving keeps consumption; editing the green input recalculates.
+        let first_now = roast(first_id).await;
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{first_id}"),
+            json!({"archived": true, "greenInputMassMg": 150_000}),
+            first_now["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 800_000);
+
+        // Reassignment moves consumption exactly once; clamping keeps history.
+        let aborted_now = roast(aborted_id).await;
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{aborted_id}"),
+            json!({"coffeeId": small_id}),
+            aborted_now["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 850_000);
+        let small_now = coffee(small_id).await;
+        assert_eq!(small_now["remainingMassMg"], 0);
+        assert_eq!(small_now["roastedGreenMassMg"], 50_000);
+        // A metadata save while clamped at zero must not erase the deficit.
+        let (status, body) = patch(
+            format!("/api/v1/coffees/{small_id}"),
+            json!({"name": "Fictional Sample Lot, renamed"}),
+            small_now["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["remainingMassMg"], 0);
+        let aborted_now = roast(aborted_id).await;
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{aborted_id}"),
+            json!({"coffeeId": null}),
+            aborted_now["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(coffee(small_id).await["remainingMassMg"], 40_000);
+
+        // Manual corrections: explicit balances are literal; omitted keeps them.
+        let current = coffee(lot_id).await;
+        let (status, body) = patch(
+            format!("/api/v1/coffees/{lot_id}"),
+            json!({"remainingMassMg": 700_000}),
+            current["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["remainingMassMg"], 700_000);
+        let later = plan(30_000).await;
+        let (status, _) = patch(
+            format!("/api/v1/roasts/{}", later["id"]),
+            json!({"status": "completed", "result": "success"}),
+            later["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let current = coffee(lot_id).await;
+        assert_eq!(current["remainingMassMg"], 670_000);
+        // Purchase only: the balance shifts by the purchase change.
+        let (status, body) = patch(
+            format!("/api/v1/coffees/{lot_id}"),
+            json!({"purchasedMassMg": 1_100_000}),
+            current["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["remainingMassMg"], 770_000);
+        // Purchase plus an explicit balance equal to the old one: the balance wins.
+        let (status, body) = patch(
+            format!("/api/v1/coffees/{lot_id}"),
+            json!({"purchasedMassMg": 1_200_000, "remainingMassMg": 770_000}),
+            body["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["remainingMassMg"], 770_000);
+        let stale_revision = body["revision"].as_i64().unwrap();
+
+        // A roast change after a form was opened makes that form stale.
+        let discarded_now = roast(discarded_id).await;
+        let (status, body) = patch(
+            format!("/api/v1/roasts/{discarded_id}"),
+            json!({"discarded": false}),
+            discarded_now["revision"].as_i64().unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 670_000);
+        let (status, body) = patch(
+            format!("/api/v1/coffees/{lot_id}"),
+            json!({"remainingMassMg": 770_000}),
+            stale_revision,
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{body}");
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 670_000);
+    }
+
     #[tokio::test]
     async fn missing_attachment_object_stays_pending_and_can_be_retried() {
         let directory = tempdir().unwrap();

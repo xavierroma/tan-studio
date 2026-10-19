@@ -16,6 +16,7 @@ use crate::{
     api::ApiState,
     core_contract::*,
     error::{expected_revision, ApiError, ApiResult, ProblemDetails},
+    inventory,
     object_store::ObjectStoreError,
 };
 
@@ -192,10 +193,12 @@ pub async fn coffees_create(
     State(state): State<ApiState>,
     Json(input): Json<CoffeeCreate>,
 ) -> ApiResult<(StatusCode, Json<CoffeeResource>)> {
+    // Omitted means the whole purchase is still green; an explicit 0 stays 0.
+    let remaining = input.remaining_mass_mg.unwrap_or(input.purchased_mass_mg);
     validate_coffee_input(
         &input.name,
         input.purchased_mass_mg,
-        input.remaining_mass_mg,
+        remaining,
         input.altitude_min_m,
         input.altitude_max_m,
         &input.metadata,
@@ -206,13 +209,13 @@ pub async fn coffees_create(
         "INSERT INTO coffees(name, provider, provider_url, provider_product_id, purchase_reference, purchased_at_ms,
          price_minor, currency_code, purchased_mass_mg, remaining_mass_mg, country, region, farm, producer,
          washing_station, process, variety, altitude_min_m, altitude_max_m, harvest, storage_location,
-         metadata_json, created_at_ms, updated_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         metadata_json, green_correction_mg, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         params![input.name.trim(), input.provider.trim(), input.provider_url.trim(), input.provider_product_id.trim(), input.purchase_reference.trim(),
             optional_instant(input.purchased_at.as_deref())?, input.price_minor, normalize_currency(input.currency_code)?, input.purchased_mass_mg,
-            input.remaining_mass_mg, input.country.trim(), input.region.trim(), input.farm.trim(), input.producer.trim(), input.washing_station.trim(),
+            remaining, input.country.trim(), input.region.trim(), input.farm.trim(), input.producer.trim(), input.washing_station.trim(),
             input.process.trim(), input.variety.trim(), input.altitude_min_m, input.altitude_max_m, input.harvest.trim(), input.storage_location.trim(),
-            json_text(&input.metadata)?, now, now],
+            json_text(&input.metadata)?, remaining - input.purchased_mass_mg, now, now],
     )?;
     let id = connection.last_insert_rowid();
     refresh_coffee_fts(&connection, id)?;
@@ -239,6 +242,17 @@ pub async fn coffees_patch(
     let current = get_coffee(&connection, id)?;
     let name = input.name.unwrap_or(current.name);
     let purchased = input.purchased_mass_mg.unwrap_or(current.purchased_mass_mg);
+    // Roasted green is derived; only the manual correction is stored. An
+    // explicit remainingMassMg is the requested balance now; omitting it keeps
+    // the correction, so unrelated edits never re-baseline (even at zero).
+    let correction = match input.remaining_mass_mg {
+        Some(requested) => requested - (purchased - current.roasted_green_mass_mg),
+        None => connection.query_row(
+            "SELECT green_correction_mg FROM coffees WHERE id=?",
+            [id],
+            |row| row.get(0),
+        )?,
+    };
     let remaining = input.remaining_mass_mg.unwrap_or(current.remaining_mass_mg);
     let min = input.altitude_min_m.unwrap_or(current.altitude_min_m);
     let max = input.altitude_max_m.unwrap_or(current.altitude_max_m);
@@ -248,15 +262,16 @@ pub async fn coffees_patch(
         "UPDATE coffees SET name=?, provider=?, provider_url=?, provider_product_id=?, purchase_reference=?, purchased_at_ms=?,
          price_minor=?, currency_code=?, purchased_mass_mg=?, remaining_mass_mg=?, country=?, region=?, farm=?, producer=?,
          washing_station=?, process=?, variety=?, altitude_min_m=?, altitude_max_m=?, harvest=?, storage_location=?, metadata_json=?,
-         updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+         green_correction_mg=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![name.trim(), input.provider.unwrap_or(current.provider).trim(), input.provider_url.unwrap_or(current.provider_url).trim(),
             input.provider_product_id.unwrap_or(current.provider_product_id).trim(), input.purchase_reference.unwrap_or(current.purchase_reference).trim(),
             match input.purchased_at { Some(value) => optional_instant(value.as_deref())?, None => optional_instant(current.purchased_at.as_deref())? },
-            input.price_minor.unwrap_or(current.price_minor), normalize_currency(input.currency_code.unwrap_or(current.currency_code))?, purchased, remaining,
+            input.price_minor.unwrap_or(current.price_minor), normalize_currency(input.currency_code.unwrap_or(current.currency_code))?, purchased,
+            inventory::remaining_mg(purchased, current.roasted_green_mass_mg, correction),
             input.country.unwrap_or(current.country).trim(), input.region.unwrap_or(current.region).trim(), input.farm.unwrap_or(current.farm).trim(),
             input.producer.unwrap_or(current.producer).trim(), input.washing_station.unwrap_or(current.washing_station).trim(), input.process.unwrap_or(current.process).trim(),
             input.variety.unwrap_or(current.variety).trim(), min, max, input.harvest.unwrap_or(current.harvest).trim(),
-            input.storage_location.unwrap_or(current.storage_location).trim(), json_text(&metadata)?, now_ms(), id, expected],
+            input.storage_location.unwrap_or(current.storage_location).trim(), json_text(&metadata)?, correction, now_ms(), id, expected],
     )?;
     if changed == 0 {
         return Err(ApiError::revision());
@@ -432,7 +447,7 @@ pub async fn roasts_patch(
     };
     ensure_optional_exists(&connection, "profiles", profile_id)?;
     ensure_optional_exists(&connection, "coffees", coffee_id)?;
-    let status = input.status.unwrap_or(current.status);
+    let status = input.status.unwrap_or(current.status.clone());
     let result = input.result.unwrap_or(current.result);
     let duration_was_supplied = input.duration_ms.is_some();
     let duration_ms = input.duration_ms.unwrap_or(current.duration_ms);
@@ -441,6 +456,29 @@ pub async fn roasts_patch(
         .end_temperature_milli_c
         .unwrap_or(current.end_temperature_milli_c);
     let end_reason = input.end_reason.unwrap_or(current.end_reason);
+    // Discarding is explicit and only for a plan that never ran. Any other
+    // final status clears the mark, so a completed roast always consumes green.
+    let (current_discarded_at_ms, has_log): (Option<i64>, bool) = connection.query_row(
+        "SELECT discarded_at_ms, source_file_id IS NOT NULL FROM roasts WHERE id=?",
+        [id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let unrun = current.status == "planned" || current_discarded_at_ms.is_some();
+    let discarded_at_ms = match (input.discarded, status.as_str()) {
+        (Some(true), _) if has_log => {
+            return Err(ApiError::validation(
+                "This roast has an imported log, so it ran and cannot be discarded.",
+            ))
+        }
+        (Some(true), "interrupted") if unrun => current_discarded_at_ms.or(Some(now_ms())),
+        (Some(true), _) => {
+            return Err(ApiError::validation(
+                "Only a prepared roast that never ran can be discarded, as interrupted.",
+            ))
+        }
+        (Some(false), _) | (None, "planned" | "completed") => None,
+        (None, _) => current_discarded_at_ms,
+    };
     let archive_was_supplied = input.archived.is_some();
     let archived_at_ms = input.archived.and_then(|archived| archived.then(now_ms));
     if duration_ms.is_some_and(|duration| !(0..=86_400_000).contains(&duration)) {
@@ -555,19 +593,24 @@ pub async fn roasts_patch(
     validate_object(&adjustments, "adjustments")?;
     validate_object(&parameters, "roasterParameters")?;
     let transaction = connection.transaction()?;
+    let roasted_before = inventory::snapshot(
+        &transaction,
+        [current.coffee.as_ref().map(|coffee| coffee.id), coffee_id],
+    )?;
     let changed = transaction.execute(
         "UPDATE roasts SET profile_id=?, coffee_id=?, roasted_at_ms=?, roasted_at_source=?, user_roasted_at_ms=?, source_timezone=?, status=?, result=?, level_thousandths=?, green_input_mass_mg=?,
          roasted_yield_mass_mg=?, development_basis_points=?, duration_ms=?, cooldown_end_ms=?, end_temperature_milli_c=?, end_reason=?, adjustments_json=?, roaster_parameters_json=?,
-         deployed_page_url=?, profile_snapshot_json=?, archived_at_ms=CASE WHEN ? THEN ? ELSE archived_at_ms END, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
+         deployed_page_url=?, profile_snapshot_json=?, archived_at_ms=CASE WHEN ? THEN ? ELSE archived_at_ms END, discarded_at_ms=?, updated_at_ms=?, revision=revision+1 WHERE id=? AND revision=?",
         params![profile_id, coffee_id, roasted_at_ms, roasted_at_source, user_roasted_at_ms, source_timezone, status, result,
             input.level_thousandths.unwrap_or(current.level_thousandths), input.green_input_mass_mg.unwrap_or(current.green_input_mass_mg),
             input.roasted_yield_mass_mg.unwrap_or(current.roasted_yield_mass_mg), development_basis_points,
             duration_ms, cooldown_end_ms, end_temperature_milli_c, end_reason,
-            json_text(&adjustments)?, json_text(&parameters)?, deployed_page_url, profile_snapshot, archive_was_supplied, archived_at_ms, now_ms(), id, expected],
+            json_text(&adjustments)?, json_text(&parameters)?, deployed_page_url, profile_snapshot, archive_was_supplied, archived_at_ms, discarded_at_ms, now_ms(), id, expected],
     )?;
     if changed == 0 {
         return Err(ApiError::revision());
     }
+    inventory::touch_changed(&transaction, &roasted_before, now_ms())?;
     if let Some(first_crack) = first_crack {
         transaction.execute(
             "DELETE FROM roast_events WHERE roast_id=? AND event_kind='first_crack' AND source='user'",
@@ -1498,7 +1541,11 @@ fn get_profile_summary(connection: &Connection, id: i64) -> ApiResult<ProfileSum
 
 fn get_coffee(connection: &Connection, id: i64) -> ApiResult<CoffeeResource> {
     let mut coffee = connection.query_row(
-        "SELECT c.*, (SELECT count(*) FROM roasts r WHERE r.coffee_id=c.id) FROM coffees c WHERE c.id=? AND c.archived_at_ms IS NULL",
+        &format!(
+            "SELECT c.*, (SELECT count(*) FROM roasts r WHERE r.coffee_id=c.id) AS roast_count,
+             {} AS roasted_green_mg FROM coffees c WHERE c.id=? AND c.archived_at_ms IS NULL",
+            inventory::ROASTED_GREEN_FOR_COFFEE
+        ),
         [id], map_coffee
     ).optional()?.ok_or_else(|| ApiError::not_found("coffee", &id.to_string()))?;
     coffee.profile_image_attachment_id = profile_image_attachment_id(connection, "coffee", id)?;
@@ -1506,6 +1553,9 @@ fn get_coffee(connection: &Connection, id: i64) -> ApiResult<CoffeeResource> {
 }
 
 fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
+    let purchased_mass_mg: i64 = row.get("purchased_mass_mg")?;
+    let roasted_green_mass_mg: i64 = row.get("roasted_green_mg")?;
+    let correction: i64 = row.get("green_correction_mg")?;
     Ok(CoffeeResource {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -1516,8 +1566,13 @@ fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
         purchased_at: optional_iso(row.get("purchased_at_ms")?),
         price_minor: row.get("price_minor")?,
         currency_code: row.get("currency_code")?,
-        purchased_mass_mg: row.get("purchased_mass_mg")?,
-        remaining_mass_mg: row.get("remaining_mass_mg")?,
+        purchased_mass_mg,
+        remaining_mass_mg: inventory::remaining_mg(
+            purchased_mass_mg,
+            roasted_green_mass_mg,
+            correction,
+        ),
+        roasted_green_mass_mg,
         country: row.get("country")?,
         region: row.get("region")?,
         farm: row.get("farm")?,
@@ -1530,7 +1585,7 @@ fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
         harvest: row.get("harvest")?,
         storage_location: row.get("storage_location")?,
         metadata: json_column(row.get("metadata_json")?),
-        roast_count: row.get(27)?,
+        roast_count: row.get("roast_count")?,
         profile_image_attachment_id: None,
         created_at: iso(row.get("created_at_ms")?),
         updated_at: iso(row.get("updated_at_ms")?),
@@ -1652,7 +1707,7 @@ fn get_roast(connection: &Connection, id: i64) -> ApiResult<RoastResource> {
             profile: row.get::<_, Option<i64>>("profile_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("profile_name").unwrap_or_default().unwrap_or_default() }),
             coffee: row.get::<_, Option<i64>>("coffee_id")?.map(|id| ResourceReference { id, name: row.get::<_, Option<String>>("coffee_name").unwrap_or_default().unwrap_or_default() }),
             roasted_at: (roasted_at_source != "unknown").then(|| iso(roasted_at_ms)), roasted_at_source, source_timezone: row.get("source_timezone")?, status: row.get("status")?, result: row.get("result")?,
-            level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, cooldown_end_ms: row.get("cooldown_end_ms")?, end_temperature_milli_c: row.get("end_temperature_milli_c")?, end_reason: row.get("end_reason")?, archived_at: optional_iso(row.get("archived_at_ms")?), native_log_number: row.get("native_log_number")?,
+            level_thousandths: row.get("level_thousandths")?, green_input_mass_mg: row.get("green_input_mass_mg")?, roasted_yield_mass_mg: row.get("roasted_yield_mass_mg")?, development_basis_points: row.get("development_basis_points")?, duration_ms: row.get("duration_ms")?, cooldown_end_ms: row.get("cooldown_end_ms")?, end_temperature_milli_c: row.get("end_temperature_milli_c")?, end_reason: row.get("end_reason")?, archived_at: optional_iso(row.get("archived_at_ms")?), discarded_at: optional_iso(row.get("discarded_at_ms")?), native_log_number: row.get("native_log_number")?,
             profile_snapshot: json_column(row.get("profile_snapshot_json")?), adjustments: json_column(row.get("adjustments_json")?), roaster_parameters: json_column(row.get("roaster_parameters_json")?), native_metadata: json_column(row.get("native_metadata_json")?), import_warnings: json_array(row.get("import_warnings_json")?),
             sample_stream: row.get::<_, Option<i64>>("stream_version")?.map(|stream_version| SampleStreamResource { stream_version, row_count: row.get("row_count").unwrap_or(0), first_elapsed_ms: row.get("first_elapsed_ms").unwrap_or(0), last_elapsed_ms: row.get("last_elapsed_ms").unwrap_or(0), reconciliation_state: row.get("reconciliation_state").unwrap_or_else(|_| "reconciled".into()) }),
             events: vec![], brew_count: row.get("brew_count")?, note_count: row.get("note_count")?, label_count: row.get("label_count")?,

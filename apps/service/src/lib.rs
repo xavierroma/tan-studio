@@ -9,6 +9,7 @@ pub mod core_contract;
 pub mod db;
 pub mod device;
 pub mod error;
+pub mod inventory;
 pub mod klog;
 pub mod kpro;
 pub mod lan_bridge;

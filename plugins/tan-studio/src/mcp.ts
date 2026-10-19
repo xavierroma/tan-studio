@@ -40,7 +40,14 @@ const coffeeFields = {
   purchaseReference: z.string().trim().max(300).optional(),
   purchasedAt: z.iso.datetime({ offset: true }).optional(),
   purchasedGrams: z.number().nonnegative().max(1_000_000).optional(),
-  remainingGrams: z.number().nonnegative().max(1_000_000).optional(),
+  remainingGrams: z
+    .number()
+    .nonnegative()
+    .max(1_000_000)
+    .optional()
+    .describe(
+      "Green coffee left now. Roasts subtract their green input automatically; omit it unless correcting the balance. On create it defaults to purchasedGrams."
+    ),
   country: z.string().trim().max(200).optional(),
   region: z.string().trim().max(300).optional(),
   farm: z.string().trim().max(300).optional(),

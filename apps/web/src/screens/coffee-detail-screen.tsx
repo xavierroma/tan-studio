@@ -161,6 +161,7 @@ export function CoffeeDetailScreen() {
               ["Purchase reference", c.purchaseReference],
               ["Purchased", dateText(c.purchasedAt)],
               ["Purchased mass", massText(c.purchasedMassMg)],
+              ["Roasted green", massText(c.roastedGreenMassMg)],
               ["Purchase price", price],
               ["Storage", c.storageLocation],
             ].map(([k, v]) => (

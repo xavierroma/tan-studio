@@ -108,6 +108,10 @@ export function RoastEditorScreen() {
         queryKey: queryKeys.roastContext(roastId),
       })
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      // Roast changes can move a coffee's derived green balance.
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void queryClient.invalidateQueries({ queryKey: ["coffee"] })
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
       void navigate({
         to: "/roasts/$roastId",
         params: { roastId: String(roastId) },

@@ -99,6 +99,10 @@ export function LiveRoastScreen() {
     onSuccess: (roast) => {
       toast.success(`Roast #${roast.id} prepared`)
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      // Roast changes can move a coffee's derived green balance.
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void queryClient.invalidateQueries({ queryKey: ["coffee"] })
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
       void navigate({
         to: "/roasts/$roastId",
         params: { roastId: String(roast.id) },
@@ -112,6 +116,10 @@ export function LiveRoastScreen() {
       toast.success("Nano synchronization started")
       void queryClient.invalidateQueries({ queryKey: queryKeys.device() })
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      // Roast changes can move a coffee's derived green balance.
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void queryClient.invalidateQueries({ queryKey: ["coffee"] })
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
     },
     onError: (error) => toast.error(error.message),
   })
@@ -120,10 +128,16 @@ export function LiveRoastScreen() {
       updateRoast(activeRoast!.id, activeRoast!.revision, {
         status: "interrupted",
         result: "aborted",
+        // Explicit: this plan never ran, so it consumed no green coffee.
+        discarded: true,
       }),
     onSuccess: () => {
       toast.success("Prepared roast discarded")
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      // Roast changes can move a coffee's derived green balance.
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void queryClient.invalidateQueries({ queryKey: ["coffee"] })
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
     },
     onError: (error) => toast.error(error.message),
   })

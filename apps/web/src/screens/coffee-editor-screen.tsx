@@ -68,6 +68,19 @@ function instant(value: FormDataEntryValue | null) {
   return text ? new Date(`${text}T12:00:00`).toISOString() : null
 }
 
+/**
+ * Green left is derived from roasts on the server. Send a balance only when the
+ * user typed one: blank on create means the whole purchase, and an unchanged
+ * value on edit is omitted so it never records a correction.
+ */
+export function remainingBody(form: FormData, coffee?: Coffee) {
+  if (String(form.get("remainingMass") ?? "").trim() === "") return {}
+  const remainingMassMg = grams(form.get("remainingMass"))
+  return coffee && remainingMassMg === coffee.remainingMassMg
+    ? {}
+    : { remainingMassMg }
+}
+
 function coffeeBody(form: FormData, coffee?: Coffee): CoffeeCreate {
   return {
     name: String(form.get("name") ?? "").trim(),
@@ -82,7 +95,7 @@ function coffeeBody(form: FormData, coffee?: Coffee): CoffeeCreate {
         .trim()
         .toUpperCase() || null,
     purchasedMassMg: grams(form.get("purchasedMass")),
-    remainingMassMg: grams(form.get("remainingMass")),
+    ...remainingBody(form, coffee),
     country: String(form.get("country") ?? "").trim(),
     region: String(form.get("region") ?? "").trim(),
     farm: String(form.get("farm") ?? "").trim(),
@@ -271,7 +284,7 @@ function InventoryFields({ coffee }: { coffee?: Coffee | undefined }) {
             name="purchasedMass"
             type="number"
             min="0"
-            step="1"
+            step="any"
             defaultValue={(coffee?.purchasedMassMg ?? 0) / 1_000}
           />
         </Field>
@@ -282,9 +295,14 @@ function InventoryFields({ coffee }: { coffee?: Coffee | undefined }) {
             name="remainingMass"
             type="number"
             min="0"
-            step="1"
-            defaultValue={(coffee?.remainingMassMg ?? 0) / 1_000}
+            step="any"
+            defaultValue={coffee ? coffee.remainingMassMg / 1_000 : undefined}
+            placeholder={coffee ? undefined : "Same as purchased"}
+            aria-describedby="remaining-mass-help"
           />
+          <FieldDescription id="remaining-mass-help">
+            Roasts subtract their green input. Edit only to correct.
+          </FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="storage">Storage</FieldLabel>
@@ -410,6 +428,8 @@ export function CoffeeEditorScreen() {
     onSuccess: ({ coffee: saved, attachmentFailures }) => {
       queryClient.setQueryData(queryKeys.coffee(saved.id), saved)
       void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      // Roast contexts embed this coffee and its green balance.
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
       if (attachmentFailures) {
         toast.warning(
           `Coffee saved; ${attachmentFailures} attachment${attachmentFailures === 1 ? "" : "s"} failed`

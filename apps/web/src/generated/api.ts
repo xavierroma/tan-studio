@@ -897,8 +897,12 @@ export interface components {
             /** Format: int64 */
             purchasedMassMg?: number;
             region?: string;
-            /** Format: int64 */
-            remainingMassMg?: number;
+            /**
+             * Format: int64
+             * @description Green coffee left now, in mg; defaults to purchasedMassMg. Later
+             *     roasts reduce it automatically.
+             */
+            remainingMassMg?: number | null;
             storageLocation?: string;
             variety?: string;
             washingStation?: string;
@@ -929,7 +933,11 @@ export interface components {
             /** Format: int64 */
             purchasedMassMg?: number | null;
             region?: string | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description The green balance now, in mg, recorded as a manual correction that
+             *     later roasts reduce. Omit it to keep the current correction.
+             */
             remainingMassMg?: number | null;
             storageLocation?: string | null;
             variety?: string | null;
@@ -960,15 +968,28 @@ export interface components {
             providerUrl: string;
             purchaseReference: string;
             purchasedAt?: string | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Green coffee bought, in mg.
+             */
             purchasedMassMg: number;
             region: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Green coffee left, in mg, derived on every read: purchasedMassMg minus
+             *     roastedGreenMassMg plus any manual correction, never below zero.
+             */
             remainingMassMg: number;
             /** Format: int64 */
             revision: number;
             /** Format: int64 */
             roastCount: number;
+            /**
+             * Format: int64
+             * @description Green input of every roast that ran on this coffee, in mg: completed
+             *     and interrupted roasts, archived or not; not planned or discarded ones.
+             */
+            roastedGreenMassMg: number;
             storageLocation: string;
             updatedAt: string;
             variety: string;
@@ -1274,20 +1295,32 @@ export interface components {
         RoastPatch: {
             adjustments?: unknown;
             archived?: boolean | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description null clears the coffee; omit to keep it.
+             */
             coffeeId?: number | null;
             /** Format: int64 */
             cooldownEndMs?: number | null;
             deployedPageUrl?: string | null;
             /** Format: int64 */
             developmentBasisPoints?: number | null;
+            /**
+             * @description true marks a prepared roast discarded without running (status must be
+             *     interrupted, with no imported log); it then consumes no green coffee.
+             *     false clears the mark. Completing or re-planning a roast also clears it.
+             */
+            discarded?: boolean | null;
             /** Format: int64 */
             durationMs?: number | null;
             endReason?: string | null;
             /** Format: int64 */
             endTemperatureMilliC?: number | null;
             firstCrack?: null | components["schemas"]["RoastMilestonePatch"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description null clears the green input; omit to keep it.
+             */
             greenInputMassMg?: number | null;
             /** Format: int64 */
             levelThousandths?: number | null;
@@ -1313,6 +1346,8 @@ export interface components {
             deployedPageUrl?: string | null;
             /** Format: int64 */
             developmentBasisPoints?: number | null;
+            /** @description When a prepared roast was discarded without running; it consumed no green. */
+            discardedAt?: string | null;
             /** Format: int64 */
             durationMs?: number | null;
             endReason: string;
