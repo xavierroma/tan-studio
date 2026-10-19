@@ -74,6 +74,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
         17,
         include_str!("../../companion/migrations/0017_roast_gift_page.sql"),
     ),
+    (
+        18,
+        include_str!("../../companion/migrations/0018_green_inventory.sql"),
+    ),
 ];
 
 #[derive(Clone)]
@@ -282,8 +286,75 @@ mod tests {
     fn applies_the_existing_forward_migrations() {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(&directory.path().join("tan-studio.sqlite")).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (17, 4));
+        assert_eq!(database.schema_versions().unwrap(), (18, 4));
         assert!(database.quick_check().unwrap());
+    }
+
+    /// Migration 18 classifies legacy rows conservatively. A remaining equal to
+    /// the purchase is treated as never adjusted (history subtracted); any other
+    /// balance is kept as displayed. Only the old discard signature without any
+    /// sign of a run is marked discarded.
+    #[test]
+    fn green_inventory_migration_keeps_manual_balances_and_classifies_discards() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("legacy-inventory.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, sha256 TEXT NOT NULL, applied_at_ms INTEGER NOT NULL) STRICT;").unwrap();
+        for (version, sql) in MIGRATIONS.iter().filter(|(version, _)| *version <= 17) {
+            connection.execute_batch(sql).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO schema_migrations VALUES (?, ?, 1)",
+                    rusqlite::params![version, sha256(sql.as_bytes())],
+                )
+                .unwrap();
+        }
+        connection.execute_batch(
+            "INSERT INTO coffees(id, name, purchased_mass_mg, remaining_mass_mg, created_at_ms, updated_at_ms) VALUES
+               (1, 'Fictional untouched', 1000000, 1000000, 1, 1),
+               (2, 'Fictional manual balance', 1000000, 640000, 1, 1);
+             INSERT INTO roasts(id, coffee_id, roasted_at_ms, status, result, green_input_mass_mg, roasted_yield_mass_mg, created_at_ms, updated_at_ms) VALUES
+               (1, 1, 1, 'completed', 'success', 120000, 104000, 1, 1),
+               (2, 1, 1, 'interrupted', 'aborted', 100000, NULL, 1, 5),
+               (3, 1, 1, 'interrupted', 'fault', 50000, NULL, 1, 1),
+               (4, 1, 1, 'interrupted', 'aborted', 30000, 25000, 1, 1),
+               (5, 1, 1, 'planned', 'unknown', 70000, NULL, 1, 1),
+               (6, 2, 1, 'completed', 'success', 200000, NULL, 1, 1);",
+        ).unwrap();
+        drop(connection);
+        let database = Database::open(&path).unwrap();
+        let connection = database.connection();
+        let discarded: Vec<(i64, Option<i64>)> = connection
+            .prepare("SELECT id, discarded_at_ms FROM roasts ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        // Only roast 2 has the bare discard signature; the fault (3) and the
+        // aborted roast with a yield (4) ran.
+        assert_eq!(
+            discarded,
+            vec![(1, None), (2, Some(5)), (3, None), (4, None), (5, None), (6, None)]
+        );
+        let remaining = |id: i64| {
+            let (purchased, correction): (i64, i64) = connection
+                .query_row(
+                    "SELECT purchased_mass_mg, green_correction_mg FROM coffees WHERE id=?",
+                    [id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            crate::inventory::remaining_mg(
+                purchased,
+                crate::inventory::roasted_green_mg(&connection, id).unwrap(),
+                correction,
+            )
+        };
+        // Untouched: 1000 g - (120 + 50 + 30) g of green input, not yield.
+        assert_eq!(remaining(1), 800_000);
+        // Manual balance is preserved; its roast is not subtracted again.
+        assert_eq!(remaining(2), 640_000);
     }
 
     #[test]
@@ -304,7 +375,7 @@ mod tests {
         connection.execute("INSERT INTO tan_bridges(bridge_id,device_token_sha256,created_at_ms,updated_at_ms,revoked_at_ms) VALUES (?, ?, 1, 2, 2)", rusqlite::params!["a".repeat(26), "0".repeat(64)]).unwrap();
         drop(connection);
         let database = Database::open(&path).unwrap();
-        assert_eq!(database.schema_versions().unwrap(), (17, 4));
+        assert_eq!(database.schema_versions().unwrap(), (18, 4));
         let connection = database.connection();
         let bridge: (String, i64) = connection
             .query_row(
@@ -365,7 +436,7 @@ mod tests {
 
         let database = Database::open(&path).unwrap();
 
-        assert_eq!(database.schema_versions().unwrap(), (17, 4));
+        assert_eq!(database.schema_versions().unwrap(), (18, 4));
         let connection = database.connection();
         assert_eq!(migration_hash_column(&connection).unwrap(), "sha256");
         let applied: i64 = connection
@@ -373,7 +444,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(applied, 17);
+        assert_eq!(applied, 18);
         assert!(path
             .with_extension("sqlite.pre-migration-ledger.backup")
             .is_file());

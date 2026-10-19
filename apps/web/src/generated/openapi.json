@@ -3857,8 +3857,12 @@
             "type": "string"
           },
           "remainingMassMg": {
-            "type": "integer",
-            "format": "int64"
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Green coffee left now, in mg; defaults to purchasedMassMg. Later\nroasts reduce it automatically."
           },
           "storageLocation": {
             "type": "string"
@@ -4001,7 +4005,8 @@
               "integer",
               "null"
             ],
-            "format": "int64"
+            "format": "int64",
+            "description": "The green balance now, in mg, recorded as a manual correction that\nlater roasts reduce. Omit it to keep the current correction."
           },
           "storageLocation": {
             "type": [
@@ -4035,6 +4040,7 @@
           "purchaseReference",
           "purchasedMassMg",
           "remainingMassMg",
+          "roastedGreenMassMg",
           "country",
           "region",
           "farm",
@@ -4131,14 +4137,16 @@
           },
           "purchasedMassMg": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Green coffee bought, in mg."
           },
           "region": {
             "type": "string"
           },
           "remainingMassMg": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Green coffee left, in mg, derived on every read: purchasedMassMg minus\nroastedGreenMassMg plus any manual correction, never below zero."
           },
           "revision": {
             "type": "integer",
@@ -4147,6 +4155,11 @@
           "roastCount": {
             "type": "integer",
             "format": "int64"
+          },
+          "roastedGreenMassMg": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Green input of every roast that ran on this coffee, in mg: completed\nand interrupted roasts, archived or not; not planned or discarded ones."
           },
           "storageLocation": {
             "type": "string"
@@ -5257,7 +5270,8 @@
               "integer",
               "null"
             ],
-            "format": "int64"
+            "format": "int64",
+            "description": "null clears the coffee; omit to keep it."
           },
           "cooldownEndMs": {
             "type": [
@@ -5278,6 +5292,13 @@
               "null"
             ],
             "format": "int64"
+          },
+          "discarded": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "true marks a prepared roast discarded without running (status must be\ninterrupted, with no imported log); it then consumes no green coffee.\nfalse clears the mark. Completing or re-planning a roast also clears it."
           },
           "durationMs": {
             "type": [
@@ -5314,7 +5335,8 @@
               "integer",
               "null"
             ],
-            "format": "int64"
+            "format": "int64",
+            "description": "null clears the green input; omit to keep it."
           },
           "levelThousandths": {
             "type": [
@@ -5431,6 +5453,13 @@
               "null"
             ],
             "format": "int64"
+          },
+          "discardedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When a prepared roast was discarded without running; it consumed no green."
           },
           "durationMs": {
             "type": [

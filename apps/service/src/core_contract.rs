@@ -190,8 +190,14 @@ pub struct CoffeeResource {
     pub purchased_at: Option<String>,
     pub price_minor: Option<i64>,
     pub currency_code: Option<String>,
+    /// Green coffee bought, in mg.
     pub purchased_mass_mg: i64,
+    /// Green coffee left, in mg, derived on every read: purchasedMassMg minus
+    /// roastedGreenMassMg plus any manual correction, never below zero.
     pub remaining_mass_mg: i64,
+    /// Green input of every roast that ran on this coffee, in mg: completed
+    /// and interrupted roasts, archived or not; not planned or discarded ones.
+    pub roasted_green_mass_mg: i64,
     pub country: String,
     pub region: String,
     pub farm: String,
@@ -228,8 +234,9 @@ pub struct CoffeeCreate {
     pub currency_code: Option<String>,
     #[serde(default)]
     pub purchased_mass_mg: i64,
-    #[serde(default)]
-    pub remaining_mass_mg: i64,
+    /// Green coffee left now, in mg; defaults to purchasedMassMg. Later
+    /// roasts reduce it automatically.
+    pub remaining_mass_mg: Option<i64>,
     #[serde(default)]
     pub country: String,
     #[serde(default)]
@@ -266,6 +273,8 @@ pub struct CoffeePatch {
     pub price_minor: Option<Option<i64>>,
     pub currency_code: Option<Option<String>>,
     pub purchased_mass_mg: Option<i64>,
+    /// The green balance now, in mg, recorded as a manual correction that
+    /// later roasts reduce. Omit it to keep the current correction.
     pub remaining_mass_mg: Option<i64>,
     pub country: Option<String>,
     pub region: Option<String>,
@@ -328,6 +337,8 @@ pub struct RoastResource {
     pub end_temperature_milli_c: Option<i64>,
     pub end_reason: String,
     pub archived_at: Option<String>,
+    /// When a prepared roast was discarded without running; it consumed no green.
+    pub discarded_at: Option<String>,
     pub native_log_number: Option<i64>,
     pub profile_snapshot: Value,
     pub adjustments: Value,
@@ -393,12 +404,16 @@ pub struct RoastPatch {
     #[serde(default, deserialize_with = "deserialize_nullable")]
     pub deployed_page_url: Option<Option<String>>,
     pub profile_id: Option<Option<i64>>,
+    /// null clears the coffee; omit to keep it.
+    #[serde(default, deserialize_with = "deserialize_nullable")]
     pub coffee_id: Option<Option<i64>>,
     pub roasted_at: Option<Option<String>>,
     pub source_timezone: Option<String>,
     pub status: Option<String>,
     pub result: Option<String>,
     pub level_thousandths: Option<Option<i64>>,
+    /// null clears the green input; omit to keep it.
+    #[serde(default, deserialize_with = "deserialize_nullable")]
     pub green_input_mass_mg: Option<Option<i64>>,
     pub roasted_yield_mass_mg: Option<Option<i64>>,
     pub development_basis_points: Option<Option<i64>>,
@@ -407,6 +422,10 @@ pub struct RoastPatch {
     pub end_temperature_milli_c: Option<Option<i64>>,
     pub end_reason: Option<String>,
     pub archived: Option<bool>,
+    /// true marks a prepared roast discarded without running (status must be
+    /// interrupted, with no imported log); it then consumes no green coffee.
+    /// false clears the mark. Completing or re-planning a roast also clears it.
+    pub discarded: Option<bool>,
     pub first_crack: Option<Option<RoastMilestonePatch>>,
     pub adjustments: Option<Value>,
     pub roaster_parameters: Option<Value>,

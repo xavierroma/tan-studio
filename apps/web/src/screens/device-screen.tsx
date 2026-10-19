@@ -58,6 +58,10 @@ export function DeviceSettings() {
         queryKey: queryKeys.deviceSyncRuns(),
       })
       void queryClient.invalidateQueries({ queryKey: ["roasts"] })
+      // Roast changes can move a coffee's derived green balance.
+      void queryClient.invalidateQueries({ queryKey: ["coffees"] })
+      void queryClient.invalidateQueries({ queryKey: ["coffee"] })
+      void queryClient.invalidateQueries({ queryKey: ["roast-context"] })
       void queryClient.invalidateQueries({ queryKey: ["profiles"] })
     },
     onError: (error) => toast.error(error.message),

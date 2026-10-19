@@ -589,9 +589,21 @@ impl KlogImporter {
                 )?;
             }
         }
+        // A log landing on an existing roast (a claimed plan or a re-import) can
+        // change its coffee's roasted green; that coffee's revision moves too.
+        let roasted_before = if updated {
+            let coffee_id: Option<i64> = transaction.query_row(
+                "SELECT coffee_id FROM roasts WHERE id=?",
+                [roast_id],
+                |row| row.get(0),
+            )?;
+            crate::inventory::snapshot(&transaction, [coffee_id])?
+        } else {
+            Default::default()
+        };
         if updated {
             transaction.execute(
-                "UPDATE roasts SET profile_id=?, roasted_at_ms=?, roasted_at_source=?, source_timezone='UTC', level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, native_log_number=?, duration_ms=?, cooldown_end_ms=?, profile_snapshot_json=?, adjustments_json=json_set(adjustments_json, '$.levelThousandths', ?), source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
+                "UPDATE roasts SET profile_id=?, roasted_at_ms=?, roasted_at_source=?, source_timezone='UTC', discarded_at_ms=NULL, level_thousandths=?, development_basis_points=?, green_input_mass_mg=?, end_reason=?, result=?, status=?, native_log_number=?, duration_ms=?, cooldown_end_ms=?, profile_snapshot_json=?, adjustments_json=json_set(adjustments_json, '$.levelThousandths', ?), source_file_id=?, native_metadata_json=?, import_warnings_json=?, updated_at_ms=?, revision=revision+1 WHERE id=?",
                 params![profile_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, profile_snapshot_json, facts.level_thousandths, source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, roast_id],
             )?;
         } else {
@@ -600,6 +612,7 @@ impl KlogImporter {
                 params![roast_id, profile_id, facts.roasted_at_ms, facts.roasted_at_source, facts.level_thousandths, facts.development_basis_points, facts.green_input_mass_mg, facts.end_reason, facts.result, facts.status, facts.native_log_number, facts.duration_ms, facts.cooldown_end_ms, profile_snapshot_json, serde_json::json!({"levelThousandths": facts.level_thousandths}).to_string(), source_file_id, serde_json::to_string(&facts.public_metadata).unwrap(), serde_json::to_string(&document.diagnostics).unwrap(), now, now],
             )?;
         }
+        crate::inventory::touch_changed(&transaction, &roasted_before, now)?;
         replace_telemetry(&transaction, &roast_id, stream_version, &document, now)?;
         upsert_import_note(&transaction, roast_id, &facts.notes, now)?;
         transaction.commit()?;
@@ -1211,6 +1224,60 @@ mod tests {
         assert_eq!(adjustments["boost"], 0.2);
         assert_eq!(adjustments["levelThousandths"], 2500);
         assert_eq!(row.4, "completed");
+    }
+
+    /// A log that claims a coffee's plan consumes its green input once, moves the
+    /// coffee's revision, and re-importing the log never counts it twice.
+    #[test]
+    fn imported_log_consumes_green_once_and_moves_the_coffee_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = Database::open(&directory.path().join("test.sqlite")).unwrap();
+        let now = Utc::now().timestamp_millis();
+        {
+            let connection = database.connection();
+            connection.execute(
+                "INSERT INTO coffees(id, name, purchased_mass_mg, remaining_mass_mg, created_at_ms, updated_at_ms)
+                 VALUES (1, 'Fictional planned lot', 500000, 500000, ?, ?)",
+                params![now, now],
+            ).unwrap();
+            connection.execute(
+                "INSERT INTO roasts(id, coffee_id, roasted_at_ms, status, result, green_input_mass_mg, created_at_ms, updated_at_ms)
+                 VALUES (1, 1, ?, 'planned', 'unknown', 120000, ?, ?)",
+                params![now, now, now],
+            ).unwrap();
+        }
+        let input = |level: &str, end: &str| ImportInput {
+            bytes: fixture(level, end),
+            device_path: "kaffelogic/roast-logs/log0013.klog".into(),
+            filename: "log0013.klog".into(),
+            source_modified_at: "202607186185000".into(),
+        };
+        let importer = KlogImporter::new(database.clone());
+        let state = || {
+            let connection = database.connection();
+            let roasted = crate::inventory::roasted_green_mg(&connection, 1).unwrap();
+            let (input_mg, revision): (i64, i64) = connection
+                .query_row(
+                    "SELECT (SELECT green_input_mass_mg FROM roasts WHERE id=1), revision FROM coffees WHERE id=1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            (roasted, input_mg, revision)
+        };
+        assert_eq!(state().0, 0);
+        assert!(importer.import(input("2.50000", "530.000")).unwrap().updated);
+        let (roasted, input_mg, revision) = state();
+        // The log's measured load replaces the plan's and is counted once.
+        assert_eq!(roasted, input_mg);
+        assert!(roasted > 0);
+        assert_eq!(revision, 2);
+        // The same bytes again: nothing changes.
+        assert!(!importer.import(input("2.50000", "530.000")).unwrap().updated);
+        assert_eq!(state(), (roasted, input_mg, 2));
+        // A revised log for the same roast replaces, never adds.
+        importer.import(input("2.60000", "531.000")).unwrap();
+        assert_eq!(state().0, state().1);
     }
 
     #[test]
