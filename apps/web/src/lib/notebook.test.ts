@@ -91,24 +91,24 @@ describe("notebook relationships", () => {
     ])
     expect(latestTasting(b)?.id).toBe(2)
   })
-  it("lists coffees with green left, newest added first, by default", () => {
-    const coffee = (
-      id: number,
-      createdAt: string,
-      remainingMassMg: number
-    ) => ({
+  it("lists active coffees newest first and keeps dust and used-up reachable", () => {
+    const coffee = (id: number, createdAt: string, greenStock: string) => ({
       id,
       createdAt,
-      remainingMassMg,
+      greenStock,
     })
     const coffees = [
-      coffee(1, "2026-08-01T00:00:00Z", 250_000),
-      coffee(2, "2026-10-01T00:00:00Z", 0),
-      coffee(3, "2026-09-01T00:00:00Z", 1_500),
+      coffee(1, "2026-08-01T00:00:00Z", "active"),
+      coffee(2, "2026-10-01T00:00:00Z", "usedUp"),
+      coffee(3, "2026-09-01T00:00:00Z", "active"),
+      coffee(4, "2026-09-15T00:00:00Z", "dust"),
     ]
     expect(workingCoffees(coffees).map((c) => c.id)).toEqual([3, 1])
+    expect(workingCoffees(coffees, "dust").map((c) => c.id)).toEqual([4])
     expect(workingCoffees(coffees, "empty").map((c) => c.id)).toEqual([2])
-    expect(workingCoffees(coffees, "all").map((c) => c.id)).toEqual([2, 3, 1])
-    expect(coffees.map((c) => c.id)).toEqual([1, 2, 3])
+    expect(workingCoffees(coffees, "all").map((c) => c.id)).toEqual([
+      2, 4, 3, 1,
+    ])
+    expect(coffees.map((c) => c.id)).toEqual([1, 2, 3, 4])
   })
 })

@@ -35,6 +35,7 @@ import {
   synchronizeDevice,
   updateRoast,
 } from "@/lib/api"
+import { workingCoffees } from "@/lib/notebook"
 
 export function LiveRoastScreen() {
   const search = useSearch({ from: "/roast" })
@@ -159,10 +160,15 @@ export function LiveRoastScreen() {
     })) ?? []
   const coffeeItems = [
     { value: "none", label: "Assign later" },
-    ...(coffees.data?.map((coffee) => ({
-      value: String(coffee.id),
-      label: `#${coffee.id} · ${coffee.name}`,
-    })) ?? []),
+    ...workingCoffees(coffees.data ?? [], "all")
+      .filter(
+        (coffee) =>
+          coffee.greenStock === "active" || coffee.id === search.coffeeId
+      )
+      .map((coffee) => ({
+        value: String(coffee.id),
+        label: `#${coffee.id} · ${coffee.name}`,
+      })),
   ]
 
   return (

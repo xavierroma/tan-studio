@@ -204,8 +204,11 @@ pub async fn coffees_create(
         &input.metadata,
     )?;
     let now = now_ms();
-    let connection = state.database.connection();
-    connection.execute(
+    let mut connection = state.database.connection();
+    // The coffee write, its correction history and search index commit
+    // together or not at all.
+    let transaction = connection.transaction()?;
+    transaction.execute(
         "INSERT INTO coffees(name, provider, provider_url, provider_product_id, purchase_reference, purchased_at_ms,
          price_minor, currency_code, purchased_mass_mg, remaining_mass_mg, country, region, farm, producer,
          washing_station, process, variety, altitude_min_m, altitude_max_m, harvest, storage_location,
@@ -217,9 +220,24 @@ pub async fn coffees_create(
             input.process.trim(), input.variety.trim(), input.altitude_min_m, input.altitude_max_m, input.harvest.trim(), input.storage_location.trim(),
             json_text(&input.metadata)?, remaining - input.purchased_mass_mg, now, now],
     )?;
-    let id = connection.last_insert_rowid();
-    refresh_coffee_fts(&connection, id)?;
-    Ok((StatusCode::CREATED, Json(get_coffee(&connection, id)?)))
+    let id = transaction.last_insert_rowid();
+    if input.remaining_mass_mg.is_some() {
+        inventory::record_correction(
+            &transaction,
+            &inventory::Correction {
+                coffee_id: id,
+                previous_remaining_mg: None,
+                remaining_mg: remaining,
+                previous_correction_mg: None,
+                correction_mg: remaining - input.purchased_mass_mg,
+            },
+            now,
+        )?;
+    }
+    refresh_coffee_fts(&transaction, id)?;
+    let coffee = get_coffee(&transaction, id)?;
+    transaction.commit()?;
+    Ok((StatusCode::CREATED, Json(coffee)))
 }
 
 #[utoipa::path(get, path = "/api/v1/coffees/{id}", tag = "coffees", operation_id = "getCoffee", params(("id" = i64, Path)), responses((status = 200, body = CoffeeResource), (status = 404, body = ProblemDetails)))]
@@ -238,27 +256,31 @@ pub async fn coffees_patch(
     Json(input): Json<CoffeePatch>,
 ) -> ApiResult<Json<CoffeeResource>> {
     let expected = expected_revision(&headers)?;
-    let connection = state.database.connection();
-    let current = get_coffee(&connection, id)?;
+    let mut connection = state.database.connection();
+    // The coffee write, its correction history and search index commit
+    // together or not at all.
+    let transaction = connection.transaction()?;
+    let current = get_coffee(&transaction, id)?;
     let name = input.name.unwrap_or(current.name);
     let purchased = input.purchased_mass_mg.unwrap_or(current.purchased_mass_mg);
     // Roasted green is derived; only the manual correction is stored. An
     // explicit remainingMassMg is the requested balance now; omitting it keeps
     // the correction, so unrelated edits never re-baseline (even at zero).
+    let stored_correction: i64 = transaction.query_row(
+        "SELECT green_correction_mg FROM coffees WHERE id=?",
+        [id],
+        |row| row.get(0),
+    )?;
     let correction = match input.remaining_mass_mg {
         Some(requested) => requested - (purchased - current.roasted_green_mass_mg),
-        None => connection.query_row(
-            "SELECT green_correction_mg FROM coffees WHERE id=?",
-            [id],
-            |row| row.get(0),
-        )?,
+        None => stored_correction,
     };
     let remaining = input.remaining_mass_mg.unwrap_or(current.remaining_mass_mg);
     let min = input.altitude_min_m.unwrap_or(current.altitude_min_m);
     let max = input.altitude_max_m.unwrap_or(current.altitude_max_m);
     let metadata = input.metadata.unwrap_or(current.metadata);
     validate_coffee_input(&name, purchased, remaining, min, max, &metadata)?;
-    let changed = connection.execute(
+    let changed = transaction.execute(
         "UPDATE coffees SET name=?, provider=?, provider_url=?, provider_product_id=?, purchase_reference=?, purchased_at_ms=?,
          price_minor=?, currency_code=?, purchased_mass_mg=?, remaining_mass_mg=?, country=?, region=?, farm=?, producer=?,
          washing_station=?, process=?, variety=?, altitude_min_m=?, altitude_max_m=?, harvest=?, storage_location=?, metadata_json=?,
@@ -276,8 +298,23 @@ pub async fn coffees_patch(
     if changed == 0 {
         return Err(ApiError::revision());
     }
-    refresh_coffee_fts(&connection, id)?;
-    Ok(Json(get_coffee(&connection, id)?))
+    if let Some(requested) = input.remaining_mass_mg {
+        inventory::record_correction(
+            &transaction,
+            &inventory::Correction {
+                coffee_id: id,
+                previous_remaining_mg: Some(current.remaining_mass_mg),
+                remaining_mg: requested,
+                previous_correction_mg: Some(stored_correction),
+                correction_mg: correction,
+            },
+            now_ms(),
+        )?;
+    }
+    refresh_coffee_fts(&transaction, id)?;
+    let coffee = get_coffee(&transaction, id)?;
+    transaction.commit()?;
+    Ok(Json(coffee))
 }
 
 #[utoipa::path(get, path = "/api/v1/coffees/{id}/roasts", tag = "coffees", operation_id = "listCoffeeRoasts", params(("id" = i64, Path)), responses((status = 200, body = RoastPage)))]
@@ -1549,6 +1586,11 @@ fn get_coffee(connection: &Connection, id: i64) -> ApiResult<CoffeeResource> {
         [id], map_coffee
     ).optional()?.ok_or_else(|| ApiError::not_found("coffee", &id.to_string()))?;
     coffee.profile_image_attachment_id = profile_image_attachment_id(connection, "coffee", id)?;
+    coffee.green_stock = inventory::green_stock(
+        coffee.remaining_mass_mg,
+        inventory::dust_threshold_mg(connection)?,
+    )
+    .into();
     Ok(coffee)
 }
 
@@ -1573,6 +1615,7 @@ fn map_coffee(row: &Row<'_>) -> rusqlite::Result<CoffeeResource> {
             correction,
         ),
         roasted_green_mass_mg,
+        green_stock: String::new(),
         country: row.get("country")?,
         region: row.get("region")?,
         farm: row.get("farm")?,
@@ -1950,6 +1993,11 @@ fn get_settings(connection: &Connection) -> ApiResult<SettingsResource> {
                         &object,
                         "defaultLabelHeightMicrometers",
                         30_000,
+                    ),
+                    green_dust_threshold_mg: int_value(
+                        &object,
+                        "greenDustThresholdMg",
+                        inventory::DEFAULT_DUST_THRESHOLD_MG,
                     ),
                     updated_at: iso(row.get(1)?),
                     revision: row.get(2)?,
@@ -2463,6 +2511,15 @@ fn validate_settings(values: &Map<String, Value>) -> ApiResult<()> {
     if !(0..=100_000).contains(&temp) {
         return Err(ApiError::validation(
             "Default water temperature must be between 0 and 100°C.",
+        ));
+    }
+    let dust = values
+        .get("greenDustThresholdMg")
+        .and_then(Value::as_i64)
+        .unwrap_or(-1);
+    if !(0..=inventory::MAX_DUST_THRESHOLD_MG).contains(&dust) {
+        return Err(ApiError::validation(
+            "Green dust threshold must be between 0 and 10000 g.",
         ));
     }
     Ok(())

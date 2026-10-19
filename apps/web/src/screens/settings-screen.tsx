@@ -13,7 +13,7 @@ export function SettingsScreen() {
   const { section } = useSearch({ from: "/settings" }),
     title =
       section === "notebook"
-        ? "Labels & tables"
+        ? "Notebook"
         : section === "devices"
           ? "Devices"
           : section === "access"

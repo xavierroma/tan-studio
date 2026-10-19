@@ -95,7 +95,11 @@ export function CoffeeDetailScreen() {
       />
       <dl className="notebook-facts">
         {[
-          ["Green remaining", massText(c.remainingMassMg)],
+          [
+            "Green remaining",
+            massText(c.remainingMassMg) +
+              (c.greenStock === "dust" ? " · dust" : ""),
+          ],
           ["Roasts", String(roasts.length)],
           ["Variety", c.variety || "Not recorded"],
           ["Provider", c.provider || "Not recorded"],

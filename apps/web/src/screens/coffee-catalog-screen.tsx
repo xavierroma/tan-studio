@@ -33,8 +33,9 @@ import { EntityImage } from "@/components/entity-image"
 import { PageHeader } from "@/components/page-header"
 import { listCoffees, queryKeys, type Coffee } from "@/lib/api"
 
-const greenItems = (usedUp: number) => [
-  { value: "left", label: "Green left" },
+const greenItems = (dust: number, usedUp: number) => [
+  { value: "left", label: "Active" },
+  { value: "dust", label: `Dust (${dust})` },
   { value: "empty", label: `Used up (${usedUp})` },
   { value: "all", label: "All coffees" },
 ]
@@ -96,8 +97,8 @@ export function CoffeeCatalogScreen() {
       (!search.country || coffee.country === search.country) &&
       (!search.process || coffee.process === search.process)
   )
-  const usedUp =
-    coffees.data?.filter((coffee) => coffee.remainingMassMg <= 0).length ?? 0
+  const dust = workingCoffees(coffees.data ?? [], "dust").length
+  const usedUp = workingCoffees(coffees.data ?? [], "empty").length
   const columns: ColumnDef<Coffee>[] = [
     {
       id: "id",
@@ -572,24 +573,26 @@ export function CoffeeCatalogScreen() {
                   </Select>
                 ))}
                 <Select
-                  items={greenItems(usedUp)}
+                  items={greenItems(dust, usedUp)}
                   value={search.green ?? "left"}
                   onValueChange={(next) =>
                     updateSearch({
                       green:
-                        next === "all" || next === "empty" ? next : undefined,
+                        next === "all" || next === "dust" || next === "empty"
+                          ? next
+                          : undefined,
                     })
                   }
                 >
                   <SelectTrigger
-                    aria-label="Filter by green coffee left"
+                    aria-label="Filter by green stock"
                     className="w-full lg:w-44"
                   >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {greenItems(usedUp).map((item) => (
+                      {greenItems(dust, usedUp).map((item) => (
                         <SelectItem key={item.value} value={item.value}>
                           {item.label}
                         </SelectItem>

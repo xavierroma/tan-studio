@@ -7,7 +7,12 @@ import {
   updateUiPreferences,
 } from "@/lib/api"
 import { Button } from "@tan-studio/ui/components/button"
-import { Field, FieldGroup, FieldLabel } from "@tan-studio/ui/components/field"
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@tan-studio/ui/components/field"
 import { Input } from "@tan-studio/ui/components/input"
 import {
   Select,
@@ -42,6 +47,7 @@ export function NotebookSettings() {
         defaultLabelHeightMicrometers: Math.round(
           Number(form.get("height")) * 1000
         ),
+        greenDustThresholdMg: Math.round(Number(form.get("dust")) * 1000),
       })
       await updateUiPreferences(prefs.data.revision, {
         defaultTableDensity: String(form.get("density")),
@@ -50,6 +56,10 @@ export function NotebookSettings() {
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: queryKeys.settings() })
       void cache.invalidateQueries({ queryKey: queryKeys.uiPreferences() })
+      // The dust threshold reclassifies coffees; balances are unchanged.
+      void cache.invalidateQueries({ queryKey: ["coffees"] })
+      void cache.invalidateQueries({ queryKey: ["coffee"] })
+      void cache.invalidateQueries({ queryKey: ["roast-context"] })
       toast.success("Settings saved")
     },
     onError: (e) => {
@@ -62,7 +72,7 @@ export function NotebookSettings() {
   if (prefs.error) throw prefs.error
   if (!settings.data || !prefs.data) return <Skeleton className="h-64" />
   return (
-    <NotebookSection title="Labels & tables">
+    <NotebookSection title="Notebook">
       <form
         key={`${settings.data.revision}:${prefs.data.revision}`}
         onSubmit={(e) => {
@@ -106,6 +116,23 @@ export function NotebookSettings() {
               />
             </Field>
           </div>
+          <Field>
+            <FieldLabel htmlFor="green-dust">Green dust below · g</FieldLabel>
+            <Input
+              id="green-dust"
+              name="dust"
+              type="number"
+              min="0"
+              max="10000"
+              step="any"
+              required
+              defaultValue={settings.data.greenDustThresholdMg / 1000}
+              aria-describedby="green-dust-help"
+            />
+            <FieldDescription id="green-dust-help">
+              Hidden from active coffees. 0 turns it off.
+            </FieldDescription>
+          </Field>
           <Field>
             <FieldLabel htmlFor="default-density">
               Default table density

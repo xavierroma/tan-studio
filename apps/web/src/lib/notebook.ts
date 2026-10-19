@@ -79,21 +79,18 @@ export function brewsForCoffee(
     .filter((b) => ids.has(b.roastId))
     .toSorted((a, b) => b.brewedAt.localeCompare(a.brewedAt))
 }
-export type GreenStock = "all" | "empty" | undefined
+export type GreenStock = "all" | "dust" | "empty" | undefined
 /**
- * The working coffee view: lots with green coffee left, newest added first.
- * Used-up lots stay in the notebook and remain reachable with "all" or "empty".
+ * The working coffee view: active lots, newest added first. The server's
+ * greenStock (usedUp, dust below the Settings threshold, or active) is the one
+ * classification; dust and used-up lots stay reachable with their filters.
  */
 export function workingCoffees<
-  T extends { id: number; createdAt: string; remainingMassMg: number },
+  T extends { id: number; createdAt: string; greenStock: string },
 >(coffees: T[], green: GreenStock = undefined) {
+  const wanted =
+    green === "dust" ? "dust" : green === "empty" ? "usedUp" : "active"
   return coffees
-    .filter((c) =>
-      green === "all"
-        ? true
-        : green === "empty"
-          ? c.remainingMassMg <= 0
-          : c.remainingMassMg > 0
-    )
+    .filter((c) => green === "all" || c.greenStock === wanted)
     .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id - a.id)
 }

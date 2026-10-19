@@ -198,6 +198,9 @@ pub struct CoffeeResource {
     /// Green input of every roast that ran on this coffee, in mg: completed
     /// and interrupted roasts, archived or not; not planned or discarded ones.
     pub roasted_green_mass_mg: i64,
+    /// usedUp at zero, dust when below the settings' greenDustThresholdMg,
+    /// otherwise active. A view classification only; it never changes stock.
+    pub green_stock: String,
     pub country: String,
     pub region: String,
     pub farm: String,
@@ -744,6 +747,9 @@ pub struct SettingsResource {
     pub default_peak_days: i64,
     pub default_label_width_micrometers: i64,
     pub default_label_height_micrometers: i64,
+    /// Absolute green mass, in mg, below which a coffee with green left is dust
+    /// (default 30000, 30 g; 0 disables). Never a percentage.
+    pub green_dust_threshold_mg: i64,
     pub updated_at: String,
     pub revision: i64,
 }
@@ -764,6 +770,8 @@ pub struct SettingsPatch {
     pub default_peak_days: Option<i64>,
     pub default_label_width_micrometers: Option<i64>,
     pub default_label_height_micrometers: Option<i64>,
+    /// Absolute green mass, in mg, below which a coffee is dust; 0 disables.
+    pub green_dust_threshold_mg: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
