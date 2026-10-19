@@ -53,19 +53,16 @@ export function NotebookSettings() {
         defaultTableDensity: String(form.get("density")),
       })
     },
-    onSuccess: () => {
+    onSuccess: () => toast.success("Settings saved"),
+    onError: (e) => toast.error(e.message),
+    // Settings may have saved even if preferences failed afterwards, and the
+    // dust threshold reclassifies coffees (balances are unchanged).
+    onSettled: () => {
       void cache.invalidateQueries({ queryKey: queryKeys.settings() })
       void cache.invalidateQueries({ queryKey: queryKeys.uiPreferences() })
-      // The dust threshold reclassifies coffees; balances are unchanged.
       void cache.invalidateQueries({ queryKey: ["coffees"] })
       void cache.invalidateQueries({ queryKey: ["coffee"] })
       void cache.invalidateQueries({ queryKey: ["roast-context"] })
-      toast.success("Settings saved")
-    },
-    onError: (e) => {
-      void cache.invalidateQueries({ queryKey: queryKeys.settings() })
-      void cache.invalidateQueries({ queryKey: queryKeys.uiPreferences() })
-      toast.error(e.message)
     },
   })
   if (settings.error) throw settings.error
