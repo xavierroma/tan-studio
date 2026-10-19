@@ -4041,6 +4041,7 @@
           "purchasedMassMg",
           "remainingMassMg",
           "roastedGreenMassMg",
+          "greenStock",
           "country",
           "region",
           "farm",
@@ -4085,6 +4086,10 @@
           },
           "farm": {
             "type": "string"
+          },
+          "greenStock": {
+            "type": "string",
+            "description": "usedUp at zero, dust when below the settings' greenDustThresholdMg,\notherwise active. A view classification only; it never changes stock."
           },
           "harvest": {
             "type": "string"
@@ -5918,6 +5923,14 @@
               "null"
             ],
             "format": "int64"
+          },
+          "greenDustThresholdMg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Absolute green mass, in mg, below which a coffee is dust; 0 disables."
           }
         },
         "additionalProperties": false
@@ -5938,6 +5951,7 @@
           "defaultPeakDays",
           "defaultLabelWidthMicrometers",
           "defaultLabelHeightMicrometers",
+          "greenDustThresholdMg",
           "updatedAt",
           "revision"
         ],
@@ -5987,6 +6001,11 @@
           "defaultWaterTemperatureMilliC": {
             "type": "integer",
             "format": "int64"
+          },
+          "greenDustThresholdMg": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Absolute green mass, in mg, below which a coffee with green left is dust\n(default 30000, 30 g; 0 disables). Never a percentage."
           },
           "revision": {
             "type": "integer",

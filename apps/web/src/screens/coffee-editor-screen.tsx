@@ -289,7 +289,9 @@ function InventoryFields({ coffee }: { coffee?: Coffee | undefined }) {
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor="remaining-mass">Green remaining · g</FieldLabel>
+          <FieldLabel htmlFor="remaining-mass">
+            Set remaining green · g
+          </FieldLabel>
           <Input
             id="remaining-mass"
             name="remainingMass"
@@ -301,7 +303,7 @@ function InventoryFields({ coffee }: { coffee?: Coffee | undefined }) {
             aria-describedby="remaining-mass-help"
           />
           <FieldDescription id="remaining-mass-help">
-            Roasts subtract their green input. Edit only to correct.
+            Enter the weighed amount. Roasts subtract automatically.
           </FieldDescription>
         </Field>
         <Field>

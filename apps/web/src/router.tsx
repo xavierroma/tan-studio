@@ -201,8 +201,10 @@ const coffeesRoute = createRoute({
     q: typeof search.q === "string" ? search.q : undefined,
     coffeeId: integer(search.coffeeId),
     green:
-      search.green === "all" || search.green === "empty"
-        ? (search.green as "all" | "empty")
+      search.green === "all" ||
+      search.green === "dust" ||
+      search.green === "empty"
+        ? (search.green as "all" | "dust" | "empty")
         : undefined,
     provider: typeof search.provider === "string" ? search.provider : undefined,
     country: typeof search.country === "string" ? search.country : undefined,

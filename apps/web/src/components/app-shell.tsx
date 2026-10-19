@@ -75,7 +75,7 @@ function CoffeeRail({ pathname }: { pathname: string }) {
       <SidebarContent>
         <SidebarMenu aria-label="Coffees">
           {workingCoffees(coffees.data ?? [], "all")
-            .filter((c) => c.remainingMassMg > 0 || c.id === selectedId)
+            .filter((c) => c.greenStock === "active" || c.id === selectedId)
             .filter((c) =>
               [c.name, c.country, c.process, c.provider]
                 .join(" ")
@@ -150,7 +150,7 @@ function SettingsRail() {
         <SidebarMenu>
           {[
             { value: undefined, label: "Brewing defaults" },
-            { value: "notebook" as const, label: "Labels & tables" },
+            { value: "notebook" as const, label: "Notebook" },
             { value: "devices" as const, label: "Devices" },
             { value: "access" as const, label: "Access" },
             { value: "agents" as const, label: "Agents" },

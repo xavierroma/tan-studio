@@ -952,6 +952,11 @@ export interface components {
             createdAt: string;
             currencyCode?: string | null;
             farm: string;
+            /**
+             * @description usedUp at zero, dust when below the settings' greenDustThresholdMg,
+             *     otherwise active. A view classification only; it never changes stock.
+             */
+            greenStock: string;
             harvest: string;
             /** Format: int64 */
             id: number;
@@ -1478,6 +1483,11 @@ export interface components {
             defaultWaterMassMg?: number | null;
             /** Format: int64 */
             defaultWaterTemperatureMilliC?: number | null;
+            /**
+             * Format: int64
+             * @description Absolute green mass, in mg, below which a coffee is dust; 0 disables.
+             */
+            greenDustThresholdMg?: number | null;
         };
         SettingsResource: {
             defaultBrewMethod: string;
@@ -1500,6 +1510,12 @@ export interface components {
             defaultWaterMassMg: number;
             /** Format: int64 */
             defaultWaterTemperatureMilliC: number;
+            /**
+             * Format: int64
+             * @description Absolute green mass, in mg, below which a coffee with green left is dust
+             *     (default 30000, 30 g; 0 disables). Never a percentage.
+             */
+            greenDustThresholdMg: number;
             /** Format: int64 */
             revision: number;
             updatedAt: string;

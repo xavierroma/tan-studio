@@ -4294,6 +4294,268 @@ mod tests {
         assert_eq!(coffee(lot_id).await["remainingMassMg"], 670_000);
     }
 
+    /// Weighed balances are recorded as history; roasts keep deducting from
+    /// them. The dust threshold is an absolute mass in Settings that only
+    /// classifies coffees and never changes a balance.
+    #[tokio::test]
+    async fn weighed_corrections_are_recorded_and_dust_never_changes_stock() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("studio.sqlite");
+        let database = Database::open(&path).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let call = |method: Method, path: String, body: Option<Value>, revision: Option<i64>| {
+            let app = app.clone();
+            async move { api_request(&app, method, &path, body, revision).await }
+        };
+        let (_, profile) = call(
+            Method::POST,
+            "/api/v1/profiles".into(),
+            Some(json!({"name": "Fictional dust profile"})),
+            None,
+        )
+        .await;
+        let profile_id = profile["id"].as_i64().unwrap();
+        let (status, lot) = call(
+            Method::POST,
+            "/api/v1/coffees".into(),
+            Some(json!({"name": "Fictional Weighed Lot", "purchasedMassMg": 1_000_000})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{lot}");
+        let lot_id = lot["id"].as_i64().unwrap();
+        let coffee = |id: i64| {
+            let call = call.clone();
+            async move { call(Method::GET, format!("/api/v1/coffees/{id}"), None, None).await.1 }
+        };
+        let set_remaining = |remaining: i64| {
+            let call = call.clone();
+            let coffee = coffee.clone();
+            async move {
+                let revision = coffee(lot_id).await["revision"].as_i64().unwrap();
+                let (status, body) = call(
+                    Method::PATCH,
+                    format!("/api/v1/coffees/{lot_id}"),
+                    Some(json!({"remainingMassMg": remaining})),
+                    Some(revision),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                body
+            }
+        };
+        let roast = |green: i64| {
+            let call = call.clone();
+            async move {
+                let (status, planned) = call(
+                    Method::POST,
+                    "/api/v1/roasts".into(),
+                    Some(json!({"profileId": profile_id, "coffeeId": lot_id, "greenInputMassMg": green})),
+                    None,
+                )
+                .await;
+                assert_eq!(status, StatusCode::CREATED, "{planned}");
+                let (status, body) = call(
+                    Method::PATCH,
+                    format!("/api/v1/roasts/{}", planned["id"]),
+                    Some(json!({"status": "completed", "result": "success"})),
+                    planned["revision"].as_i64(),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+            }
+        };
+        let history = || {
+            let database = Database::open(&path).unwrap();
+            let connection = database.connection();
+            let rows: Vec<(Option<i64>, i64, Option<i64>, i64)> = connection
+                .prepare(
+                    "SELECT previous_remaining_mg, remaining_mg, previous_correction_mg, correction_mg
+                     FROM coffee_green_corrections WHERE coffee_id=? ORDER BY id",
+                )
+                .unwrap()
+                .query_map([lot_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            rows
+        };
+        // Omitted balance on create: no correction event.
+        assert!(history().is_empty());
+
+        // 1000 g bought, weighed at 800 g, then a 100 g roast: 700 g.
+        assert_eq!(set_remaining(800_000).await["remainingMassMg"], 800_000);
+        roast(100_000).await;
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 700_000);
+        // A metadata save keeps the balance and records nothing.
+        let revision = coffee(lot_id).await["revision"].as_i64().unwrap();
+        let (status, body) = call(
+            Method::PATCH,
+            format!("/api/v1/coffees/{lot_id}"),
+            Some(json!({"storageLocation": "Fictional shelf B"})),
+            Some(revision),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["remainingMassMg"], 700_000);
+        // Weighed again at 650 g, then a 50 g roast: 600 g.
+        assert_eq!(set_remaining(650_000).await["remainingMassMg"], 650_000);
+        roast(50_000).await;
+        let current = coffee(lot_id).await;
+        assert_eq!(current["remainingMassMg"], 600_000);
+        assert_eq!(current["roastedGreenMassMg"], 150_000);
+        // Both weighings are kept, read through a fresh connection.
+        assert_eq!(
+            history(),
+            vec![
+                (Some(1_000_000), 800_000, Some(0), -200_000),
+                (Some(700_000), 650_000, Some(-200_000), -250_000),
+            ]
+        );
+
+        // Settings saved before the field existed read the 30 g default.
+        let (_, settings) = call(Method::GET, "/api/v1/settings".into(), None, None).await;
+        assert_eq!(settings["greenDustThresholdMg"], 30_000);
+        let set_threshold = |mg: i64| {
+            let call = call.clone();
+            async move {
+                let (_, settings) = call(Method::GET, "/api/v1/settings".into(), None, None).await;
+                call(
+                    Method::PATCH,
+                    "/api/v1/settings".into(),
+                    Some(json!({"greenDustThresholdMg": mg})),
+                    settings["revision"].as_i64(),
+                )
+                .await
+            }
+        };
+        for invalid in [-1, 10_000_001] {
+            let (status, body) = set_threshold(invalid).await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        }
+        // Absolute, never a percentage: 600 g of 1000 g is dust under 700 g.
+        let (status, body) = set_threshold(700_000).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let classified = coffee(lot_id).await;
+        assert_eq!(classified["greenStock"], "dust");
+        assert_eq!(classified["remainingMassMg"], 600_000);
+        assert_eq!(set_threshold(0).await.0, StatusCode::OK);
+        assert_eq!(coffee(lot_id).await["greenStock"], "active");
+
+        // Boundary masses at the default threshold.
+        assert_eq!(set_threshold(30_000).await.0, StatusCode::OK);
+        for (remaining, expected) in [
+            (0, "usedUp"),
+            (1, "dust"),
+            (29_999, "dust"),
+            (30_000, "active"),
+            (30_001, "active"),
+        ] {
+            let (status, created) = call(
+                Method::POST,
+                "/api/v1/coffees".into(),
+                Some(json!({
+                    "name": format!("Fictional boundary {remaining} mg"),
+                    "purchasedMassMg": 1_000_000,
+                    "remainingMassMg": remaining
+                })),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED, "{created}");
+            assert_eq!(created["greenStock"], expected, "{remaining} mg");
+            assert_eq!(created["remainingMassMg"], remaining);
+        }
+        // Thresholds never touched stock or its history.
+        assert_eq!(coffee(lot_id).await["remainingMassMg"], 600_000);
+        assert_eq!(history().len(), 2);
+        let reopened = Database::open(&path).unwrap();
+        let threshold = crate::inventory::dust_threshold_mg(&reopened.connection()).unwrap();
+        assert_eq!(threshold, 30_000);
+    }
+
+    /// A balance write and its correction history commit together: if the
+    /// history cannot be written, the balance, revision and coffee roll back.
+    #[tokio::test]
+    async fn a_failed_correction_record_rolls_back_the_coffee_write() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("studio.sqlite");
+        let database = Database::open(&path).unwrap();
+        let device = Arc::new(NanoDeviceManager::start(database.clone()));
+        let app = build_router(
+            ApiState::new(desktop_config(&directory), database, device.clone()).unwrap(),
+        );
+        let (status, lot) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/coffees",
+            Some(json!({"name": "Fictional Rollback Lot", "purchasedMassMg": 500_000})),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{lot}");
+        let lot_id = lot["id"].as_i64().unwrap();
+        let side = Database::open(&path).unwrap();
+        let count = |sql: &str| -> i64 {
+            side.connection().query_row(sql, [], |row| row.get(0)).unwrap()
+        };
+        side.connection()
+            .execute_batch(
+                "CREATE TRIGGER fictional_reject_corrections BEFORE INSERT ON coffee_green_corrections
+                 BEGIN SELECT RAISE(ABORT, 'fictional failure'); END;",
+            )
+            .unwrap();
+
+        let (status, body) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/coffees/{lot_id}"),
+            Some(json!({"remainingMassMg": 400_000})),
+            lot["revision"].as_i64(),
+        )
+        .await;
+        assert!(!status.is_success(), "{status} {body}");
+        let (_, after) =
+            api_request(&app, Method::GET, &format!("/api/v1/coffees/{lot_id}"), None, None).await;
+        assert_eq!(after["remainingMassMg"], 500_000);
+        assert_eq!(after["revision"], lot["revision"]);
+
+        let coffees_before = count("SELECT count(*) FROM coffees");
+        let (status, body) = api_request(
+            &app,
+            Method::POST,
+            "/api/v1/coffees",
+            Some(json!({"name": "Fictional Ghost Lot", "purchasedMassMg": 250_000, "remainingMassMg": 200_000})),
+            None,
+        )
+        .await;
+        assert!(!status.is_success(), "{status} {body}");
+        assert_eq!(count("SELECT count(*) FROM coffees"), coffees_before);
+        assert_eq!(count("SELECT count(*) FROM coffee_green_corrections"), 0);
+        assert_eq!(
+            count("SELECT count(*) FROM studio_fts WHERE name='Fictional Ghost Lot'"),
+            0
+        );
+
+        // A stale write records nothing either.
+        side.connection()
+            .execute_batch("DROP TRIGGER fictional_reject_corrections;")
+            .unwrap();
+        let (status, _) = api_request(
+            &app,
+            Method::PATCH,
+            &format!("/api/v1/coffees/{lot_id}"),
+            Some(json!({"remainingMassMg": 400_000})),
+            Some(lot["revision"].as_i64().unwrap() + 5),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED);
+        assert_eq!(count("SELECT count(*) FROM coffee_green_corrections"), 0);
+    }
+
     #[tokio::test]
     async fn missing_attachment_object_stays_pending_and_can_be_retried() {
         let directory = tempdir().unwrap();
